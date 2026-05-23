@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile
-// @version      2.5.1
+// @version      2.7.5
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Token-basierte Match-Engine mit Wortgrenzen, Quellen-Gewichtung (Feature-Liste vs. Beschreibung), SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile
@@ -26,7 +26,7 @@
     // ============================================================
     // Konstanten / Schema
     // ============================================================
-    const SCHEMA_VERSION = 6;
+    const SCHEMA_VERSION = 7;
     const STORAGE_KEYS = {
         config:        'mobilede_config',
         techConfig:    'mobilede_techconfig',
@@ -192,8 +192,31 @@
     ];
 
     const mergeGruppenConfigDefault = [
-        { basis: 'außenspiegel', order: ['elektr. verstellbar', 'beheizbar', 'anklappbar', 'klappbar', 'automatisch abblend.', 'auto. abblend.'] }
+        { basis: 'außenspiegel', order: ['elektr. verstellbar', 'beheizbar', 'anklappbar', 'klappbar', 'automatisch abblend.', 'auto. abblend.'], aktiv: true }
     ];
+
+    function getFavoriteAnzeigeKeys(config) {
+        const keys = new Set();
+        if (!Array.isArray(config)) return keys;
+        config.forEach(item => {
+            if (item && item.favorit === true && item.anzeige) {
+                keys.add(String(item.anzeige).trim().toLowerCase());
+            }
+        });
+        return keys;
+    }
+
+    function partitionEntriesByFavorites(entries, favoriteKeys) {
+        if (!favoriteKeys || favoriteKeys.size === 0) return entries;
+        const fav = [];
+        const rest = [];
+        entries.forEach(e => {
+            const key = (e.anzeige || '').trim().toLowerCase();
+            if (favoriteKeys.has(key)) fav.push(e);
+            else rest.push(e);
+        });
+        return fav.concat(rest);
+    }
 
     // ============================================================
     // 3) Migration & Konfig-Laden
@@ -305,20 +328,37 @@
         return [...userConfig, ...missing.map(d => JSON.parse(JSON.stringify(d)))];
     }
 
+    function migrateAusstattungFavorit(userConfig) {
+        if (!Array.isArray(userConfig)) return userConfig;
+        let updated = false;
+        const merged = userConfig.map(item => {
+            if (item.favorit !== undefined) return item;
+            updated = true;
+            return { ...item, favorit: false };
+        });
+        if (updated) console.info('mobilede: favorit-Feld in Ausstattungs-Config ergänzt.');
+        return merged;
+    }
+
     function migrateMergeGroups(userMerge, defaults) {
         if (!Array.isArray(userMerge)) return userMerge;
         let updated = false;
         const byBasis = new Map(defaults.map(g => [g.basis.toLowerCase(), g]));
         const merged = userMerge.map(g => {
+            let next = g;
+            if (g.aktiv === undefined) {
+                updated = true;
+                next = { ...next, aktiv: true };
+            }
             const def = byBasis.get((g.basis || '').toLowerCase());
-            if (!def) return g;
-            const existingOrder = new Set((g.order || []).map(o => o.toLowerCase()));
+            if (!def) return next;
+            const existingOrder = new Set((next.order || []).map(o => o.toLowerCase()));
             const additions = (def.order || []).filter(o => !existingOrder.has(o.toLowerCase()));
-            if (additions.length === 0) return g;
+            if (additions.length === 0) return next;
             updated = true;
-            return { ...g, order: [...(g.order || []), ...additions] };
+            return { ...next, order: [...(next.order || []), ...additions] };
         });
-        if (updated) console.info('mobilede: Merge-Gruppen-Reihenfolge mit neuen Default-Modifiern ergaenzt.');
+        if (updated) console.info('mobilede: Merge-Gruppen mit Schema-Updates ergänzt.');
         return merged;
     }
 
@@ -333,6 +373,7 @@
             next = unionBegriffeMitDefaults(next, suchKonfigurationenDefault);
             next = applyAnzeigePropertyUpdates(next);
             next = addMissingDefaultEntries(next, suchKonfigurationenDefault);
+            next = migrateAusstattungFavorit(next);
             speichereConfig(STORAGE_KEYS.config, next);
         }
 
@@ -618,8 +659,9 @@
         // Generalisiertes Merging
         unique = generalizedMergeEntries(unique, mergeGruppenConfig);
 
-        // Endgültige alphabetische Sortierung
+        // Endgültige alphabetische Sortierung, Favoriten zuerst
         unique.sort((a, b) => a.anzeige.localeCompare(b.anzeige));
+        unique = partitionEntriesByFavorites(unique, getFavoriteAnzeigeKeys(suchKonfigurationen));
         console.debug('Gefundene Begriffe:', unique.map(i => `${i.anzeige} [${i.source}]`));
         return unique;
     }
@@ -649,7 +691,7 @@
         if (!Array.isArray(gruppen) || gruppen.length === 0) return entries;
         let result = [...entries];
         gruppen.forEach(group => {
-            if (!group || !group.basis) return;
+            if (!group || !group.basis || group.aktiv === false) return;
             const basis = group.basis.toLowerCase();
             const order = (group.order || []).map(item => item.toLowerCase());
             const matching = result.filter(e => e.anzeige.toLowerCase().includes(basis));
@@ -785,31 +827,35 @@
         ergebnisBereich.appendChild(title);
 
         if (gefundeneTexte.length > 0) {
+            const favKeys = getFavoriteAnzeigeKeys(suchKonfigurationen);
+            const favCount = gefundeneTexte.filter(i =>
+                favKeys.has((i.anzeige || '').trim().toLowerCase())).length;
             const columns = document.createElement('div');
             Object.assign(columns.style, {
                 display: 'grid',
                 gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
                 columnGap: '24px',
+                rowGap: '2px',
                 alignItems: 'start'
             });
 
-            const leftColumn = document.createElement('div');
-            const rightColumn = document.createElement('div');
-            [leftColumn, rightColumn].forEach(col => {
-                Object.assign(col.style, {
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '2px',
-                    minWidth: '0'
-                });
-            });
-
+            let placed = 0;
             gefundeneTexte.forEach((item, index) => {
+                if (favCount > 0 && favCount < gefundeneTexte.length && index === favCount) {
+                    const divider = document.createElement('div');
+                    divider.setAttribute('aria-hidden', 'true');
+                    Object.assign(divider.style, {
+                        gridColumn: '1 / -1',
+                        borderTop: '1px solid rgba(255,255,255,0.22)',
+                        margin: '8px 0 6px',
+                        height: '0'
+                    });
+                    columns.appendChild(divider);
+                }
                 const el = document.createElement('div');
                 const isLow = item.confidence === 'low';
                 el.style.minWidth = '0';
-                // Tooltip + Help-Cursor liegen NUR auf dem inneren Span,
-                // sodass der Cursor außerhalb des Textes normal bleibt.
+                el.style.gridColumn = (placed % 2 === 0) ? '1' : '2';
                 const span = document.createElement('span');
                 span.textContent = `- ${item.anzeige}${isLow ? ' *' : ''}`;
                 span.style.color = item.farbe;
@@ -829,10 +875,9 @@
                     span.style.opacity = '0.85';
                 }
                 el.appendChild(span);
-                (index % 2 === 0 ? leftColumn : rightColumn).appendChild(el);
+                columns.appendChild(el);
+                placed++;
             });
-            columns.appendChild(leftColumn);
-            columns.appendChild(rightColumn);
             ergebnisBereich.appendChild(columns);
             const hasLow = gefundeneTexte.some(i => i.confidence === 'low');
             if (hasLow) {
@@ -1014,8 +1059,10 @@
 <li><strong>Nur Ausstattungsliste</strong>: Treffer werden <strong>nur</strong> in der strukturierten Ausstattungsliste / Tech-Daten gezählt. Beschreibungstext wird ignoriert. Empfohlen für sicherheitskritische Begriffe wie „Anhängerkupplung" oder Sound-Systeme.</li>
 <li><strong>Wortteil-Suche</strong>: Erlaubt Treffer auch mitten in zusammengesetzten Wörtern (z.B. „heizung" findet „Standheizung"). Vorsicht: kann False-Positives erzeugen.</li>
 <li><strong>Details [N]</strong> öffnet erweiterte Optionen mit den eigentlichen Suchbegriffen und Verboten (Komma-getrennt).</li>
-<li><strong>Ziehen</strong> (links das ⋮⋮-Symbol) ändert die Reihenfolge im gespeicherten Konfig – hat keinen Einfluss auf das Ergebnis (das ist alphabetisch).</li>
-<li><strong>Bulk-Aktionen</strong> in der Toolbar wirken auf alle bzw. die aktuell sichtbaren Einträge nach Filter.</li>
+<li><strong>Stern (☆/★)</strong>: Favorit markieren. Favoriten erscheinen oben (eigener Block mit Trenner) und im Suchergebnis auf der Fahrzeugseite zuerst.</li>
+<li><strong>Spaltenköpfe</strong> über der Liste: Klick sortiert nach dieser Spalte (↑/↓). Nur Anzeige im Popup. <strong>Speichern</strong> sortiert alphabetisch nach Anzeigetext.</li>
+<li><strong>Ziehen</strong> (⋮⋮) ändert die gespeicherte Konfig-Reihenfolge bis zum nächsten Speichern.</li>
+<li><strong>Filter</strong> „nur aktive“ / „nur Favoriten“ und <strong>Bulk-Aktionen</strong> wirken auf sichtbare Einträge.</li>
 </ul>`],
         ['tech', `
 <h4>Was macht das?</h4>
@@ -1024,7 +1071,7 @@
 <ul>
 <li><strong>Aktiv-Schalter</strong> zum Ein-/Ausblenden.</li>
 <li><strong>Begriff</strong>: Muss exakt mit dem <code>&lt;dt&gt;</code>-Label aus dem mobile.de-Tech-Daten-Block übereinstimmen (Groß-/Kleinschreibung egal).</li>
-<li><strong>Bulk-Aktionen</strong> und <strong>Suche</strong> funktionieren wie auf der Ausstattungs-Seite.</li>
+<li><strong>Bulk-Aktionen</strong>, <strong>Suche</strong> und <strong>Spaltenköpfe</strong> zum Sortieren wie auf der Ausstattungs-Seite.</li>
 <li><strong>Reihenfolge</strong> per Drag&amp;Drop ändert die Anzeigereihenfolge im Tech-Daten-Block.</li>
 </ul>`],
         ['merge', `
@@ -1032,8 +1079,10 @@
 <p>Mehrere getrennt gefundene Einträge mit gleichem Basis-Wort werden zu <strong>einer</strong> Zeile zusammengefasst. Beispiel: „Außenspiegel beheizbar", „Außenspiegel anklappbar", „Außenspiegel elektr. verstellbar" → eine Zeile <strong>Außenspiegel beheizbar, anklappbar, elektr. verstellbar</strong>.</p>
 <h4>So bedienst du es:</h4>
 <ul>
+<li><strong>Aktiv-Schalter</strong>: Inaktive Gruppen werden beim Zusammenfassen auf der Fahrzeugseite ignoriert.</li>
 <li><strong>Basis</strong>: Das gemeinsame Wort, nach dem gruppiert wird (z.B. <code>außenspiegel</code>). Klein- und Großschreibung egal.</li>
 <li><strong>Reihenfolge</strong>: Komma-getrennte Liste der Modifizierer-Schlüsselwörter in der gewünschten Reihenfolge im zusammengefassten Eintrag (z.B. <code>elektr. verstellbar, beheizbar, anklappbar</code>). Treffer, die in keiner Reihenfolge auftauchen, kommen ans Ende.</li>
+<li><strong>Spaltenköpfe</strong> zum Sortieren, <strong>Filter „nur aktive“</strong> und <strong>Bulk-Aktionen</strong> wie bei den anderen Tabs. Speichern sortiert alphabetisch nach Basis.</li>
 </ul>`],
         ['ie', `
 <h4>Was macht das?</h4>
@@ -1058,7 +1107,11 @@
     // 11) Konfig-Popup
     // ============================================================
     function oeffneKonfigPopup() {
-        if (document.querySelector('#mobilede-config-overlay')) return;
+        const existingOverlay = document.querySelector('#mobilede-config-overlay');
+        if (existingOverlay) {
+            if (existingOverlay.querySelector('.mc-popup')) return;
+            existingOverlay.remove();
+        }
 
         let aktuelleAusstattungsKonfig = JSON.parse(JSON.stringify(suchKonfigurationen));
         let aktuelleTechKonfigurationen = JSON.parse(JSON.stringify(techDataKonfigurationen));
@@ -1074,7 +1127,10 @@
         let expandedAusstattungIndex = null;
         /** Hilfe-Panel je Tab (Ausstattung, Tech, Merge, Import/Export, Config) — vermeidet Zustandsverlust beim Tab-Wechsel. */
         const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-        const SCRIPT_UI_VERSION = '2.4.2';
+        const SCRIPT_UI_VERSION = '2.7.5';
+        let ausSort = { key: 'config', dir: 'asc' };
+        let techSort = { key: 'config', dir: 'asc' };
+        let mergeSort = { key: 'config', dir: 'asc' };
 
         const prevBodyOverflow = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
@@ -1152,6 +1208,50 @@
 .mc-toolbar-toggle:hover{background:rgba(255,255,255,.07);border-color:var(--mc-border-strong,#5a5d66);}
 .mc-toolbar-toggle:has(input:checked){background:rgba(25,118,210,.18);border-color:#1976d2;}
 .mc-toolbar-toggle > .mc-toggle{flex-shrink:0;}
+.mc-col-sort-header{
+  padding:6px 10px;margin-bottom:8px;
+  background:rgba(0,0,0,.2);border:1px solid var(--mc-border);border-radius:8px;
+  box-sizing:border-box;
+}
+.mc-aus-grid{
+  display:grid;
+  grid-template-columns:26px 38px 44px minmax(100px,1.35fr) 142px minmax(9.2rem,0.95fr) minmax(8.2rem,0.9fr) minmax(5.8rem,auto);
+  gap:8px;align-items:center;
+}
+.mc-tech-grid{
+  display:grid;
+  grid-template-columns:26px 44px minmax(120px,1fr) 76px;
+  gap:8px;align-items:center;
+}
+.mc-merge-grid{
+  display:grid;
+  grid-template-columns:44px minmax(120px,1fr) 88px 76px;
+  gap:8px;align-items:center;
+}
+.mc-col-sort-header.mc-aus-grid{min-width:720px;}
+.mc-col-sort-header.mc-tech-grid{min-width:420px;}
+.mc-col-sort-header.mc-merge-grid{min-width:520px;}
+.mc-col-sort-spacer,.mc-col-sort-inert{display:block;min-height:1px;}
+.mc-col-sort-btn{
+  appearance:none;border:1px solid transparent;background:transparent;
+  color:var(--mc-muted);font-size:11px;font-weight:600;line-height:1.2;
+  padding:5px 4px;border-radius:6px;cursor:pointer;white-space:nowrap;
+  width:100%;box-sizing:border-box;text-align:center;min-width:0;
+}
+.mc-col-sort-btn:hover{color:var(--mc-text);background:rgba(255,255,255,.07);border-color:var(--mc-border);}
+.mc-col-sort-btn--active{color:#fff;border-color:#5c6bc0;background:#30334a;}
+.mc-col-sort-btn--left{text-align:left;padding-left:6px;}
+.mc-section-head{font-size:12px;font-weight:600;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px;padding:0 2px;}
+.mc-section-head:first-child{margin-top:0;}
+.mc-section-divider{border:none;border-top:1px solid var(--mc-border);margin:12px 0 8px;}
+.mc-fav-btn{
+  flex-shrink:0;border:1px solid var(--mc-border);background:transparent;color:var(--mc-muted);
+  border-radius:8px;width:38px;height:38px;font-size:18px;line-height:1;cursor:pointer;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.mc-fav-btn:hover{background:rgba(255,255,255,.06);color:#f5d442;}
+.mc-fav-btn--on{color:#f5d442;border-color:rgba(245,212,66,.45);background:rgba(245,212,66,.12);}
+.mc-card--inactive-merge{opacity:.72;}
 .mc-help-btn{min-width:36px;padding:7px 10px;justify-content:center;font-weight:600;}
 .mc-help-btn .mc-help-btn__q{font-size:15px;line-height:1;}
 .mc-help-panel{
@@ -1189,8 +1289,23 @@
 .mc-card--invalid{border-color:#e53935;}
 .mc-card__err{font-size:11px;color:#ffcdd2;margin:0;}
 .mc-card__main-row{display:flex;align-items:flex-start;gap:8px;}
-.mc-card__main-row--aus{align-items:center;flex-wrap:wrap;}
-.mc-card__main-row--tech{align-items:center;}
+.mc-card__main-row--aus{
+  display:grid;
+  grid-template-columns:26px 38px 44px minmax(100px,1.35fr) 142px minmax(9.2rem,0.95fr) minmax(8.2rem,0.9fr) minmax(5.8rem,auto);
+  gap:8px;align-items:center;min-width:720px;
+}
+.mc-card__main-row--tech{
+  display:grid;
+  grid-template-columns:26px 44px minmax(120px,1fr) 76px;
+  gap:8px;align-items:center;min-width:420px;
+}
+.mc-card__main-row--merge{
+  display:grid;
+  grid-template-columns:44px minmax(120px,1fr) 88px 76px;
+  gap:8px;align-items:start;min-width:520px;
+}
+.mc-aus-list-scroll,.mc-tech-list-scroll,.mc-merge-list-scroll{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch;}
+.mc-card__main-row--merge > .mc-toggle-wrap{flex-shrink:0;padding-top:4px;}
 .mc-card__main-row--tech > .mc-drag-handle,
 .mc-card__main-row--tech > .mc-toggle-wrap,
 .mc-card__main-row--tech > .mc-btn{
@@ -1221,22 +1336,13 @@
 .mc-toggle input:checked+span{background:#1976d2;}
 .mc-toggle input:checked+span::before{transform:translateX(18px);}
 .mc-card__header-line{display:flex;align-items:center;gap:10px;flex:1;min-width:0;}
+.mc-card__main-row--aus .mc-card__title-input{min-width:0;width:100%;}
+.mc-card__main-row--aus .mc-color-row{min-width:0;width:100%;}
 .mc-card__title-input{flex:1 1 auto;flex-shrink:1;min-width:120px;font-weight:600;font-size:15px;}
 .mc-card__title-input.inactive{opacity:.55;font-weight:500;}
 .mc-color-row{display:flex;align-items:center;gap:8px;flex-shrink:1;min-width:0;}
-.mc-card__main-row--aus .mc-color-row input.mc-color-hex-input{
-  width:88px;min-width:0;flex-shrink:1;transition:flex-basis .2s ease,width .2s ease;
-}
-.mc-card__main-row--aus:has(.mc-card__title-input:focus) .mc-color-row input.mc-color-hex-input{width:70px;}
-.mc-card__main-row--aus .mc-card__title-input.mc-input{
-  flex:1 1 auto;min-width:120px;
-  transition:flex-basis .2s ease,flex-grow .2s ease,flex-shrink .2s ease,width .2s ease;
-}
-.mc-card__main-row--aus:has(.mc-card__title-input:focus) .mc-card__header-line .mc-card__title-input.mc-input{
-  flex-grow:4;flex-basis:60%;
-}
-.mc-card__main-row--aus .mc-pill-row{min-width:0;flex-shrink:1;}
-.mc-card__main-row--aus:has(.mc-card__title-input:focus) .mc-pill-row{gap:4px;}
+.mc-card__main-row--aus .mc-color-row input.mc-color-hex-input{width:100%;min-width:0;max-width:88px;}
+.mc-card__main-row--aus .mc-pill{max-width:100%;box-sizing:border-box;}
 .mc-card__main-row--feature{align-items:center;gap:14px;}
 .mc-feature-card{padding:14px 16px;}
 .mc-feature-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px;}
@@ -1248,6 +1354,7 @@
 }
 .mc-feature-status--on{color:#bfe5c5;border-color:#3e8e4a;background:rgba(76,175,80,.18);}
 .mc-pill-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.mc-card__main-row--aus > .mc-pill{min-width:0;}
 .mc-pill{
   display:inline-flex;align-items:center;gap:4px;border:1px solid var(--mc-border);border-radius:999px;
   padding:4px 8px;font-size:12px;background:rgba(0,0,0,.15);cursor:pointer;user-select:none;
@@ -1256,8 +1363,8 @@
 .mc-pill--on{border-color:#5c6bc0;background:#34374d;}
 .mc-info{font-size:12px;color:var(--mc-muted);cursor:help;}
 .mc-card__expand{
-  margin-left:auto;min-height:38px;padding:6px 14px;font-size:12px;gap:6px;font-weight:500;
-  flex-shrink:0;line-height:1.2;
+  margin-left:0;min-height:38px;padding:6px 14px;font-size:12px;gap:6px;font-weight:500;
+  flex-shrink:0;line-height:1.2;justify-self:end;width:100%;max-width:100%;
   background:rgba(255,255,255,.04);border-color:#5f6470;color:var(--mc-text);
   transition:background .15s,border-color .15s,box-shadow .15s;
 }
@@ -1376,7 +1483,7 @@
             const slot = document.createElement('div');
             slot.className = 'mc-toolbar-help-slot';
             slot.appendChild(btn);
-            if (metaEl) toolbarEl.insertBefore(slot, metaEl);
+            if (metaEl && metaEl.parentElement === toolbarEl) toolbarEl.insertBefore(slot, metaEl);
             else toolbarEl.appendChild(slot);
             panelColumn.insertBefore(wrap, beforeNode);
             applyHelpState();
@@ -1493,6 +1600,110 @@
             d.className = 'mc-empty';
             d.textContent = text;
             return d;
+        }
+
+        function compareBoolVal(v) {
+            return v === true ? 1 : 0;
+        }
+
+        function sortIndices(indices, items, key, dir, valueFn) {
+            if (!key || key === 'config') return [...indices];
+            const mult = dir === 'desc' ? -1 : 1;
+            return [...indices].sort((ia, ib) => {
+                const va = valueFn(items[ia], ia, key);
+                const vb = valueFn(items[ib], ib, key);
+                let cmp = 0;
+                if (typeof va === 'boolean' || typeof vb === 'boolean') {
+                    cmp = compareBoolVal(va) - compareBoolVal(vb);
+                } else if (typeof va === 'number' && typeof vb === 'number') {
+                    cmp = va - vb;
+                } else {
+                    cmp = String(va ?? '').localeCompare(String(vb ?? ''), undefined, { sensitivity: 'base' });
+                }
+                if (cmp === 0) return ia - ib;
+                return mult * cmp;
+            });
+        }
+
+        function partitionFavoriteIndices(indices, items) {
+            const fav = [];
+            const rest = [];
+            indices.forEach(i => {
+                if (items[i] && items[i].favorit === true) fav.push(i);
+                else rest.push(i);
+            });
+            return { fav, rest };
+        }
+
+        function mkSectionHead(text) {
+            const h = document.createElement('div');
+            h.className = 'mc-section-head';
+            h.textContent = text;
+            return h;
+        }
+
+        function mkSectionDivider() {
+            const d = document.createElement('hr');
+            d.className = 'mc-section-divider';
+            return d;
+        }
+
+        function mkColSortBtn(label, sortKey, title, getState, setState, onChange, opts) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'mc-col-sort-btn'
+                + (opts && opts.left ? ' mc-col-sort-btn--left' : '');
+            btn.title = title || ('Nach „' + label + '“ sortieren (Klick wechselt ↑/↓)');
+            function syncBtn() {
+                const s = getState();
+                const on = s.key === sortKey;
+                btn.classList.toggle('mc-col-sort-btn--active', on);
+                btn.textContent = label + (on ? (s.dir === 'asc' ? ' ↑' : ' ↓') : '');
+            }
+            btn.addEventListener('click', () => {
+                const s = getState();
+                if (s.key === sortKey) setState({ key: sortKey, dir: s.dir === 'asc' ? 'desc' : 'asc' });
+                else setState({ key: sortKey, dir: 'asc' });
+                onChange();
+            });
+            btn._syncColSort = syncBtn;
+            syncBtn();
+            return btn;
+        }
+
+        function mkColumnSortHeader(rootClass, cells, getState, setState, onChange, gridClass) {
+            const row = document.createElement('div');
+            row.className = 'mc-col-sort-header ' + rootClass + (gridClass ? ' ' + gridClass : '');
+            const syncFns = [];
+            cells.forEach(cell => {
+                if (cell.spacer) {
+                    const sp = document.createElement('span');
+                    sp.className = 'mc-col-sort-spacer ' + cell.spacer;
+                    sp.setAttribute('aria-hidden', 'true');
+                    row.appendChild(sp);
+                    return;
+                }
+                const btn = mkColSortBtn(cell.label, cell.key, cell.title, getState, setState, onChange, cell);
+                syncFns.push(btn._syncColSort);
+                row.appendChild(btn);
+            });
+            row._syncColSort = () => syncFns.forEach(fn => fn());
+            return row;
+        }
+
+        function mkFavBtn(item, onToggle) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'mc-fav-btn' + (item.favorit === true ? ' mc-fav-btn--on' : '');
+            btn.textContent = item.favorit === true ? '★' : '☆';
+            btn.title = item.favorit === true ? 'Favorit entfernen' : 'Als Favorit markieren';
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                item.favorit = !item.favorit;
+                markDirty();
+                onToggle();
+            });
+            return btn;
         }
 
         const overlay = document.createElement('div');
@@ -1758,6 +1969,15 @@
         const onlyTxt = document.createElement('span');
         onlyTxt.textContent = 'nur aktive';
         onlyWrap.appendChild(onlyTxt);
+        const favOnlyWrap = document.createElement('label');
+        favOnlyWrap.className = 'mc-toolbar-toggle';
+        favOnlyWrap.title = 'Nur favorisierte Einträge anzeigen';
+        const favOnlyToggle = mkToggle(false, () => { renderAusstattung(); });
+        const favOnlyCb = favOnlyToggle.querySelector('input');
+        favOnlyWrap.appendChild(favOnlyToggle);
+        const favOnlyTxt = document.createElement('span');
+        favOnlyTxt.textContent = 'nur Favoriten';
+        favOnlyWrap.appendChild(favOnlyTxt);
         const bulkAllOn = mkBtn('ghost', 'Alle ein', () => bulkAusAlle(true));
         const bulkAllOff = mkBtn('ghost', 'Alle aus', () => bulkAusAlle(false));
         const bulkVisOn = mkBtn('ghost', 'Sichtbare ein', () => bulkAusSichtbar(true));
@@ -1766,6 +1986,7 @@
             aktuelleAusstattungsKonfig.unshift({ begriffe: [], anzeige: '', farbe: '#66ff66', aktiv: true });
             ausSearch._input.value = '';
             onlyCb.checked = false;
+            favOnlyCb.checked = false;
             markDirty();
             renderAusstattung();
             showToast('Neuer Ausstattungseintrag', 'success');
@@ -1792,6 +2013,7 @@
         const ausBottomRow = document.createElement('div');
         ausBottomRow.className = 'mc-toolbar__row mc-toolbar__row--bottom';
         ausBottomRow.appendChild(onlyWrap);
+        ausBottomRow.appendChild(favOnlyWrap);
         ausBottomRow.appendChild(btnResetAus);
 
         ausToolbar.appendChild(ausTopRow);
@@ -1799,13 +2021,42 @@
         ausToolbar.appendChild(ausMeta);
 
         const ausstattungContainer = document.createElement('div');
+        ausstattungContainer.className = 'mc-aus-list-scroll';
         panelAus.appendChild(ausToolbar);
         panelAus.appendChild(ausstattungContainer);
         installKonfigTabHelp('aus', 'mc-konfig-help-aus', 'Hilfe zum Tab Ausstattung', 'Hilfe zu Ausstattung', ausTopRow, null, panelAus, ausstattungContainer);
 
+        function ausCompareValue(item, idx, key) {
+            switch (key) {
+                case 'anzeige': return (item.anzeige || '').trim();
+                case 'aktiv': return item.aktiv === true;
+                case 'favorit': return item.favorit === true;
+                case 'farbe': return normalizeHexColor(item.farbe || '');
+                case 'nurInFeatures': return item.nurInFeatures === true;
+                case 'compound': return item.compound === true;
+                case 'begriffeCount': return Array.isArray(item.begriffe) ? item.begriffe.length : 0;
+                case 'config':
+                default: return idx;
+            }
+        }
+
+        function mkAusColumnSortHeader() {
+            return mkColumnSortHeader('mc-col-sort-header--aus', [
+                { spacer: 'mc-col-sort-inert' },
+                { spacer: 'mc-col-sort-inert' },
+                { key: 'aktiv', label: 'Aktiv' },
+                { key: 'anzeige', label: 'Anzeige', left: true },
+                { key: 'farbe', label: 'Farbe' },
+                { key: 'nurInFeatures', label: 'Ausst.-Liste', title: 'Nur Ausstattungsliste' },
+                { key: 'compound', label: 'Wortteil', title: 'Wortteil-Suche' },
+                { key: 'begriffeCount', label: 'Details', title: 'Anzahl Begriffe' }
+            ], () => ausSort, s => { ausSort = s; }, () => { renderAusstattung(); }, 'mc-aus-grid');
+        }
+
         function ausstattungSichtbar(item) {
             const f = ausSearch._input.value.trim().toLowerCase();
             if (onlyCb.checked && !item.aktiv) return false;
+            if (favOnlyCb.checked && item.favorit !== true) return false;
             if (!f) return true;
             if ((item.anzeige || '').toLowerCase().includes(f)) return true;
             if ((item.begriffe || []).some(b => String(b).toLowerCase().includes(f))) return true;
@@ -1910,27 +2161,9 @@
             expandedAusstattungIndex = e;
         }
 
-        function renderAusstattung() {
-            sanitizeExpandedAusstattungIndex();
-            ausstattungContainer.innerHTML = '';
-            const vis = getVisibleAusIndices();
-            const { a, t } = countAusaktiv();
-            ausMeta.textContent = 'Bulk-Aktionen wirken auf ' + vis.length + ' von ' + t + ' sichtbare Einträge (gesamt ' + t + ', davon ' + a + ' aktiv).';
-            if (aktuelleAusstattungsKonfig.length === 0) {
-                ausstattungContainer.appendChild(mkEmptyState('Noch keine Einträge.'));
-                updateTabBadges();
-                refreshValidationUI();
-                return;
-            }
-            if (vis.length === 0) {
-                ausstattungContainer.appendChild(mkEmptyState('Keine Treffer für den aktuellen Filter.'));
-                updateTabBadges();
-                refreshValidationUI();
-                return;
-            }
-
-            aktuelleAusstattungsKonfig.forEach((item, index) => {
-                if (!ausstattungSichtbar(item)) return;
+        function appendAusstattungCard(index) {
+                const item = aktuelleAusstattungsKonfig[index];
+                if (!item) return;
                 const card = document.createElement('div');
                 card.className = 'mc-card';
                 card.dataset.cfgIndex = String(index);
@@ -1946,7 +2179,7 @@
                 }
 
                 const rowTop = document.createElement('div');
-                rowTop.className = 'mc-card__main-row mc-card__main-row--aus';
+                rowTop.className = 'mc-card__main-row mc-card__main-row--aus mc-aus-grid';
 
                 const handle = mkDragHandle();
                 handle.draggable = true;
@@ -1964,8 +2197,6 @@
                     refreshValidationUI();
                 });
 
-                const headerLine = document.createElement('div');
-                headerLine.className = 'mc-card__header-line';
                 const titleInp = document.createElement('input');
                 titleInp.type = 'text';
                 titleInp.className = 'mc-card__title-input mc-input' + (!item.aktiv ? ' inactive' : '');
@@ -1979,24 +2210,20 @@
 
                 const panelId = 'mc-card-panel-' + index;
 
-                headerLine.appendChild(titleInp);
-
                 const colorRow = mkColorInput(item.farbe || '', v => {
                     item.farbe = v;
                     markDirty();
                 });
 
-                headerLine.appendChild(colorRow);
-
                 rowTop.appendChild(handle);
+                rowTop.appendChild(mkFavBtn(item, () => renderAusstattung()));
                 const tw = document.createElement('div');
                 tw.className = 'mc-toggle-wrap';
                 tw.appendChild(toggleEl);
                 rowTop.appendChild(tw);
-                rowTop.appendChild(headerLine);
+                rowTop.appendChild(titleInp);
+                rowTop.appendChild(colorRow);
 
-                const pillRow = document.createElement('div');
-                pillRow.className = 'mc-pill-row';
                 const pf = document.createElement('label');
                 pf.className = 'mc-pill' + (item.nurInFeatures ? ' mc-pill--on' : '');
                 pf.title = 'Nur in der strukturierten Ausstattungsliste suchen, Beschreibungstext ignorieren';
@@ -2035,9 +2262,8 @@
                 inf2.title = pc.title;
                 pc.appendChild(inf2);
 
-                pillRow.appendChild(pf);
-                pillRow.appendChild(pc);
-                rowTop.appendChild(pillRow);
+                rowTop.appendChild(pf);
+                rowTop.appendChild(pc);
 
                 const expandBtn = document.createElement('button');
                 expandBtn.type = 'button';
@@ -2151,7 +2377,52 @@
                 });
 
                 ausstattungContainer.appendChild(card);
-            });
+        }
+
+        function renderAusstattung() {
+            sanitizeExpandedAusstattungIndex();
+            ausstattungContainer.innerHTML = '';
+            const vis = getVisibleAusIndices();
+            const { a, t } = countAusaktiv();
+            const favVis = vis.filter(i => aktuelleAusstattungsKonfig[i].favorit === true).length;
+            const restVis = vis.length - favVis;
+            ausMeta.textContent = 'Bulk auf ' + vis.length + ' sichtbare (' + favVis + ' Favoriten, ' + restVis + ' weitere). Gesamt ' + t + ', ' + a + ' aktiv. Spaltenköpfe sortieren die Anzeige · Speichern alphabetisch nach Anzeigetext.';
+            if (aktuelleAusstattungsKonfig.length === 0) {
+                ausstattungContainer.appendChild(mkEmptyState('Noch keine Einträge.'));
+                updateTabBadges();
+                refreshValidationUI();
+                return;
+            }
+            if (vis.length === 0) {
+                ausstattungContainer.appendChild(mkEmptyState('Keine Treffer für den aktuellen Filter.'));
+                updateTabBadges();
+                refreshValidationUI();
+                return;
+            }
+
+            const colHeader = mkAusColumnSortHeader();
+            ausstattungContainer.appendChild(colHeader);
+
+            const { fav, rest } = partitionFavoriteIndices(vis, aktuelleAusstattungsKonfig);
+            const sortedFav = sortIndices(fav, aktuelleAusstattungsKonfig, ausSort.key, ausSort.dir, ausCompareValue);
+            const sortedRest = sortIndices(rest, aktuelleAusstattungsKonfig, ausSort.key, ausSort.dir, ausCompareValue);
+            colHeader._syncColSort();
+
+            function renderAusBlock(indices, heading) {
+                if (!indices.length) return;
+                if (heading) ausstattungContainer.appendChild(mkSectionHead(heading));
+                indices.forEach(idx => appendAusstattungCard(idx));
+            }
+
+            if (sortedFav.length && sortedRest.length) {
+                renderAusBlock(sortedFav, 'Favoriten');
+                ausstattungContainer.appendChild(mkSectionDivider());
+                renderAusBlock(sortedRest, 'Weitere Einträge');
+            } else if (sortedFav.length) {
+                renderAusBlock(sortedFav, favVis < vis.length ? 'Favoriten' : null);
+            } else {
+                renderAusBlock(sortedRest, null);
+            }
             updateTabBadges();
             refreshValidationUI();
         }
@@ -2181,19 +2452,41 @@
             renderTechData();
             showToast('Tech-Daten auf Standard zurückgesetzt', 'success');
         });
-        techToolbar.appendChild(techSearch);
-        techToolbar.appendChild(techBulkOn);
-        techToolbar.appendChild(techBulkOff);
-        techToolbar.appendChild(techBulkVisOn);
-        techToolbar.appendChild(techBulkVisOff);
-        techToolbar.appendChild(btnNeuTech);
-        techToolbar.appendChild(btnResetTech);
+        const techTopRow = document.createElement('div');
+        techTopRow.className = 'mc-toolbar__row mc-toolbar__row--top';
+        techTopRow.appendChild(techSearch);
+        techTopRow.appendChild(techBulkOn);
+        techTopRow.appendChild(techBulkOff);
+        techTopRow.appendChild(techBulkVisOn);
+        techTopRow.appendChild(techBulkVisOff);
+        techTopRow.appendChild(btnNeuTech);
+        techTopRow.appendChild(btnResetTech);
+        techToolbar.appendChild(techTopRow);
         techToolbar.appendChild(techMeta);
 
         const techContainer = document.createElement('div');
+        techContainer.className = 'mc-tech-list-scroll';
         panelTech.appendChild(techToolbar);
         panelTech.appendChild(techContainer);
         installKonfigTabHelp('tech', 'mc-konfig-help-tech', 'Hilfe zum Tab Tech-Daten', 'Hilfe zu Tech-Daten', techToolbar, techMeta, panelTech, techContainer);
+
+        function techCompareValue(item, idx, key) {
+            switch (key) {
+                case 'begriff': return (item.begriff || '').trim();
+                case 'aktiv': return item.aktiv === true;
+                case 'config':
+                default: return idx;
+            }
+        }
+
+        function mkTechColumnSortHeader() {
+            return mkColumnSortHeader('mc-col-sort-header--tech', [
+                { spacer: 'mc-col-sort-inert' },
+                { key: 'aktiv', label: 'Aktiv' },
+                { key: 'begriff', label: 'Begriff', left: true },
+                { spacer: 'mc-col-sort-spacer--del' }
+            ], () => techSort, s => { techSort = s; }, () => { renderTechData(); }, 'mc-tech-grid');
+        }
 
         function techSichtbar(item) {
             const f = techSearch._input.value.trim().toLowerCase();
@@ -2241,7 +2534,8 @@
             const vis = getVisibleTechIndices();
             const total = aktuelleTechKonfigurationen.length;
             const act = aktuelleTechKonfigurationen.filter(t => t.aktiv).length;
-            techMeta.textContent = 'Bulk auf ' + vis.length + ' von ' + total + ' sichtbare Zeilen · ' + act + ' aktiv.';
+            const sortedVis = sortIndices(vis, aktuelleTechKonfigurationen, techSort.key, techSort.dir, techCompareValue);
+            techMeta.textContent = 'Bulk auf ' + vis.length + ' von ' + total + ' sichtbare Zeilen · ' + act + ' aktiv. Spaltenköpfe sortieren die Anzeige.';
 
             if (aktuelleTechKonfigurationen.length === 0) {
                 techContainer.appendChild(mkEmptyState('Keine Tech-Parameter.'));
@@ -2256,8 +2550,13 @@
                 return;
             }
 
-            aktuelleTechKonfigurationen.forEach((item, index) => {
-                if (!techSichtbar(item)) return;
+            const techColHeader = mkTechColumnSortHeader();
+            techContainer.appendChild(techColHeader);
+            techColHeader._syncColSort();
+
+            sortedVis.forEach(index => {
+                const item = aktuelleTechKonfigurationen[index];
+                if (!item) return;
                 const card = document.createElement('div');
                 card.className = 'mc-card';
                 card.dataset.techIndex = String(index);
@@ -2272,7 +2571,7 @@
                 }
 
                 const row = document.createElement('div');
-                row.className = 'mc-card__main-row mc-card__main-row--tech';
+                row.className = 'mc-card__main-row mc-card__main-row--tech mc-tech-grid';
                 const handle = mkDragHandle();
                 handle.draggable = true;
                 handle.addEventListener('dragstart', e => {
@@ -2352,8 +2651,21 @@
         const mergeMeta = document.createElement('div');
         mergeMeta.className = 'mc-toolbar-meta';
         const mergeSearch = mkSearchBox('Suche nach Basis…', () => renderMergeConfig());
+        const mergeOnlyWrap = document.createElement('label');
+        mergeOnlyWrap.className = 'mc-toolbar-toggle';
+        mergeOnlyWrap.title = 'Nur aktive Merge-Gruppen anzeigen';
+        const mergeOnlyToggle = mkToggle(false, () => { renderMergeConfig(); });
+        const mergeOnlyCb = mergeOnlyToggle.querySelector('input');
+        mergeOnlyWrap.appendChild(mergeOnlyToggle);
+        const mergeOnlyTxt = document.createElement('span');
+        mergeOnlyTxt.textContent = 'nur aktive';
+        mergeOnlyWrap.appendChild(mergeOnlyTxt);
+        const mergeBulkOn = mkBtn('ghost', 'Alle ein', () => bulkMergeAlle(true));
+        const mergeBulkOff = mkBtn('ghost', 'Alle aus', () => bulkMergeAlle(false));
+        const mergeBulkVisOn = mkBtn('ghost', 'Sichtbare ein', () => bulkMergeSichtbar(true));
+        const mergeBulkVisOff = mkBtn('ghost', 'Sichtbare aus', () => bulkMergeSichtbar(false));
         const btnNewMerge = mkBtn('primary', '+ Neu', () => {
-            aktuelleMergeGruppen.push({ basis: '', order: [] });
+            aktuelleMergeGruppen.push({ basis: '', order: [], aktiv: true });
             markDirty();
             renderMergeConfig();
         });
@@ -2367,22 +2679,83 @@
             renderMergeConfig();
             showToast('Merge-Gruppen auf Standard zurückgesetzt', 'success');
         });
-        mergeToolbar.appendChild(mergeSearch);
-        mergeToolbar.appendChild(btnNewMerge);
-        mergeToolbar.appendChild(btnResetMerge);
+        const mergeTopRow = document.createElement('div');
+        mergeTopRow.className = 'mc-toolbar__row mc-toolbar__row--top';
+        mergeTopRow.appendChild(mergeSearch);
+        mergeTopRow.appendChild(mergeBulkOn);
+        mergeTopRow.appendChild(mergeBulkOff);
+        mergeTopRow.appendChild(mergeBulkVisOn);
+        mergeTopRow.appendChild(mergeBulkVisOff);
+        mergeTopRow.appendChild(btnNewMerge);
+        mergeTopRow.appendChild(btnResetMerge);
+        const mergeBottomRow = document.createElement('div');
+        mergeBottomRow.className = 'mc-toolbar__row mc-toolbar__row--bottom';
+        mergeBottomRow.appendChild(mergeOnlyWrap);
+        mergeToolbar.appendChild(mergeTopRow);
+        mergeToolbar.appendChild(mergeBottomRow);
         mergeToolbar.appendChild(mergeMeta);
 
         const mergeContainer = document.createElement('div');
+        mergeContainer.className = 'mc-merge-list-scroll';
         panelMerge.appendChild(mergeToolbar);
         panelMerge.appendChild(mergeContainer);
         installKonfigTabHelp('merge', 'mc-konfig-help-merge', 'Hilfe zum Tab Merge-Gruppen', 'Hilfe zu Merge-Gruppen', mergeToolbar, mergeMeta, panelMerge, mergeContainer);
 
+        function mergeCompareValue(group, idx, key) {
+            switch (key) {
+                case 'basis': return (group.basis || '').trim();
+                case 'aktiv': return group.aktiv !== false;
+                case 'orderCount': return Array.isArray(group.order) ? group.order.length : 0;
+                case 'config':
+                default: return idx;
+            }
+        }
+
+        function mkMergeColumnSortHeader() {
+            return mkColumnSortHeader('mc-col-sort-header--merge', [
+                { key: 'aktiv', label: 'Aktiv' },
+                { key: 'basis', label: 'Basis', left: true },
+                { key: 'orderCount', label: 'Modifier', title: 'Anzahl Modifizierer' },
+                { spacer: 'mc-col-sort-spacer--del' }
+            ], () => mergeSort, s => { mergeSort = s; }, () => { renderMergeConfig(); }, 'mc-merge-grid');
+        }
+
         function mergeSichtbar(g) {
+            if (mergeOnlyCb.checked && g.aktiv === false) return false;
             const f = mergeSearch._input.value.trim().toLowerCase();
             if (!f) return true;
             if ((g.basis || '').toLowerCase().includes(f)) return true;
             if ((g.order || []).some(o => String(o).toLowerCase().includes(f))) return true;
             return false;
+        }
+
+        function getVisibleMergeIndices() {
+            const ix = [];
+            aktuelleMergeGruppen.forEach((g, idx) => {
+                if (mergeSichtbar(g)) ix.push(idx);
+            });
+            return ix;
+        }
+
+        function bulkMergeAlle(flag) {
+            pushUndo({ kind: 'merge', data: snapshotMerge() });
+            aktuelleMergeGruppen.forEach(g => { g.aktiv = flag; });
+            markDirty();
+            renderMergeConfig();
+            showToast('Alle Merge-Gruppen ' + (flag ? 'aktiviert' : 'deaktiviert'), 'success');
+        }
+
+        function bulkMergeSichtbar(flag) {
+            const vis = getVisibleMergeIndices();
+            if (!vis.length) {
+                showToast('Keine sichtbaren Merge-Gruppen', 'warn');
+                return;
+            }
+            pushUndo({ kind: 'merge', data: snapshotMerge() });
+            vis.forEach(ix => { aktuelleMergeGruppen[ix].aktiv = flag; });
+            markDirty();
+            renderMergeConfig();
+            showToast('Sichtbare Merge-Gruppen ' + (flag ? 'aktiviert' : 'deaktiviert'), 'success');
         }
 
         function cardIssuesMerge(g) {
@@ -2394,25 +2767,33 @@
 
         function renderMergeConfig() {
             mergeContainer.innerHTML = '';
-            const filt = aktuelleMergeGruppen.filter(mergeSichtbar);
-            mergeMeta.textContent = filt.length + ' von ' + aktuelleMergeGruppen.length + ' Gruppen sichtbar.';
+            const vis = getVisibleMergeIndices();
+            const total = aktuelleMergeGruppen.length;
+            const act = aktuelleMergeGruppen.filter(g => g.aktiv !== false).length;
+            const sortedVis = sortIndices(vis, aktuelleMergeGruppen, mergeSort.key, mergeSort.dir, mergeCompareValue);
+            mergeMeta.textContent = 'Bulk auf ' + vis.length + ' von ' + total + ' sichtbare Gruppen · ' + act + ' aktiv. Spaltenköpfe sortieren die Anzeige · Speichern nach Basis.';
             if (aktuelleMergeGruppen.length === 0) {
                 mergeContainer.appendChild(mkEmptyState('Keine Merge-Gruppen.'));
                 updateTabBadges();
                 refreshValidationUI();
                 return;
             }
-            if (filt.length === 0) {
-                mergeContainer.appendChild(mkEmptyState('Keine Treffer für die Suche.'));
+            if (!vis.length) {
+                mergeContainer.appendChild(mkEmptyState('Keine Treffer für den aktuellen Filter.'));
                 updateTabBadges();
                 refreshValidationUI();
                 return;
             }
 
-            aktuelleMergeGruppen.forEach((group, index) => {
-                if (!mergeSichtbar(group)) return;
+            const mergeColHeader = mkMergeColumnSortHeader();
+            mergeContainer.appendChild(mergeColHeader);
+            mergeColHeader._syncColSort();
+
+            sortedVis.forEach(index => {
+                const group = aktuelleMergeGruppen[index];
+                if (!group) return;
                 const card = document.createElement('div');
-                card.className = 'mc-card';
+                card.className = 'mc-card' + (group.aktiv === false ? ' mc-card--inactive-merge' : '');
 
                 const me = cardIssuesMerge(group);
                 if (me.length) {
@@ -2423,10 +2804,25 @@
                     card.appendChild(er);
                 }
 
+                const rowTop = document.createElement('div');
+                rowTop.className = 'mc-card__main-row mc-card__main-row--merge mc-merge-grid';
+
+                const toggleEl = mkToggle(group.aktiv !== false, v => {
+                    group.aktiv = v;
+                    markDirty();
+                    renderMergeConfig();
+                    refreshValidationUI();
+                });
+                const tw = document.createElement('div');
+                tw.className = 'mc-toggle-wrap';
+                tw.appendChild(toggleEl);
+                rowTop.appendChild(tw);
+
                 const inputBasis = document.createElement('input');
                 inputBasis.type = 'text';
                 inputBasis.className = 'mc-input';
                 inputBasis.style.width = '100%';
+                inputBasis.style.minWidth = '0';
                 inputBasis.value = group.basis || '';
                 inputBasis.placeholder = 'Basis (z. B. außenspiegel)';
                 inputBasis.addEventListener('input', () => {
@@ -2435,9 +2831,11 @@
                     refreshValidationUI();
                 });
 
+                const orderWrap = document.createElement('div');
+                orderWrap.style.minWidth = '0';
                 const lb = document.createElement('div');
                 lb.className = 'mc-label-sm';
-                lb.textContent = 'Reihenfolge der Modifier (Komma-getrennt)';
+                lb.textContent = 'Modifier (Komma-getrennt)';
                 const inputOrder = document.createElement('input');
                 inputOrder.type = 'text';
                 inputOrder.className = 'mc-input';
@@ -2448,6 +2846,10 @@
                     markDirty();
                     refreshValidationUI();
                 });
+                orderWrap.appendChild(lb);
+                orderWrap.appendChild(inputOrder);
+                rowTop.appendChild(inputBasis);
+                rowTop.appendChild(orderWrap);
 
                 const btnDel = mkBtn('ghost', 'Löschen', () => {
                     pushUndo({ kind: 'merge', data: snapshotMerge() });
@@ -2456,12 +2858,8 @@
                     renderMergeConfig();
                     showToast('Merge-Gruppe entfernt', 'success');
                 });
-                btnDel.style.alignSelf = 'flex-end';
-
-                card.appendChild(inputBasis);
-                card.appendChild(lb);
-                card.appendChild(inputOrder);
-                card.appendChild(btnDel);
+                rowTop.appendChild(btnDel);
+                card.appendChild(rowTop);
                 mergeContainer.appendChild(card);
             });
             updateTabBadges();
@@ -2764,10 +3162,11 @@
                 tabButtons[1].labelSpan.textContent = 'Tech-Daten';
                 tabButtons[1].badge.textContent = '[' + ta + ' / ' + tt + ']';
             }
+            const ma = aktuelleMergeGruppen.filter(g => g.aktiv !== false).length;
             const tm = aktuelleMergeGruppen.length;
             if (tabButtons[2]) {
                 tabButtons[2].labelSpan.textContent = 'Merge-Gruppen';
-                tabButtons[2].badge.textContent = '[' + tm + ']';
+                tabButtons[2].badge.textContent = '[' + ma + ' / ' + tm + ']';
             }
             if (tabButtons[3]) {
                 tabButtons[3].labelSpan.textContent = 'Import / Export';
