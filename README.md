@@ -8,7 +8,7 @@ Tampermonkey-Skript für **mobile.de**-Fahrzeugdetailseiten: definierte **Aussta
 - Kombination angezeigter Treffer („Merge-Gruppen“, z.&nbsp;B. Außenspiegel-Zusammenfassung).
 - Zusätzliche **Tech-Daten**-Zeilen im Ergebnisbereich.
 - **SPA-tauglich** (Observer + gedrosseltes Nachladen nach DOM-/URL-Wechsel).
-- Unter **Konfiguration → Config**: z.&nbsp;B. **Standort als Google-Maps-Link** (PLZ/Stadt klickbar), optional **Automodus** und **Listen-Reihenfolge** (alphabetisch oder manuell per Drag&nbsp;&amp;&nbsp;Drop, Bereiche wählbar).
+- Unter **Konfiguration → Config**: z.&nbsp;B. **Standort als Google-Maps-Link** (PLZ/Stadt klickbar), optional **Automodus**, **Listen-Reihenfolge** (alphabetisch oder manuell per Drag&nbsp;&amp;&nbsp;Drop, Bereiche wählbar) und **Standard-Sortierung** für die PKW-Suchergebnisseite (z.&nbsp;B. Preis aufsteigend; manuelle Änderung im Dropdown bleibt bis zur nächsten Suche erhalten).
 - **Automodus** (Config-Tab, standardmäßig aus): Zeigt alle Einträge aus der Ausstattungsliste und strukturierter Komma-Beschreibung in einer Liste. Treffer aus deiner Ausstattungs-Konfiguration werden **farbig** hervorgehoben; übrige Zeilen erscheinen grau. Per **+ Konfig** lässt sich ein unbekannter Eintrag im Popup vorausgefüllt anlegen. Ausgeschaltet verhält sich das Skript wie bisher (nur konfigurierte Suchbegriffe).
 - Popup mit Filter, Bulk-Aktionen, Drag-and-Drop (sichtbare Zeilen-Vorschau), konfigurierbarer Listen-Reihenfolge, Undo, Hilfe-Tabs und Validierungshinweisen.
 

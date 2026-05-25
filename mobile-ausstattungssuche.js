@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile
-// @version      2.10.21
+// @version      2.10.26
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Token-basierte Match-Engine mit Wortgrenzen, Quellen-Gewichtung (Feature-Liste vs. Beschreibung), SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile
@@ -13,6 +13,8 @@
 // @match        https://suchen.mobile.de/fahrzeuge/details.html*
 // @match        http://suchen.mobile.de/auto-inserat/*
 // @match        https://suchen.mobile.de/auto-inserat/*
+// @match        http://suchen.mobile.de/fahrzeuge/search.html*
+// @match        https://suchen.mobile.de/fahrzeuge/search.html*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -27,7 +29,7 @@
     // ============================================================
     // Konstanten / Schema
     // ============================================================
-    const SCHEMA_VERSION = 9;
+    const SCHEMA_VERSION = 10;
     const STORAGE_KEYS = {
         config:        'mobilede_config',
         techConfig:    'mobilede_techconfig',
@@ -67,6 +69,137 @@
         applyToVehicleResults: false
     };
 
+    const SRP_SORT_OPTIONS = [
+        { id: 'rel_up', label: 'Standard-Sortierung', sb: 'rel', od: 'up' },
+        { id: 'p_up', label: 'Preis (niedrigster zuerst)', sb: 'p', od: 'up' },
+        { id: 'p_down', label: 'Preis (höchster zuerst)', sb: 'p', od: 'down' },
+        { id: 'ml_up', label: 'Kilometerstand (niedrigster zuerst)', sb: 'ml', od: 'up' },
+        { id: 'ml_down', label: 'Kilometerstand (höchster zuerst)', sb: 'ml', od: 'down' },
+        { id: 'fr_up', label: 'Erstzulassung (älteste zuerst)', sb: 'fr', od: 'up' },
+        { id: 'fr_down', label: 'Erstzulassung (jüngste zuerst)', sb: 'fr', od: 'down' },
+        { id: 'doc_up', label: 'Inserate (älteste zuerst)', sb: 'doc', od: 'up' },
+        { id: 'doc_down', label: 'Inserate (neueste zuerst)', sb: 'doc', od: 'down' }
+    ];
+    const SRP_SORT_DEFAULT = { enabled: true, sortId: 'p_up' };
+
+    function srpSortDefault() {
+        return JSON.parse(JSON.stringify(SRP_SORT_DEFAULT));
+    }
+
+    function findSrpSortOption(sortId) {
+        return SRP_SORT_OPTIONS.find(o => o.id === sortId) || SRP_SORT_OPTIONS[0];
+    }
+
+    function mergeSrpSort(stored) {
+        const d = srpSortDefault();
+        if (!stored || typeof stored !== 'object') return d;
+        const sortId = SRP_SORT_OPTIONS.some(o => o.id === stored.sortId) ? stored.sortId : d.sortId;
+        return { enabled: stored.enabled !== false, sortId };
+    }
+
+    function getSrpSort(flags) {
+        return mergeSrpSort(flags && flags.srpSort);
+    }
+
+    const SRP_SORT_OVERRIDE_STORAGE_KEY = 'mobilede_srp_sort_user_choice';
+    const SRP_SORT_APPLIED_STORAGE_KEY = 'mobilede_srp_sort_applied';
+    /** URL-Parameter, die bei Sortierung/Navigation wechseln – nicht im Such-Fingerprint. */
+    const SRP_FINGERPRINT_EXCLUDE = new Set(['sb', 'od', 'ref', 'refId', 'page', 'pageNumber', 'offset']);
+
+    function srpSortParamsEqual(a, b) {
+        return a && b && a.sb === b.sb && a.od === b.od;
+    }
+
+    function getStoredSrpSortApplied() {
+        try {
+            const raw = sessionStorage.getItem(SRP_SORT_APPLIED_STORAGE_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed.fp !== 'string') return null;
+            return parsed;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function markSrpSortApplied(fp, sb, od) {
+        try {
+            sessionStorage.setItem(SRP_SORT_APPLIED_STORAGE_KEY, JSON.stringify({ fp, sb, od }));
+        } catch (e) { /* noop */ }
+    }
+
+    function clearStoredSrpSortApplied() {
+        try {
+            sessionStorage.removeItem(SRP_SORT_APPLIED_STORAGE_KEY);
+        } catch (e) { /* noop */ }
+    }
+
+    function getStoredSrpUserChoice() {
+        try {
+            const raw = sessionStorage.getItem(SRP_SORT_OVERRIDE_STORAGE_KEY);
+            if (!raw) return null;
+            if (raw.charAt(0) === '{') {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed.fp === 'string') {
+                    return {
+                        fp: parsed.fp,
+                        sb: parsed.sb != null ? parsed.sb : null,
+                        od: parsed.od || 'up'
+                    };
+                }
+            }
+            if (raw.indexOf('/') !== -1) return { fp: raw, sb: null, od: 'up' };
+        } catch (e) { /* noop */ }
+        return null;
+    }
+
+    function setStoredSrpUserChoice(choice) {
+        try {
+            sessionStorage.setItem(SRP_SORT_OVERRIDE_STORAGE_KEY, JSON.stringify(choice));
+        } catch (e) { /* noop */ }
+    }
+
+    function clearStoredSrpUserChoice() {
+        try {
+            sessionStorage.removeItem(SRP_SORT_OVERRIDE_STORAGE_KEY);
+        } catch (e) { /* noop */ }
+    }
+
+    function hasSrpSortUserOverride(fp) {
+        const choice = getStoredSrpUserChoice();
+        return srpSortUserOverrideFp === fp || !!(choice && choice.fp === fp);
+    }
+
+    function markSrpSortUserOverride(sort) {
+        const fp = getSrpSearchFingerprint();
+        const current = sort || parseSortFromUrl();
+        srpSortUserOverrideFp = fp;
+        setStoredSrpUserChoice({
+            fp,
+            sb: current.sb,
+            od: current.od || 'up'
+        });
+    }
+
+    function clearSrpSortUserOverride() {
+        srpSortUserOverrideFp = null;
+        clearStoredSrpUserChoice();
+    }
+
+    function clearSrpSortSessionState() {
+        clearSrpSortUserOverride();
+        clearStoredSrpSortApplied();
+    }
+
+    function countConfigTabSettings(flags) {
+        const f = flags || featureFlags;
+        let on = FEATURE_FLAG_DEFINITIONS.filter(d => f[d.key] !== false).length;
+        let all = FEATURE_FLAG_DEFINITIONS.length;
+        if (getSrpSort(f).enabled) on += 1;
+        all += 1;
+        return { on, all };
+    }
+
     function listOrderDefault() {
         return JSON.parse(JSON.stringify(LIST_ORDER_DEFAULT));
     }
@@ -85,6 +218,7 @@
         const obj = {};
         FEATURE_FLAG_DEFINITIONS.forEach(d => { obj[d.key] = !!d.default; });
         obj.listOrder = listOrderDefault();
+        obj.srpSort = srpSortDefault();
         return obj;
     }
     function ladeFeatureFlags() {
@@ -93,6 +227,7 @@
         if (!stored || typeof stored !== 'object') return defaults;
         const merged = { ...defaults, ...stored };
         merged.listOrder = mergeListOrder(stored.listOrder);
+        merged.srpSort = mergeSrpSort(stored.srpSort);
         return merged;
     }
 
@@ -457,6 +592,7 @@
         if (userFlags && typeof userFlags === 'object') {
             const mergedFlags = { ...featureFlagsDefault(), ...userFlags };
             mergedFlags.listOrder = mergeListOrder(userFlags.listOrder);
+            mergedFlags.srpSort = mergeSrpSort(userFlags.srpSort);
             speichereConfig(STORAGE_KEYS.featureFlags, mergedFlags);
         }
 
@@ -1744,6 +1880,213 @@ article.mobilede-tech-article,article.mobilede-result-article{
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
+    // ============================================================
+    // 10b) Suchergebnisse: Standard-Sortierung aus Config
+    // ============================================================
+    let srpSortUserOverrideFp = null;
+    let applyingDefaultSrpSort = false;
+    let lastSrpFingerprint = null;
+    let lastPolledSrpSort = null;
+    let srpSortMo = null;
+    let srpSortPollTimerId = null;
+    let srpSortOnPageshow = null;
+
+    function isSearchResultsPage() {
+        return /\/fahrzeuge\/search\.html/.test(location.pathname);
+    }
+
+    function getSrpSearchFingerprint() {
+        const u = new URL(location.href);
+        const parts = [];
+        for (const [k, v] of u.searchParams.entries()) {
+            if (SRP_FINGERPRINT_EXCLUDE.has(k)) continue;
+            parts.push(k + '=' + v);
+        }
+        parts.sort((a, b) => a.localeCompare(b));
+        return u.pathname + (parts.length ? '?' + parts.join('&') : '');
+    }
+
+    function getSrpConfigSort() {
+        const opt = findSrpSortOption(getSrpSort(featureFlags).sortId);
+        return { sb: opt.sb, od: opt.od };
+    }
+
+    function urlSortMatchesUserChoice(fp) {
+        const choice = getStoredSrpUserChoice();
+        if (!choice || choice.fp !== fp) return false;
+        return srpSortParamsEqual(parseSortFromUrl(), choice);
+    }
+
+    function parseSortFromUrl(href) {
+        const u = new URL(href || location.href);
+        return { sb: u.searchParams.get('sb'), od: u.searchParams.get('od') || 'up' };
+    }
+
+    /** Nach Reload: gespeicherte User-Sort oder Abweichung von zuletzt gesetzter Config-Sort. */
+    function detectUserSortAfterReload(fp) {
+        const srp = getSrpSort(featureFlags);
+        if (!srp.enabled) return false;
+
+        if (urlSortMatchesUserChoice(fp)) {
+            srpSortUserOverrideFp = fp;
+            return true;
+        }
+
+        const current = parseSortFromUrl();
+        const configSort = getSrpConfigSort();
+        if (srpSortParamsEqual(current, configSort)) return false;
+
+        const applied = getStoredSrpSortApplied();
+        if (applied && applied.fp === fp && !srpSortParamsEqual(current, applied)) {
+            markSrpSortUserOverride(current);
+            return true;
+        }
+        return false;
+    }
+
+    function applySrpDefaultSort(force) {
+        if (!isSearchResultsPage()) return;
+        const srp = getSrpSort(featureFlags);
+        if (!srp.enabled) return;
+        const fp = getSrpSearchFingerprint();
+        if (!force && (hasSrpSortUserOverride(fp) || urlSortMatchesUserChoice(fp))) return;
+
+        const configSort = getSrpConfigSort();
+        const current = parseSortFromUrl();
+        if (srpSortParamsEqual(current, configSort)) {
+            markSrpSortApplied(fp, configSort.sb, configSort.od);
+            return;
+        }
+
+        applyingDefaultSrpSort = true;
+        try {
+            const u = new URL(location.href);
+            u.searchParams.set('sb', configSort.sb);
+            u.searchParams.set('od', configSort.od);
+            const newUrl = u.toString();
+            markSrpSortApplied(fp, configSort.sb, configSort.od);
+            lastUrl = newUrl;
+            location.replace(newUrl);
+        } finally {
+            applyingDefaultSrpSort = false;
+        }
+    }
+
+    function resetSrpSortOverrideAndApply() {
+        clearSrpSortSessionState();
+        applySrpDefaultSort(true);
+    }
+
+    function bindSrpSortDropdown() {
+        if (!isSearchResultsPage()) return;
+        const sel = document.getElementById('sorting-menu-dropdown');
+        if (!sel || sel.dataset.mobiledeSrpBound === '1') return;
+        sel.dataset.mobiledeSrpBound = '1';
+        const onUserSort = () => {
+            if (applyingDefaultSrpSort) return;
+            markSrpSortUserOverride(parseSortFromUrl());
+        };
+        sel.addEventListener('change', onUserSort, true);
+        sel.addEventListener('input', onUserSort, true);
+        sel.addEventListener('pointerdown', () => {
+            sel.dataset.mobiledeSortTouched = '1';
+        }, true);
+    }
+
+    function pollSrpSortFromUrl() {
+        if (!isSearchResultsPage() || applyingDefaultSrpSort) return;
+        const srp = getSrpSort(featureFlags);
+        if (!srp.enabled) return;
+
+        const fp = getSrpSearchFingerprint();
+        const current = parseSortFromUrl();
+        const configSort = getSrpConfigSort();
+        const key = fp + '|' + (current.sb || '') + '|' + current.od;
+
+        if (lastPolledSrpSort === key) return;
+        const prev = lastPolledSrpSort;
+        lastPolledSrpSort = key;
+
+        if (prev === null) return;
+
+        if (!srpSortParamsEqual(current, configSort)) {
+            markSrpSortUserOverride(current);
+        }
+    }
+
+    function destroySrpSortBehavior() {
+        if (srpSortMo) {
+            srpSortMo.disconnect();
+            srpSortMo = null;
+        }
+        if (srpSortPollTimerId != null) {
+            clearInterval(srpSortPollTimerId);
+            srpSortPollTimerId = null;
+        }
+        if (srpSortOnPageshow) {
+            window.removeEventListener('pageshow', srpSortOnPageshow);
+            srpSortOnPageshow = null;
+        }
+    }
+
+    function syncSrpPolledSortKey(fp) {
+        const cur = parseSortFromUrl();
+        lastPolledSrpSort = fp + '|' + (cur.sb || '') + '|' + cur.od;
+    }
+
+    function handleSrpUrlChange() {
+        if (!isSearchResultsPage()) return;
+        bindSrpSortDropdown();
+        const fp = getSrpSearchFingerprint();
+        if (fp !== lastSrpFingerprint) {
+            lastSrpFingerprint = fp;
+            lastPolledSrpSort = null;
+            clearSrpSortSessionState();
+            applySrpDefaultSort(false);
+            return;
+        }
+
+        pollSrpSortFromUrl();
+    }
+
+    function ensureSrpSortBehavior() {
+        if (!isSearchResultsPage()) {
+            destroySrpSortBehavior();
+            return;
+        }
+        if (srpSortPollTimerId != null) return;
+
+        const fp = getSrpSearchFingerprint();
+        lastSrpFingerprint = fp;
+        lastPolledSrpSort = null;
+
+        const choice = getStoredSrpUserChoice();
+        if (choice && choice.fp === fp) srpSortUserOverrideFp = fp;
+
+        bindSrpSortDropdown();
+        if (!detectUserSortAfterReload(fp)) {
+            applySrpDefaultSort(false);
+        }
+        syncSrpPolledSortKey(fp);
+
+        srpSortMo = new MutationObserver(() => bindSrpSortDropdown());
+        srpSortMo.observe(document.body, { childList: true, subtree: true });
+
+        srpSortOnPageshow = () => {
+            if (!isSearchResultsPage()) return;
+            const fpNow = getSrpSearchFingerprint();
+            if (detectUserSortAfterReload(fpNow)) syncSrpPolledSortKey(fpNow);
+        };
+        window.addEventListener('pageshow', srpSortOnPageshow);
+
+        srpSortPollTimerId = setInterval(pollSrpSortFromUrl, 400);
+    }
+
+    function initSrpSortBehavior() {
+        destroySrpSortBehavior();
+        ensureSrpSortBehavior();
+    }
+
     let lastUrl = location.href;
     function onUrlChange() {
         if (location.href === lastUrl) return;
@@ -1751,7 +2094,12 @@ article.mobilede-tech-article,article.mobilede-result-article{
         clearResults();
         startObserver();
         trigger();
-        // Konfig-Button neu setzen, falls Parent re-rendered wurde
+        if (isSearchResultsPage()) {
+            ensureSrpSortBehavior();
+            handleSrpUrlChange();
+        } else {
+            destroySrpSortBehavior();
+        }
         setTimeout(() => {
             if (!document.querySelector('#mobilede-config-btn')) erstelleKonfigButton();
         }, 1500);
@@ -1763,6 +2111,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
 
     startObserver();
     trigger();
+    initSrpSortBehavior();
 
     // Hilfe-Texte für Konfig-Popup (Tabs). Statisches HTML, nur innerHTML aus diesem Map.
     const KONFIG_TAB_HELP_HTML = new Map([
@@ -1822,6 +2171,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
 <li><strong>Automodus:</strong> Aus = nur Treffer aus deiner Ausstattungs-Konfiguration (wie bisher). An = vollständige Liste aus Ausstattungsliste und strukturierter Beschreibung; Konfig-Treffer farbig, unbekannte Zeilen mit <strong>+ Konfig</strong> übernehmbar.</li>
 <li>Beim Deaktivieren werden bereits aktive Manipulationen (z.B. die Maps-Verlinkung) auf der gerade geöffneten Detailseite optisch zurückgenommen.</li>
 <li><strong>Listen-Reihenfolge:</strong> Alphabetisch vs. manuell (Drag&amp;Drop). Bereiche: Favoriten, gesamte Ausstattungsliste, Tech-Daten (mehrfach wählbar). Optional: Reihenfolge in den Ergebnisblöcken auf der Fahrzeugseite.</li>
+<li><strong>Suchergebnis-Sortierung:</strong> Standard-Sortierung für die PKW-Suchergebnisseite (z.&nbsp;B. Preis aufsteigend). Beim Öffnen einer neuen Suche wird sie gesetzt; änderst du sie danach im Dropdown von mobile.de, bleibt deine Wahl bis zur nächsten Suche (auch nach Seiten-Reload). Auf der Suchergebnisseite öffnest du dieses Popup über das Tampermonkey-Menü.</li>
 <li>Neue Features werden automatisch mit ihren Standardwerten ergänzt; bestehende Einstellungen bleiben erhalten.</li>
 <li><strong>Defaults zurücksetzen</strong> für alle Feature-Flags: Footer neben <strong>Rückgängig</strong>.</li>
 </ul>`]
@@ -1842,6 +2192,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
         let aktuelleMergeGruppen = JSON.parse(JSON.stringify(mergeGruppenConfig));
         let aktuelleFeatureFlags = { ...featureFlagsDefault(), ...(featureFlags || {}) };
         aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
+        aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
 
         let baselineAus = JSON.parse(JSON.stringify(aktuelleAusstattungsKonfig));
         let baselineTech = JSON.parse(JSON.stringify(aktuelleTechKonfigurationen));
@@ -1854,6 +2205,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             baselineMerge = JSON.parse(JSON.stringify(aktuelleMergeGruppen));
             baselineFlags = JSON.parse(JSON.stringify(aktuelleFeatureFlags));
             baselineFlags.listOrder = mergeListOrder(baselineFlags.listOrder);
+            baselineFlags.srpSort = mergeSrpSort(baselineFlags.srpSort);
         }
 
         let dirty = false;
@@ -2076,8 +2428,26 @@ article.mobilede-tech-article,article.mobilede-result-article{
             return lines;
         }
 
+        function srpSortLabel(flags) {
+            return findSrpSortOption(getSrpSort(flags).sortId).label;
+        }
+
+        function diffSrpSort(baseline, current) {
+            const lines = [];
+            const b = getSrpSort(baseline);
+            const c = getSrpSort(current);
+            if (!!b.enabled !== !!c.enabled) {
+                lines.push('Suchergebnis-Sortierung: ' + (c.enabled ? 'an' : 'aus'));
+            }
+            if (b.enabled && c.enabled && b.sortId !== c.sortId) {
+                lines.push('Suchergebnis-Sortierung: ' + srpSortLabel(baseline) + ' → ' + srpSortLabel(current));
+            }
+            return lines;
+        }
+
         function diffFeatureFlags(baseline, current) {
             const lines = diffListOrder(baseline, current);
+            lines.push(...diffSrpSort(baseline, current));
             FEATURE_FLAG_DEFINITIONS.forEach(def => {
                 const bOn = baseline[def.key] !== false;
                 const cOn = current[def.key] !== false;
@@ -2392,6 +2762,14 @@ article.mobilede-tech-article,article.mobilede-result-article{
 .mc-lo-scope-label{font-size:13px;font-weight:600;line-height:1.25;}
 .mc-lo-scope-sub{font-size:11px;color:var(--mc-muted);line-height:1.35;}
 .mc-lo-divider{height:1px;background:var(--mc-border);margin:2px 0;}
+.mc-srp-body{display:flex;flex-direction:column;gap:12px;}
+.mc-srp-select-wrap{display:flex;flex-direction:column;gap:6px;}
+.mc-srp-select-wrap--disabled{opacity:.45;pointer-events:none;}
+.mc-srp-select{
+  width:100%;max-width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--mc-border);
+  background:var(--mc-elevated);color:var(--mc-text);font-size:13px;font-family:inherit;
+}
+.mc-srp-select:focus-visible{outline:2px solid var(--mc-accent);outline-offset:2px;}
 .mc-lo-veh{
   display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;
   border:1px dashed var(--mc-border);background:rgba(0,0,0,.08);
@@ -4689,6 +5067,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 if (obj.featureFlags && typeof obj.featureFlags === 'object') {
                     aktuelleFeatureFlags = { ...featureFlagsDefault(), ...obj.featureFlags };
                     aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
+                    aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
                 }
                 markDirty();
                 renderAusstattung();
@@ -4723,8 +5102,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
         configHeader.className = 'mc-config-header';
         const configIntro = document.createElement('p');
         configIntro.className = 'mc-config-intro';
-        configIntro.innerHTML = '<strong>Skript-Einstellungen:</strong> Features und Listen-Reihenfolge. '
-            + 'Änderungen gelten nach <strong>Speichern</strong> — teils sofort auf der geöffneten Fahrzeugseite.';
+        configIntro.innerHTML = '<strong>Skript-Einstellungen:</strong> Features, Listen-Reihenfolge und Suchergebnis-Sortierung. '
+            + 'Änderungen gelten nach <strong>Speichern</strong> — teils sofort auf der geöffneten Fahrzeug- oder Suchergebnisseite.';
         configHeader.appendChild(configIntro);
         const configContainer = document.createElement('div');
         configContainer.className = 'mc-config-body';
@@ -4753,7 +5132,9 @@ article.mobilede-tech-article,article.mobilede-result-article{
         function renderConfig() {
             configContainer.innerHTML = '';
             aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
+            aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
             const lo = aktuelleFeatureFlags.listOrder;
+            const srp = aktuelleFeatureFlags.srpSort;
 
             function listOrderHintText() {
                 if (lo.mode !== 'manual') {
@@ -4927,6 +5308,92 @@ article.mobilede-tech-article,article.mobilede-result-article{
             loSec.appendChild(loCard);
             configContainer.appendChild(loSec);
 
+            const srpCard = document.createElement('div');
+            srpCard.className = 'mc-card mc-list-order-card';
+            const srpHead = document.createElement('div');
+            srpHead.className = 'mc-feature-title';
+            srpHead.textContent = 'Standard-Sortierung (Suchergebnisse)';
+            const srpDesc = document.createElement('div');
+            srpDesc.className = 'mc-feature-desc';
+            srpDesc.textContent = 'Beim Öffnen einer Suche wird diese Sortierung gesetzt. Änderst du sie danach im Dropdown von mobile.de, bleibt deine Wahl bis zur nächsten Suche.';
+            const srpBody = document.createElement('div');
+            srpBody.className = 'mc-srp-body';
+
+            const srpEnableRow = document.createElement('div');
+            srpEnableRow.className = 'mc-card__main-row mc-card__main-row--feature';
+            const srpEnableTxt = document.createElement('div');
+            srpEnableTxt.className = 'mc-feature-text';
+            const srpEnableLab = document.createElement('div');
+            srpEnableLab.className = 'mc-feature-title';
+            srpEnableLab.textContent = 'Auf Suchergebnisseiten anwenden';
+            srpEnableTxt.appendChild(srpEnableLab);
+            const srpEnableAside = document.createElement('div');
+            srpEnableAside.className = 'mc-feature-aside';
+            const srpEnableStatus = document.createElement('span');
+            srpEnableStatus.className = 'mc-feature-status' + (srp.enabled ? ' mc-feature-status--on' : '');
+            srpEnableStatus.textContent = srp.enabled ? 'Aktiv' : 'Aus';
+            const srpEnableToggle = mkToggle(!!srp.enabled, v => {
+                srp.enabled = v;
+                aktuelleFeatureFlags.srpSort = srp;
+                markDirty();
+                srpEnableStatus.textContent = v ? 'Aktiv' : 'Aus';
+                srpEnableStatus.classList.toggle('mc-feature-status--on', v);
+                syncSrpSortUi();
+                updateTabBadges();
+            });
+            srpEnableAside.appendChild(srpEnableStatus);
+            srpEnableAside.appendChild(srpEnableToggle);
+            srpEnableRow.appendChild(srpEnableTxt);
+            srpEnableRow.appendChild(srpEnableAside);
+
+            const srpSelectWrap = document.createElement('div');
+            srpSelectWrap.className = 'mc-srp-select-wrap';
+            const srpSelectLab = document.createElement('label');
+            srpSelectLab.className = 'mc-lo-section-title';
+            srpSelectLab.textContent = 'Sortierung';
+            const srpSelect = document.createElement('select');
+            srpSelect.className = 'mc-srp-select';
+            srpSelect.setAttribute('aria-label', 'Standard-Sortierung Suchergebnisse');
+            SRP_SORT_OPTIONS.forEach(opt => {
+                const o = document.createElement('option');
+                o.value = opt.id;
+                o.textContent = opt.label;
+                srpSelect.appendChild(o);
+            });
+            srpSelect.value = srp.sortId;
+            srpSelect.addEventListener('change', () => {
+                srp.sortId = srpSelect.value;
+                aktuelleFeatureFlags.srpSort = srp;
+                markDirty();
+                updateTabBadges();
+            });
+            srpSelectLab.setAttribute('for', 'mc-srp-sort-select');
+            srpSelect.id = 'mc-srp-sort-select';
+            srpSelectWrap.appendChild(srpSelectLab);
+            srpSelectWrap.appendChild(srpSelect);
+
+            function syncSrpSortUi() {
+                const on = !!srp.enabled;
+                srpSelectWrap.classList.toggle('mc-srp-select-wrap--disabled', !on);
+                srpSelect.disabled = !on;
+            }
+            syncSrpSortUi();
+
+            srpBody.appendChild(srpEnableRow);
+            srpBody.appendChild(srpSelectWrap);
+            srpCard.appendChild(srpHead);
+            srpCard.appendChild(srpDesc);
+            srpCard.appendChild(srpBody);
+
+            const srpSec = document.createElement('div');
+            srpSec.className = 'mc-config-section';
+            const srpSecTitle = document.createElement('div');
+            srpSecTitle.className = 'mc-config-section-title';
+            srpSecTitle.textContent = 'Suchergebnisse';
+            srpSec.appendChild(srpSecTitle);
+            srpSec.appendChild(srpCard);
+            configContainer.appendChild(srpSec);
+
             if (!FEATURE_FLAG_DEFINITIONS.length) {
                 return;
             }
@@ -5054,10 +5521,9 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 tabButtons[3].badge.textContent = '';
             }
             if (tabButtons[4]) {
-                const fOn = FEATURE_FLAG_DEFINITIONS.filter(d => aktuelleFeatureFlags[d.key] !== false).length;
-                const fAll = FEATURE_FLAG_DEFINITIONS.length;
+                const cfg = countConfigTabSettings(aktuelleFeatureFlags);
                 tabButtons[4].labelSpan.textContent = 'Config';
-                tabButtons[4].badge.textContent = '[' + fOn + ' / ' + fAll + ']';
+                tabButtons[4].badge.textContent = '[' + cfg.on + ' / ' + cfg.all + ']';
             }
         }
 
@@ -5083,6 +5549,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 }
             }
             aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
+            aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
             applySaveOrdering(
                 aktuelleAusstattungsKonfig,
                 aktuelleTechKonfigurationen,
@@ -5109,6 +5576,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             saveBtn.disabled = true;
             saveBtn.textContent = '✔ Gespeichert';
             showToast('Konfiguration gespeichert — Popup bleibt offen.', 'success');
+            if (isSearchResultsPage()) resetSrpSortOverrideAndApply();
             clearResults();
             trigger();
             renderAusstattung();
