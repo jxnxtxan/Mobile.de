@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile
-// @version      2.10.14
+// @version      2.10.16
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Token-basierte Match-Engine mit Wortgrenzen, Quellen-Gewichtung (Feature-Liste vs. Beschreibung), SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile
@@ -1857,7 +1857,7 @@
         let expandedAusstattungIndex = null;
         /** Hilfe-Panel je Tab (Ausstattung, Tech, Merge, Import/Export, Config) — vermeidet Zustandsverlust beim Tab-Wechsel. */
         const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-        const SCRIPT_UI_VERSION = '2.10.14';
+        const SCRIPT_UI_VERSION = '2.10.16';
         const pageWindow = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
         let ausSort = { key: 'config', dir: 'asc' };
         let techSort = { key: 'config', dir: 'asc' };
@@ -2335,8 +2335,22 @@
 }
 .mc-list-dragging{user-select:none;cursor:grabbing;}
 .mc-list-dragging *{cursor:grabbing!important;}
-.mc-list-order-card{margin-top:12px;padding:16px 18px;display:flex;flex-direction:column;gap:6px;}
-.mc-list-order-card > .mc-feature-desc{margin-bottom:4px;}
+.mc-config-panel{display:flex;flex-direction:column;gap:14px;min-height:0;}
+.mc-config-body{display:flex;flex-direction:column;gap:16px;}
+.mc-config-header{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  padding:12px 14px;border-radius:10px;border:1px solid var(--mc-border);background:rgba(0,0,0,.12);
+}
+.mc-config-intro{margin:0;font-size:13px;line-height:1.5;color:var(--mc-muted);flex:1;min-width:0;}
+.mc-config-intro strong{color:var(--mc-text);font-weight:600;}
+.mc-config-section{display:flex;flex-direction:column;gap:10px;}
+.mc-config-section-title{
+  font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mc-muted);
+  padding:0 2px;
+}
+.mc-config-features{display:flex;flex-direction:column;gap:8px;}
+.mc-list-order-card{margin-top:0;padding:16px 18px;display:flex;flex-direction:column;gap:8px;}
+.mc-list-order-card > .mc-feature-desc{margin-bottom:2px;}
 .mc-lo-body{display:flex;flex-direction:column;gap:14px;}
 .mc-lo-hint{
   font-size:12px;line-height:1.45;color:var(--mc-muted);padding:8px 10px;border-radius:8px;
@@ -2398,16 +2412,24 @@
 .mc-color-row{display:flex;align-items:center;gap:8px;flex-shrink:1;min-width:0;}
 .mc-card__main-row--aus .mc-color-row input.mc-color-hex-input{width:100%;min-width:0;max-width:88px;}
 .mc-card__main-row--aus .mc-pill{max-width:100%;box-sizing:border-box;}
-.mc-card__main-row--feature{align-items:center;gap:14px;}
-.mc-feature-card{padding:14px 16px;}
-.mc-feature-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px;}
+.mc-card__main-row--feature{
+  display:flex;align-items:stretch;justify-content:space-between;gap:16px;min-height:56px;
+}
+.mc-feature-card{padding:16px 18px;}
+.mc-feature-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:6px;justify-content:center;}
 .mc-feature-title{font-weight:600;font-size:15px;line-height:1.25;}
-.mc-feature-desc{font-size:12.5px;color:var(--mc-muted);line-height:1.45;}
+.mc-feature-desc{font-size:12.5px;color:var(--mc-muted);line-height:1.45;max-width:52em;}
+.mc-feature-aside{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  flex-shrink:0;align-self:stretch;min-width:76px;padding:2px 0;
+}
 .mc-feature-status{
-  font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--mc-muted);
-  padding:3px 8px;border-radius:999px;border:1px solid var(--mc-border);background:rgba(0,0,0,.18);
+  font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--mc-muted);
+  padding:4px 10px;border-radius:999px;border:1px solid var(--mc-border);background:rgba(0,0,0,.18);
+  white-space:nowrap;line-height:1.2;
 }
 .mc-feature-status--on{color:#bfe5c5;border-color:#3e8e4a;background:rgba(76,175,80,.18);}
+.mc-lo-scope-item--disabled input[type=checkbox]{pointer-events:none;}
 .mc-pill-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
 .mc-card__main-row--aus > .mc-pill{min-width:0;}
 .mc-pill{
@@ -2468,13 +2490,47 @@
 .mc-changelog li{margin:4px 0;}
 .mc-modal-actions{display:flex;justify-content:flex-end;gap:8px;}
 .mc-btn--primary.mc-btn--save-idle{opacity:.55;}
-.mc-row-ie{display:flex;gap:12px;flex-wrap:wrap;}
-.mc-ie-card{flex:1;min-width:260px;border:1px solid var(--mc-border);border-radius:10px;padding:12px;background:rgba(0,0,0,.12);}
-.mc-dropzone{
-  border:2px dashed var(--mc-border);border-radius:10px;padding:18px;text-align:center;font-size:13px;color:var(--mc-muted);
-  margin:8px 0;cursor:pointer;background:rgba(0,0,0,.12);
+.mc-ie-panel{display:flex;flex-direction:column;gap:12px;min-height:0;flex:1;}
+.mc-ie-header{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  padding:12px 14px;border-radius:10px;border:1px solid var(--mc-border);background:rgba(0,0,0,.12);
 }
-.mc-dropzone--hover{border-color:var(--mc-accent);color:var(--mc-text);}
+.mc-ie-intro{margin:0;font-size:13px;line-height:1.5;color:var(--mc-muted);flex:1;min-width:0;}
+.mc-ie-intro strong{color:var(--mc-text);font-weight:600;}
+.mc-ie-grid{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:stretch;flex:1;min-height:0;
+}
+@media(max-width:760px){.mc-ie-grid{grid-template-columns:1fr;}}
+.mc-ie-card{
+  display:flex;flex-direction:column;gap:10px;min-width:0;min-height:300px;
+  padding:14px 16px;border:1px solid var(--mc-border);border-radius:12px;background:var(--mc-elevated);
+}
+.mc-ie-card--export{border-color:rgba(33,150,243,.32);box-shadow:inset 0 1px 0 rgba(33,150,243,.08);}
+.mc-ie-card--import{border-color:rgba(129,199,132,.28);box-shadow:inset 0 1px 0 rgba(129,199,132,.08);}
+.mc-ie-card__head{display:flex;flex-direction:column;gap:4px;}
+.mc-ie-card__title{font-size:15px;font-weight:600;line-height:1.25;display:flex;align-items:center;gap:8px;}
+.mc-ie-card__title::before{content:'';width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.mc-ie-card--export .mc-ie-card__title::before{background:var(--mc-accent);}
+.mc-ie-card--import .mc-ie-card__title::before{background:var(--mc-ok);}
+.mc-ie-card__desc{font-size:12px;color:var(--mc-muted);line-height:1.4;}
+.mc-ie-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
+.mc-ie-code{
+  flex:1;min-height:220px;width:100%;box-sizing:border-box;resize:vertical;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.45;
+  border:1px solid var(--mc-border);background:rgba(0,0,0,.22);color:var(--mc-text);border-radius:8px;
+}
+.mc-ie-code[readonly]{cursor:default;opacity:.95;}
+.mc-ie-meta{font-size:11px;color:var(--mc-muted);line-height:1.35;margin-top:-4px;}
+.mc-ie-import-footer{display:flex;justify-content:flex-end;margin-top:auto;padding-top:2px;}
+.mc-dropzone{
+  flex-shrink:0;border:2px dashed var(--mc-border);border-radius:10px;padding:14px 12px;
+  text-align:center;cursor:pointer;background:rgba(0,0,0,.14);
+  display:flex;flex-direction:column;align-items:center;gap:4px;transition:border-color .15s,background .15s;
+}
+.mc-dropzone--hover{border-color:var(--mc-accent);background:rgba(33,150,243,.1);}
+.mc-dropzone__icon{font-size:24px;line-height:1;opacity:.75;}
+.mc-dropzone__main{font-size:13px;font-weight:500;color:var(--mc-text);}
+.mc-dropzone__sub{font-size:11px;color:var(--mc-muted);line-height:1.35;}
 .mc-empty{padding:22px;text-align:center;color:var(--mc-muted);font-size:14px;border:1px dashed var(--mc-border);border-radius:10px;}
 `;
             document.head.appendChild(st);
@@ -4437,23 +4493,43 @@
         }
 
         /** --- Import / Export --- */
-        const ieToolbar = document.createElement('div');
-        ieToolbar.className = 'mc-toolbar';
-        const ieRow = document.createElement('div');
-        ieRow.className = 'mc-row-ie';
+        const iePanel = document.createElement('div');
+        iePanel.className = 'mc-ie-panel';
+        const ieHeader = document.createElement('div');
+        ieHeader.className = 'mc-ie-header';
+        const ieIntro = document.createElement('p');
+        ieIntro.className = 'mc-ie-intro';
+        ieIntro.innerHTML = '<strong>Backup &amp; Teilen:</strong> Konfiguration als JSON exportieren oder einspielen. '
+            + 'Vor dem Import wird automatisch ein Backup angelegt — per <strong>Rückgängig</strong> im Footer wiederherstellbar. '
+            + 'Schema <strong>v' + SCHEMA_VERSION + '</strong>.';
+        ieHeader.appendChild(ieIntro);
+        const ieGrid = document.createElement('div');
+        ieGrid.className = 'mc-ie-grid';
 
         const cardEx = document.createElement('div');
-        cardEx.className = 'mc-ie-card';
+        cardEx.className = 'mc-ie-card mc-ie-card--export';
+        const exHead = document.createElement('div');
+        exHead.className = 'mc-ie-card__head';
         const exTitle = document.createElement('div');
-        exTitle.style.fontWeight = '600';
-        exTitle.style.marginBottom = '6px';
+        exTitle.className = 'mc-ie-card__title';
         exTitle.textContent = 'Export';
+        const exDesc = document.createElement('div');
+        exDesc.className = 'mc-ie-card__desc';
+        exDesc.textContent = 'Aktuelle Konfiguration als JSON — kopieren oder als Datei speichern.';
+        exHead.appendChild(exTitle);
+        exHead.appendChild(exDesc);
+        const exActions = document.createElement('div');
+        exActions.className = 'mc-ie-actions';
+        const exBtnGroup = document.createElement('div');
+        exBtnGroup.className = 'mc-btn-group';
         const exportArea = document.createElement('textarea');
-        exportArea.className = 'mc-textarea';
+        exportArea.className = 'mc-textarea mc-ie-code';
         exportArea.readOnly = true;
-        exportArea.rows = 8;
-        exportArea.style.width = '100%';
-        exportArea.style.marginTop = '6px';
+        exportArea.rows = 12;
+        exportArea.setAttribute('aria-label', 'Export JSON');
+        const exMeta = document.createElement('div');
+        exMeta.className = 'mc-ie-meta';
+        exMeta.textContent = 'Dateiname: mobilede-config-YYYY-MM-DD.json';
 
         function buildExportPayload() {
             return {
@@ -4498,21 +4574,47 @@
             setTimeout(() => URL.revokeObjectURL(a.href), 2500);
             showToast('Datei gestartet', 'success');
         });
-        cardEx.appendChild(exTitle);
-        cardEx.appendChild(btnGenerateExport);
-        cardEx.appendChild(btnCopyExport);
-        cardEx.appendChild(btnDownloadExport);
+        exBtnGroup.appendChild(btnGenerateExport);
+        exBtnGroup.appendChild(btnCopyExport);
+        exActions.appendChild(exBtnGroup);
+        exActions.appendChild(btnDownloadExport);
+        cardEx.appendChild(exHead);
+        cardEx.appendChild(exActions);
         cardEx.appendChild(exportArea);
+        cardEx.appendChild(exMeta);
 
         const cardIm = document.createElement('div');
-        cardIm.className = 'mc-ie-card';
+        cardIm.className = 'mc-ie-card mc-ie-card--import';
+        const imHead = document.createElement('div');
+        imHead.className = 'mc-ie-card__head';
         const imTitle = document.createElement('div');
-        imTitle.style.fontWeight = '600';
-        imTitle.style.marginBottom = '6px';
+        imTitle.className = 'mc-ie-card__title';
         imTitle.textContent = 'Import';
+        const imDesc = document.createElement('div');
+        imDesc.className = 'mc-ie-card__desc';
+        imDesc.textContent = 'JSON-Datei laden oder einfügen — ersetzt die Konfiguration im Popup (Speichern nicht vergessen).';
+        imHead.appendChild(imTitle);
+        imHead.appendChild(imDesc);
         const drop = document.createElement('div');
         drop.className = 'mc-dropzone';
-        drop.textContent = 'JSON-Datei hierher ziehen oder klicken';
+        drop.setAttribute('role', 'button');
+        drop.setAttribute('tabindex', '0');
+        const dropIcon = document.createElement('span');
+        dropIcon.className = 'mc-dropzone__icon';
+        dropIcon.setAttribute('aria-hidden', 'true');
+        dropIcon.textContent = '⬆';
+        const dropMain = document.createElement('span');
+        dropMain.className = 'mc-dropzone__main';
+        dropMain.textContent = 'JSON-Datei hierher ziehen';
+        const dropSub = document.createElement('span');
+        dropSub.className = 'mc-dropzone__sub';
+        dropSub.textContent = 'oder klicken zum Auswählen';
+        drop.appendChild(dropIcon);
+        drop.appendChild(dropMain);
+        drop.appendChild(dropSub);
+        drop.addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInp.click(); }
+        });
         const fileInp = document.createElement('input');
         fileInp.type = 'file';
         fileInp.accept = 'application/json,.json';
@@ -4545,11 +4647,12 @@
         });
 
         const importArea = document.createElement('textarea');
-        importArea.className = 'mc-textarea';
-        importArea.rows = 8;
-        importArea.style.width = '100%';
-        importArea.style.marginTop = '6px';
-        importArea.placeholder = 'JSON einfügen…';
+        importArea.className = 'mc-textarea mc-ie-code';
+        importArea.rows = 10;
+        importArea.placeholder = 'JSON einfügen oder aus Datei laden…';
+        importArea.setAttribute('aria-label', 'Import JSON');
+        const imFooter = document.createElement('div');
+        imFooter.className = 'mc-ie-import-footer';
 
         const btnImport = mkBtn('primary', 'Import durchführen', async () => {
             const text = importArea.value.trim();
@@ -4592,24 +4695,36 @@
             }
         });
 
-        cardIm.appendChild(imTitle);
+        imFooter.appendChild(btnImport);
+        cardIm.appendChild(imHead);
         cardIm.appendChild(drop);
         cardIm.appendChild(fileInp);
         cardIm.appendChild(importArea);
-        cardIm.appendChild(btnImport);
+        cardIm.appendChild(imFooter);
 
-        ieRow.appendChild(cardEx);
-        ieRow.appendChild(cardIm);
-        panelIE.appendChild(ieToolbar);
-        panelIE.appendChild(ieRow);
-        installKonfigTabHelp('ie', 'mc-konfig-help-ie', 'Hilfe zum Tab Import / Export', 'Hilfe zu Import und Export', ieToolbar, null, panelIE, ieRow);
+        ieGrid.appendChild(cardEx);
+        ieGrid.appendChild(cardIm);
+        iePanel.appendChild(ieHeader);
+        iePanel.appendChild(ieGrid);
+        panelIE.appendChild(iePanel);
+        installKonfigTabHelp('ie', 'mc-konfig-help-ie', 'Hilfe zum Tab Import / Export', 'Hilfe zu Import und Export', ieHeader, null, iePanel, ieGrid);
 
         /** --- Config (Feature-Flags) --- */
-        const configToolbar = document.createElement('div');
-        configToolbar.className = 'mc-toolbar mc-toolbar--minimal';
-        const configHelpRow = document.createElement('div');
-        configHelpRow.className = 'mc-toolbar__row mc-toolbar__row--search';
-        configToolbar.appendChild(configHelpRow);
+        const configPanel = document.createElement('div');
+        configPanel.className = 'mc-config-panel';
+        const configHeader = document.createElement('div');
+        configHeader.className = 'mc-config-header';
+        const configIntro = document.createElement('p');
+        configIntro.className = 'mc-config-intro';
+        configIntro.innerHTML = '<strong>Skript-Einstellungen:</strong> Features und Listen-Reihenfolge. '
+            + 'Änderungen gelten nach <strong>Speichern</strong> — teils sofort auf der geöffneten Fahrzeugseite.';
+        configHeader.appendChild(configIntro);
+        const configContainer = document.createElement('div');
+        configContainer.className = 'mc-config-body';
+        configPanel.appendChild(configHeader);
+        configPanel.appendChild(configContainer);
+        panelConfig.appendChild(configPanel);
+        installKonfigTabHelp('config', 'mc-konfig-help-config', 'Hilfe zum Tab Config', 'Hilfe zu Config', configHeader, null, configPanel, configContainer);
         footerResetHandlers[4] = async () => {
             const ok = await confirmAsync('Alle Feature-Flags auf Standard zurücksetzen?');
             if (!ok) return;
@@ -4618,11 +4733,6 @@
             renderConfig();
             showToast('Feature-Flags zurückgesetzt', 'success');
         };
-
-        const configContainer = document.createElement('div');
-        panelConfig.appendChild(configToolbar);
-        panelConfig.appendChild(configContainer);
-        installKonfigTabHelp('config', 'mc-konfig-help-config', 'Hilfe zum Tab Config', 'Hilfe zu Config', configHelpRow, null, panelConfig, configContainer);
 
         function onListOrderChanged() {
             aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
@@ -4672,12 +4782,12 @@
                     wrap.classList.toggle('mc-lo-scope-item--on', manual && on);
                     wrap.classList.toggle('mc-lo-scope-item--disabled', !manual);
                     cb.disabled = !manual;
-                    cb.checked = on;
+                    cb.checked = manual && on;
                 });
                 vehWrap.classList.toggle('mc-lo-veh--disabled', !hasScope);
                 vehWrap.classList.toggle('mc-lo-veh--on', hasScope && !!lo.applyToVehicleResults);
                 vehCb.disabled = !hasScope;
-                vehCb.checked = !!lo.applyToVehicleResults;
+                vehCb.checked = hasScope && !!lo.applyToVehicleResults;
             }
 
             const loCard = document.createElement('div');
@@ -4800,11 +4910,28 @@
             loCard.appendChild(loHint);
             loCard.appendChild(loBody);
             syncListOrderUi();
-            configContainer.appendChild(loCard);
+
+            const loSec = document.createElement('div');
+            loSec.className = 'mc-config-section';
+            const loSecTitle = document.createElement('div');
+            loSecTitle.className = 'mc-config-section-title';
+            loSecTitle.textContent = 'Listen & Sortierung';
+            loSec.appendChild(loSecTitle);
+            loSec.appendChild(loCard);
+            configContainer.appendChild(loSec);
 
             if (!FEATURE_FLAG_DEFINITIONS.length) {
                 return;
             }
+            const featSec = document.createElement('div');
+            featSec.className = 'mc-config-section';
+            const featSecTitle = document.createElement('div');
+            featSecTitle.className = 'mc-config-section-title';
+            featSecTitle.textContent = 'Features';
+            featSec.appendChild(featSecTitle);
+            const featList = document.createElement('div');
+            featList.className = 'mc-config-features';
+
             FEATURE_FLAG_DEFINITIONS.forEach(def => {
                 const card = document.createElement('div');
                 card.className = 'mc-card mc-feature-card';
@@ -4823,9 +4950,12 @@
                 txtCol.appendChild(title);
                 if (def.description) txtCol.appendChild(desc);
 
-                const tw = document.createElement('div');
-                tw.className = 'mc-toggle-wrap';
+                const aside = document.createElement('div');
+                aside.className = 'mc-feature-aside';
                 const current = aktuelleFeatureFlags[def.key];
+                const statusLbl = document.createElement('span');
+                statusLbl.className = 'mc-feature-status' + ((current !== false) ? ' mc-feature-status--on' : '');
+                statusLbl.textContent = (current !== false) ? 'Aktiv' : 'Aus';
                 const toggleEl = mkToggle(current !== false, v => {
                     aktuelleFeatureFlags[def.key] = v;
                     markDirty();
@@ -4833,17 +4963,16 @@
                     statusLbl.classList.toggle('mc-feature-status--on', v);
                     updateTabBadges();
                 });
-                const statusLbl = document.createElement('span');
-                statusLbl.className = 'mc-feature-status' + ((current !== false) ? ' mc-feature-status--on' : '');
-                statusLbl.textContent = (current !== false) ? 'Aktiv' : 'Aus';
-                tw.appendChild(statusLbl);
-                tw.appendChild(toggleEl);
+                aside.appendChild(statusLbl);
+                aside.appendChild(toggleEl);
 
                 row.appendChild(txtCol);
-                row.appendChild(tw);
+                row.appendChild(aside);
                 card.appendChild(row);
-                configContainer.appendChild(card);
+                featList.appendChild(card);
             });
+            featSec.appendChild(featList);
+            configContainer.appendChild(featSec);
         }
 
         /** Validation + footer status */
