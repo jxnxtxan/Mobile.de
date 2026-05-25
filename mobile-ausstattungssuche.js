@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile
-// @version      2.7.5
+// @version      2.8.6
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Token-basierte Match-Engine mit Wortgrenzen, Quellen-Gewichtung (Feature-Liste vs. Beschreibung), SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile
@@ -26,7 +26,7 @@
     // ============================================================
     // Konstanten / Schema
     // ============================================================
-    const SCHEMA_VERSION = 7;
+    const SCHEMA_VERSION = 8;
     const STORAGE_KEYS = {
         config:        'mobilede_config',
         techConfig:    'mobilede_techconfig',
@@ -48,6 +48,12 @@
             title: 'Standort als Google-Maps-Link',
             description: 'Macht Standort-Texte auf der Detailseite (z.B. „DE-92690 Pressath") anklickbar. Ein Klick öffnet Google Maps mit der Adresse als Suche.',
             default: true
+        },
+        {
+            key: 'autoMode',
+            title: 'Automodus (vollständige Ausstattungsliste)',
+            description: 'Zeigt alle Einträge aus Ausstattungsliste und strukturierter Beschreibung. Treffer aus deiner Konfiguration werden farbig hervorgehoben. Unbekannte Zeilen können per „+ Konfig“ ins Popup übernommen werden.',
+            default: false
         }
     ];
     function featureFlagsDefault() {
@@ -110,11 +116,11 @@
         { begriffe: ['anhängevorrichtung schwenkbar', 'anhängerkupplung schwenkbar'], anzeige: 'Anhängerkupplung schwenkbar', aktiv: true },
         { begriffe: ['apple carplay', 'apple car play'], anzeige: 'Apple Carplay', aktiv: true },
         { begriffe: ['armlehne'], anzeige: 'Armlehne', aktiv: false },
-        { begriffe: ['aussen innen mit abblendautomat', 'aussen innenspiegel mit abblendautomatik', 'aeussen innen mit abblendautomatik'], anzeige: 'Außen-/Innenspiegel automatisch abblendend', aktiv: true },
-        { begriffe: ['spiegel klappbar', 'elek spiegel klapp', 'außenspiegel anklappbar', 'außenspiegel klappbar'], anzeige: 'Außenspiegel anklappbar', aktiv: true },
+        { begriffe: ['aussen innen mit abblendautomat', 'aussen innenspiegel mit abblendautomatik', 'aeussen innen mit abblendautomatik', 'aussen innenspiegel mit abblendautomatik und regensensor', 'innen aussen spiegel abblend'], anzeige: 'Außen-/Innenspiegel automatisch abblendend', aktiv: true },
+        { begriffe: ['spiegel klappbar', 'elek spiegel klapp', 'außenspiegel anklappbar', 'außenspiegel klappbar', 'aussenspiegel elektr anklapp', 'spiegel elektr anklappbar'], anzeige: 'Außenspiegel anklappbar', aktiv: true },
         { begriffe: ['aussenspiegel mit abblendautomatik', 'aeussenspiegel mit abblendautomatik'], anzeige: 'Außenspiegel automatisch abblendend', aktiv: true },
-        { begriffe: ['außenspiegel heizung', 'außenspiegel beheiz', 'außenspiegel heiz'], anzeige: 'Außenspiegel beheizbar', aktiv: true },
-        { begriffe: ['außenspiegel elek verst', 'elek spiegel'], anzeige: 'Außenspiegel elektr. verstellbar', aktiv: true },
+        { begriffe: ['außenspiegel heizung', 'außenspiegel beheiz', 'außenspiegel heiz', 'verstell und heizbar', 'aussenspiegel verstell heizbar', 'heizbar beide', 'elektr verstell heizbar', 'verstell heizbar beide'], anzeige: 'Außenspiegel beheizbar', aktiv: true },
+        { begriffe: ['außenspiegel elek verst', 'elek spiegel', 'aussenspiegel elektr verstell', 'elektr verstell'], anzeige: 'Außenspiegel elektr. verstellbar', aktiv: true },
         { begriffe: ['bang & olufsen', 'b&o', 'bang olufsen'], anzeige: 'Bang & Olufsen Sound System', farbe: 'red', aktiv: true, nurInFeatures: true },
         { begriffe: ['beats'], anzeige: 'Beats Sound System', farbe: 'red', aktiv: true, nurInFeatures: true },
         { begriffe: ['berganfahrassist', 'berganfahr', 'hill start', 'hill hold', 'anfahrassist'], anzeige: 'Berganfahrassistent', aktiv: true },
@@ -175,7 +181,7 @@
         { begriffe: ['start stop', 'auto stop'], anzeige: 'Start/Stopp-Automatik', aktiv: true },
         { begriffe: ['tempolimit anzeige', 'tempo limit hinwe', 'geschwind limit hinwe'], anzeige: 'Tempolimit-Anzeige', aktiv: true },
         { begriffe: ['totwinkel', 'blind spot'], anzeige: 'Totwinkel-Assistent', aktiv: true },
-        { begriffe: ['traction control', 'traktio kontr', 'antischlupf', 'antrieb schlupf', 'asr'], anzeige: 'Traktionskontrolle', aktiv: false },
+        { begriffe: ['traktionskontrolle', 'traction control', 'traktio kontr', 'antischlupf', 'antrieb schlupf', 'asr'], anzeige: 'Traktionskontrolle', aktiv: false },
         { begriffe: ['verkehrszeichen', 'road sign'], anzeige: 'Verkehrszeichenerkennung', aktiv: true },
         { begriffe: ['digital cockpit', 'virtual cockpit', 'volldigit kombiinstrument', 'kombiinstrument digital'], anzeige: 'Volldigitales Kombiinstrument', aktiv: true },
         { begriffe: ['winter paket', 'kalt paket'], anzeige: 'Winterpaket', aktiv: true },
@@ -328,6 +334,42 @@
         return [...userConfig, ...missing.map(d => JSON.parse(JSON.stringify(d)))];
     }
 
+    /**
+     * Begriffe, die nur bei einem Anzeige-Eintrag vorkommen sollen (vermeidet
+     * konkurrierende Treffer bei gleichem Textfenster).
+     */
+    const BEGRIFF_EXCLUSIVE_OWNERS = [
+        { begriff: 'verstell und heizbar', ownerAnzeige: 'Außenspiegel beheizbar' }
+    ];
+
+    function dedupeAmbiguousBegriffeAcrossConfigs(userConfig) {
+        if (!Array.isArray(userConfig)) return userConfig;
+        let anyChanged = false;
+        const merged = userConfig.map(item => {
+            const anzeigeKey = (item.anzeige || '').trim().toLowerCase();
+            if (!Array.isArray(item.begriffe)) return item;
+            let begriffe = [...item.begriffe];
+            let itemChanged = false;
+            BEGRIFF_EXCLUSIVE_OWNERS.forEach(rule => {
+                const ownerKey = rule.ownerAnzeige.trim().toLowerCase();
+                const bKey = rule.begriff.trim().toLowerCase();
+                if (anzeigeKey === ownerKey) return;
+                const before = begriffe.length;
+                begriffe = begriffe.filter(b => (b || '').trim().toLowerCase() !== bKey);
+                if (begriffe.length !== before) itemChanged = true;
+            });
+            if (itemChanged) {
+                anyChanged = true;
+                return { ...item, begriffe };
+            }
+            return item;
+        });
+        if (anyChanged) {
+            console.info('mobilede: Mehrdeutige Begriffe aus Konflikt-Einträgen entfernt (z. B. „verstell und heizbar“ nur bei Außenspiegel beheizbar).');
+        }
+        return merged;
+    }
+
     function migrateAusstattungFavorit(userConfig) {
         if (!Array.isArray(userConfig)) return userConfig;
         let updated = false;
@@ -374,6 +416,7 @@
             next = applyAnzeigePropertyUpdates(next);
             next = addMissingDefaultEntries(next, suchKonfigurationenDefault);
             next = migrateAusstattungFavorit(next);
+            next = dedupeAmbiguousBegriffeAcrossConfigs(next);
             speichereConfig(STORAGE_KEYS.config, next);
         }
 
@@ -388,10 +431,18 @@
     }
     migrateIfNeeded();
 
-    let suchKonfigurationen     = ladeConfig(STORAGE_KEYS.config)      || suchKonfigurationenDefault;
+    let suchKonfigurationen     = dedupeAmbiguousBegriffeAcrossConfigs(
+        ladeConfig(STORAGE_KEYS.config) || suchKonfigurationenDefault
+    );
     let techDataKonfigurationen = ladeConfig(STORAGE_KEYS.techConfig)  || techDataKonfigurationenDefault;
     let mergeGruppenConfig      = ladeConfig(STORAGE_KEYS.mergeGroups) || mergeGruppenConfigDefault;
     let featureFlags            = ladeFeatureFlags();
+    /** Prefill für neuen Ausstattungseintrag aus Ergebnisliste („+ Konfig“). */
+    let pendingAusstattungPrefill = null;
+
+    function isAutoModeEnabled() {
+        return !!(featureFlags && featureFlags.autoMode === true);
+    }
 
     // ============================================================
     // 4) Textaufbereitung & Tokenisierung
@@ -587,14 +638,442 @@
     }
 
     // ============================================================
-    // 7) Begriffs-Suche (ersetzt sucheBegriffe)
+    // 6b) Automodus: Roh-Extraktion & Hybrid-Merge
     // ============================================================
-    function sucheBegriffe() {
-        const sources = extractSources();
-        if (sources.length === 0) return [];
-        const gefundene = [];
+    function isPlausibleEquipmentLabel(label, source) {
+        const t = (label || '').trim();
+        if (!t) return false;
+        if (source === 'features') return true;
+        if (t.length > 72) return false;
+        if (t.split(/\s+/).filter(Boolean).length > 10) return false;
+        const low = t.toLowerCase();
+        if (/willkommen|gmbh\b|https?:|www\.|@[\w.-]|fußnote|weitere ausstattung\s*:|sonderausstattung\s*:/i.test(low)) {
+            return false;
+        }
+        return true;
+    }
 
-        suchKonfigurationen.forEach(cfg => {
+    /**
+     * Komma-Liste aus Beschreibung: kurze Anhängsel (beide, links, …) an
+     * den vorherigen Eintrag hängen statt eigene Zeile erzeugen.
+     */
+    function splitDescriptionIntoFeatures(rawText) {
+        const normalized = rawText
+            .replace(/\b(weitere ausstattung|sonderausstattung)\s*:/gi, ', ')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+        const parts = normalized.split(/,/).map(s => s.trim()).filter(Boolean);
+        if (parts.length === 0) return [];
+        const merged = [];
+        const orphanOnly = /^(beide|links|rechts|vorn|hinten|optional)$/i;
+        for (const part of parts) {
+            const words = part.split(/\s+/).filter(Boolean);
+            const isOrphan = words.length <= 2 && orphanOnly.test(part);
+            if (merged.length > 0 && (isOrphan || part.length <= 8)) {
+                merged[merged.length - 1] = merged[merged.length - 1] + ', ' + part;
+            } else {
+                merged.push(part);
+            }
+        }
+        return merged;
+    }
+
+    function isAussenInnenCombinedSpiegel(text) {
+        const c = cleanText(text || '');
+        return /aussen/.test(c) && /innen/.test(c) && /spiegel/.test(c);
+    }
+
+    function isInnenSpiegelOnly(text) {
+        const c = cleanText(text || '');
+        if (!/innenspiegel/.test(c)) return false;
+        if (/aussenspiegel|seitenspiegel/.test(c)) return false;
+        return !isAussenInnenCombinedSpiegel(text);
+    }
+
+    /** Nur Außenspiegel / Seitenspiegel — ohne Innen- oder Kombi-Zeile. */
+    function isAussenSpiegelOnly(text) {
+        const c = cleanText(text || '');
+        if (!c) return false;
+        if (isAussenInnenCombinedSpiegel(text) || isInnenSpiegelOnly(text)) return false;
+        return /aussenspiegel|seitenspiegel/.test(c);
+    }
+
+    function entryMatchesMergeGroup(entry, group) {
+        if (!group || group.aktiv === false || !group.basis) return false;
+        const a = cleanText(entry.anzeige || '');
+        const basis = cleanText(group.basis);
+        if (basis && /aussenspiegel/.test(basis)) {
+            return isAussenSpiegelOnly(entry.anzeige);
+        }
+        return !!(basis && a.includes(basis));
+    }
+
+    function mergeModifierFromEntry(anzeige, group) {
+        const basis = cleanText(group.basis);
+        let m = cleanText(anzeige);
+        if (basis && m.includes(basis)) {
+            m = m.replace(basis, '').trim();
+        } else if (isAussenSpiegelOnly(anzeige)) {
+            m = m.replace(/^aussenspiegel\s*/i, '').trim();
+        } else if (isAussenInnenCombinedSpiegel(anzeige)) {
+            m = m.replace(/^(aussen|innen|aussen innen|innen aussen)\s*-?\s*\/?\s*/i, '').trim();
+        }
+        return m || cleanText(anzeige);
+    }
+
+    /** Zusatz-Modifier aus Roh-Text (z. B. „verstell- und heizbar“ → beheizbar). */
+    function aussenModifiersFromRawLabel(rawLabel) {
+        const c = cleanText(rawLabel || '');
+        const mods = [];
+        if (!/aussenspiegel|seitenspiegel/.test(c)) return mods;
+        if (/heizbar|beheiz/.test(c)) mods.push('beheizbar');
+        if (/anklapp|klappbar/.test(c)) mods.push('anklappbar');
+        if (/verstell/.test(c)) mods.push('elektr. verstellbar');
+        if (/abblend/.test(c)) mods.push('automatisch abblend.');
+        return mods;
+    }
+
+    function enrichAussenMergeFromRaw(entries, rawItems) {
+        const group = mergeGruppenConfig.find(g =>
+            g && g.aktiv !== false && /aussenspiegel/.test(cleanText(g.basis || '')));
+        if (!group) return entries;
+        const basisClean = cleanText(group.basis);
+        const basisCap = group.basis.charAt(0).toUpperCase() + group.basis.slice(1);
+        const order = (group.order || []).map(item => item.toLowerCase());
+
+        const targetIdx = entries.findIndex(e => {
+            const c = cleanText(e.anzeige || '');
+            if (!c.startsWith(basisClean)) return false;
+            if (isAussenInnenCombinedSpiegel(e.anzeige) || isInnenSpiegelOnly(e.anzeige)) {
+                return false;
+            }
+            return true;
+        });
+        if (targetIdx === -1) return entries;
+
+        const hintSet = new Set();
+        rawItems.forEach(raw => {
+            aussenModifiersFromRawLabel(raw.label).forEach(m => hintSet.add(m));
+        });
+        if (hintSet.size === 0) return entries;
+
+        const entry = entries[targetIdx];
+        let tail = entry.anzeige.replace(new RegExp('^' + basisCap.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*', 'i'), '').trim();
+        const mods = tail ? tail.split(',').map(s => s.trim()).filter(Boolean) : [];
+        hintSet.forEach(h => {
+            const hk = h.toLowerCase();
+            if (!mods.some(m => m.toLowerCase().includes(hk) || hk.includes(m.toLowerCase()))) {
+                mods.push(h);
+            }
+        });
+        mods.sort((a, b) => {
+            let ia = order.findIndex(key => a.toLowerCase().includes(key.replace(/\./g, '').trim()));
+            let ib = order.findIndex(key => b.toLowerCase().includes(key.replace(/\./g, '').trim()));
+            if (ia === -1) ia = 999;
+            if (ib === -1) ib = 999;
+            return ia - ib;
+        });
+        const out = [...entries];
+        out[targetIdx] = {
+            ...entry,
+            anzeige: basisCap + (mods.length ? ' ' + mods.join(', ') : '')
+        };
+        return out;
+    }
+
+    function findConfigEntryForRawLabel(rawLabel) {
+        const r = cleanText(rawLabel);
+        if (!r) return null;
+        for (const cfg of suchKonfigurationen) {
+            if (!cfg) continue;
+            const anzeigeKey = cleanText(cfg.anzeige || '');
+            if (anzeigeKey && anzeigeKey === r) return cfg;
+            if (anzeigeKey && stringsMatchForHighlight(rawLabel, { anzeige: cfg.anzeige })) {
+                return cfg;
+            }
+            if (Array.isArray(cfg.begriffe)) {
+                for (const b of cfg.begriffe) {
+                    if (stringsMatchForHighlight(rawLabel, { anzeige: b, begriff: b })) {
+                        return cfg;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    function extractRawEquipmentItems() {
+        const byKey = new Map();
+        const sourcePriority = { features: 2, description: 1 };
+
+        function add(label, source, confidence) {
+            const trimmed = (label || '').trim();
+            if (!trimmed) return;
+            if (!isPlausibleEquipmentLabel(trimmed, source)) return;
+            const key = cleanText(trimmed);
+            if (!key) return;
+            const entry = { label: trimmed, source, confidence };
+            const existing = byKey.get(key);
+            if (!existing || sourcePriority[source] > sourcePriority[existing.source]) {
+                byKey.set(key, entry);
+            }
+        }
+
+        getFeatureItems().forEach(li => add(li.textContent, 'features', 'high'));
+
+        const desc = getDescriptionEl();
+        if (desc) {
+            const rawText = desc.textContent.replace(/\s+/g, ' ').trim();
+            if (classifyDescription(rawText) === 'high') {
+                splitDescriptionIntoFeatures(rawText).forEach(part => add(part, 'description', 'high'));
+            }
+        }
+
+        return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label, 'de'));
+    }
+
+    function tokenJaccard(textA, textB) {
+        const A = new Set(tokenize(textA));
+        const B = new Set(tokenize(textB));
+        if (A.size === 0 || B.size === 0) return 0;
+        let inter = 0;
+        for (const t of A) {
+            if (B.has(t)) inter++;
+        }
+        return inter / (A.size + B.size - inter);
+    }
+
+    function stringsMatchForHighlight(rawLabel, hit) {
+        const r = cleanText(rawLabel);
+        if (!r) return false;
+        const candidates = [hit.anzeige, hit.begriff, hit.snippet].filter(Boolean);
+        for (const raw of candidates) {
+            const c = cleanText(raw);
+            if (!c) continue;
+            if (r === c) return true;
+            if (r.length >= 4 && c.length >= 4 && (r.includes(c) || c.includes(r))) return true;
+            if (tokenJaccard(rawLabel, raw) >= 0.6) return true;
+        }
+        return false;
+    }
+
+    function rawCoveredByEntryLabel(rawLabel, entryAnzeige, entryHighlighted) {
+        if (!entryAnzeige || !entryHighlighted) return false;
+        if (stringsMatchForHighlight(rawLabel, { anzeige: entryAnzeige })) return true;
+
+        if (isInnenSpiegelOnly(rawLabel)) {
+            return isInnenSpiegelOnly(entryAnzeige) || isAussenInnenCombinedSpiegel(entryAnzeige);
+        }
+        if (isAussenInnenCombinedSpiegel(rawLabel)) {
+            return isAussenInnenCombinedSpiegel(entryAnzeige);
+        }
+        if (isAussenSpiegelOnly(rawLabel) && isAussenSpiegelOnly(entryAnzeige)) {
+            const r = cleanText(rawLabel);
+            const e = cleanText(entryAnzeige);
+            if (/heizbar|beheiz/.test(r) && /heizbar|beheiz/.test(e)) return true;
+            if (/anklapp/.test(r) && /anklapp/.test(e)) return true;
+            if (/verstell/.test(r) && /verstell/.test(e)) return true;
+            return stringsMatchForHighlight(rawLabel, { anzeige: entryAnzeige });
+        }
+        return false;
+    }
+
+    function consolidateAutoModeResults(entries, rawItems) {
+        const byAnzeigeKey = new Map();
+        entries.forEach(e => {
+            const k = cleanText(e.anzeige);
+            if (!k) return;
+            const prev = byAnzeigeKey.get(k);
+            if (!prev) { byAnzeigeKey.set(k, e); return; }
+            if (e.highlighted && !prev.highlighted) byAnzeigeKey.set(k, e);
+        });
+        let list = [...byAnzeigeKey.values()];
+
+        const highlighted = list.filter(e => e.highlighted);
+        let neutral = list.filter(e => !e.highlighted);
+
+        let mergedHi = generalizedMergeEntries(highlighted, mergeGruppenConfig);
+        mergedHi = subsetDedup(mergedHi);
+
+        const aussenHighlight = mergedHi.some(e => isAussenSpiegelOnly(e.anzeige));
+        const mirrorNeutralLabels = [];
+        const keptNeutral = [];
+
+        neutral.forEach(n => {
+            const label = n.rawLabel || n.anzeige;
+            if (mergedHi.some(h => rawCoveredByEntryLabel(label, h.anzeige, true))) {
+                return;
+            }
+            if (aussenHighlight && isAussenSpiegelOnly(label)) {
+                mirrorNeutralLabels.push(n.anzeige);
+                return;
+            }
+            keptNeutral.push(n);
+        });
+
+        if (mirrorNeutralLabels.length > 0) {
+            const uniq = [...new Set(mirrorNeutralLabels)];
+            const shortUniq = uniq.filter(l => !mergedHi.some(h =>
+                rawCoveredByEntryLabel(l, h.anzeige, true)));
+            if (shortUniq.length === 0) {
+                /* alle Spiegel-Rohzeilen bereits durch Merge abgedeckt */
+            } else {
+            keptNeutral.push({
+                anzeige: 'Außenspiegel (weitere, nicht in Konfig): ' + shortUniq.join(', '),
+                farbe: '#b0b0b0',
+                source: 'features',
+                confidence: 'high',
+                highlighted: false,
+                learnable: true,
+                rawLabel: shortUniq[0]
+            });
+            }
+        }
+
+        let out = [...mergedHi, ...keptNeutral];
+        out = enrichAussenMergeFromRaw(out, rawItems || []);
+        out = subsetDedup(out);
+        out.sort((a, b) => a.anzeige.localeCompare(b.anzeige, 'de'));
+        return partitionEntriesByFavorites(out, getFavoriteAnzeigeKeys(suchKonfigurationen));
+    }
+
+    function buildUnifiedResults(rawItems, configHits) {
+        const usedRawKeys = new Set();
+        const usedHitIndexes = new Set();
+        const results = [];
+
+        configHits.forEach((hit, hitIdx) => {
+            let rawMatch = null;
+            let rawKey = null;
+            for (const raw of rawItems) {
+                const key = cleanText(raw.label);
+                if (usedRawKeys.has(key)) continue;
+                if (stringsMatchForHighlight(raw.label, hit)) {
+                    rawMatch = raw;
+                    rawKey = key;
+                    break;
+                }
+            }
+            if (rawMatch) {
+                usedRawKeys.add(rawKey);
+                usedHitIndexes.add(hitIdx);
+                results.push({
+                    anzeige: hit.anzeige,
+                    farbe: (hit.farbe || '#66ff66').toLowerCase(),
+                    source: hit.source || rawMatch.source,
+                    confidence: hit.confidence || rawMatch.confidence,
+                    snippet: hit.snippet,
+                    begriff: hit.begriff,
+                    highlighted: true,
+                    learnable: false,
+                    rawLabel: rawMatch.label
+                });
+            }
+        });
+
+        configHits.forEach((hit, hitIdx) => {
+            if (usedHitIndexes.has(hitIdx)) return;
+            results.push({
+                anzeige: hit.anzeige,
+                farbe: (hit.farbe || '#66ff66').toLowerCase(),
+                source: hit.source,
+                confidence: hit.confidence,
+                snippet: hit.snippet,
+                begriff: hit.begriff,
+                highlighted: true,
+                learnable: false
+            });
+        });
+
+        rawItems.forEach(raw => {
+            const key = cleanText(raw.label);
+            if (usedRawKeys.has(key)) return;
+            const covered = results.some(e =>
+                e.highlighted && rawCoveredByEntryLabel(raw.label, e.anzeige, true));
+            if (covered) return;
+
+            const cfg = findConfigEntryForRawLabel(raw.label);
+            if (cfg) {
+                const anzeigeKey = cleanText(cfg.anzeige || '');
+                if (results.some(e => cleanText(e.anzeige) === anzeigeKey)) return;
+                results.push({
+                    anzeige: cfg.anzeige || raw.label,
+                    farbe: (cfg.farbe || '#66ff66').toLowerCase(),
+                    source: raw.source,
+                    confidence: raw.confidence,
+                    highlighted: true,
+                    configInactive: cfg.aktiv === false,
+                    learnable: false,
+                    rawLabel: raw.label
+                });
+                return;
+            }
+
+            results.push({
+                anzeige: raw.label,
+                farbe: '#b0b0b0',
+                source: raw.source,
+                confidence: raw.confidence,
+                highlighted: false,
+                learnable: true,
+                rawLabel: raw.label
+            });
+        });
+
+        return consolidateAutoModeResults(results, rawItems);
+    }
+
+    function getResultEntries() {
+        if (isAutoModeEnabled()) {
+            return buildUnifiedResults(extractRawEquipmentItems(), sucheBegriffe());
+        }
+        return sucheBegriffe();
+    }
+
+    function openLearnConfig(label, source) {
+        const trimmed = (label || '').trim();
+        if (!trimmed) return;
+        if (findConfigEntryForRawLabel(trimmed)) {
+            pendingAusstattungPrefill = null;
+            oeffneKonfigPopup();
+            return;
+        }
+        pendingAusstattungPrefill = { label: trimmed, source: source || 'features' };
+        oeffneKonfigPopup();
+    }
+
+    /**
+     * Gemeinsamer Abschluss für Keyword-Modus und Automodus-Konfig-Treffer:
+     * Merge-Gruppen, Außenspiegel-Modifier aus Seitentext, Favoriten.
+     */
+    function finalizeAusstattungResults(entries) {
+        let unique = subsetDedup([...entries]);
+        unique = generalizedMergeEntries(unique, mergeGruppenConfig);
+        unique = enrichAussenMergeFromRaw(unique, extractRawEquipmentItems());
+        unique = subsetDedup(unique);
+        unique.sort((a, b) => a.anzeige.localeCompare(b.anzeige, 'de'));
+        return partitionEntriesByFavorites(unique, getFavoriteAnzeigeKeys(suchKonfigurationen));
+    }
+
+    function begriffMatchScore(begriff) {
+        return tokenize(begriff).length;
+    }
+
+    function windowKey(srcId, window) {
+        return srcId + ':' + window.startIdx + ':' + window.endIdx;
+    }
+
+    /**
+     * Sammelt Treffer pro Quelle/Fenster/Anzeige. Gleicher Begriff darf
+     * mehrere Anzeige-Einträge treffen (z. B. beheizbar + verstellbar), aber
+     * pro Anzeige nur den spezifischsten Begriff.
+     */
+    function collectConfigMatches(sources, configs) {
+        const candidates = [];
+        const sorted = [...configs].sort((a, b) =>
+            (a.anzeige || '').localeCompare(b.anzeige || '', 'de'));
+
+        sorted.forEach(cfg => {
             if (!cfg.aktiv) return;
             if (!Array.isArray(cfg.begriffe) || cfg.begriffe.length === 0) return;
 
@@ -604,7 +1083,6 @@
             for (const src of sources) {
                 if (onlyHigh && src.confidence !== 'high') continue;
 
-                let matched = false;
                 for (const begriff of cfg.begriffe) {
                     const parts = tokenize(begriff);
                     if (parts.length === 0) continue;
@@ -616,7 +1094,6 @@
                             .map(v => cleanText(v))
                             .filter(Boolean);
                         if (isForbiddenInWindow(src.tokens, window, forbiddenParts)) {
-                            console.debug('Verbotenes Token im Fenster für', cfg.anzeige, '→ skip');
                             continue;
                         }
                     }
@@ -624,20 +1101,44 @@
                         Math.max(0, window.startIdx - 2),
                         Math.min(src.tokens.length, window.endIdx + 3)
                     );
-                    gefundene.push({
+                    candidates.push({
                         anzeige: cfg.anzeige,
                         farbe: (cfg.farbe || '#66ff66').toLowerCase(),
                         source: src.id,
                         confidence: src.confidence,
                         snippet: snippetTokens.join(' '),
-                        begriff
+                        begriff,
+                        window,
+                        score: begriffMatchScore(begriff)
                     });
-                    matched = true;
-                    break;
                 }
-                if (matched) break;
             }
         });
+
+        const bestPerAnzeigeWindow = new Map();
+        candidates.forEach(c => {
+            const key = windowKey(c.source, c.window) + ':' + cleanText(c.anzeige);
+            const prev = bestPerAnzeigeWindow.get(key);
+            if (!prev || c.score > prev.score) bestPerAnzeigeWindow.set(key, c);
+        });
+
+        return [...bestPerAnzeigeWindow.values()].map(c => ({
+            anzeige: c.anzeige,
+            farbe: c.farbe,
+            source: c.source,
+            confidence: c.confidence,
+            snippet: c.snippet,
+            begriff: c.begriff
+        }));
+    }
+
+    // ============================================================
+    // 7) Begriffs-Suche (ersetzt sucheBegriffe)
+    // ============================================================
+    function sucheBegriffe() {
+        const sources = extractSources();
+        if (sources.length === 0) return [];
+        const gefundene = collectConfigMatches(sources, suchKonfigurationen);
 
         // Dedup: gleiche anzeige nur einmal, dabei beste confidence behalten
         const byAnzeige = new Map();
@@ -649,19 +1150,7 @@
             if (!existingHigh && itemHigh) byAnzeige.set(item.anzeige, item);
         }
         let unique = [...byAnzeige.values()];
-        unique.sort((a, b) => a.anzeige.localeCompare(b.anzeige));
-
-        // Substring-Dedup: kürzeren Eintrag entfernen, wenn ein längerer
-        // Eintrag existiert, der ALLE Tokens des kürzeren als komplette
-        // Tokens enthält (kein Prefix-Hack mehr).
-        unique = subsetDedup(unique);
-
-        // Generalisiertes Merging
-        unique = generalizedMergeEntries(unique, mergeGruppenConfig);
-
-        // Endgültige alphabetische Sortierung, Favoriten zuerst
-        unique.sort((a, b) => a.anzeige.localeCompare(b.anzeige));
-        unique = partitionEntriesByFavorites(unique, getFavoriteAnzeigeKeys(suchKonfigurationen));
+        unique = finalizeAusstattungResults(unique);
         console.debug('Gefundene Begriffe:', unique.map(i => `${i.anzeige} [${i.source}]`));
         return unique;
     }
@@ -692,13 +1181,12 @@
         let result = [...entries];
         gruppen.forEach(group => {
             if (!group || !group.basis || group.aktiv === false) return;
-            const basis = group.basis.toLowerCase();
             const order = (group.order || []).map(item => item.toLowerCase());
-            const matching = result.filter(e => e.anzeige.toLowerCase().includes(basis));
+            const matching = result.filter(e => entryMatchesMergeGroup(e, group));
             if (matching.length <= 1) return;
-            result = result.filter(e => !e.anzeige.toLowerCase().includes(basis));
+            result = result.filter(e => !entryMatchesMergeGroup(e, group));
             let modifiers = matching
-                .map(e => e.anzeige.toLowerCase().replace(basis, '').trim())
+                .map(e => mergeModifierFromEntry(e.anzeige, group))
                 .filter(Boolean);
             modifiers = Array.from(new Set(modifiers));
             modifiers.sort((a, b) => {
@@ -793,12 +1281,91 @@
     // ============================================================
     // 9) Render: Ergebnis-Article einfügen
     // ============================================================
+    function appendResultRow(columns, item, placed, autoMode) {
+        const el = document.createElement('div');
+        const isLow = item.confidence === 'low';
+        const isHighlight = autoMode ? item.highlighted !== false : true;
+        el.style.minWidth = '0';
+        el.style.display = 'flex';
+        el.style.alignItems = 'flex-start';
+        el.style.justifyContent = 'space-between';
+        el.style.gap = '8px';
+        el.style.gridColumn = (placed % 2 === 0) ? '1' : '2';
+
+        const span = document.createElement('span');
+        const inactiveSuffix = item.configInactive ? ' (inaktiv)' : '';
+        span.textContent = `- ${item.anzeige}${inactiveSuffix}${isLow ? ' *' : ''}`;
+        span.style.color = item.farbe || '#66ff66';
+        span.style.flex = '1';
+        span.style.minWidth = '0';
+        if (isHighlight) {
+            span.style.cursor = 'help';
+        }
+        span.style.overflowWrap = 'anywhere';
+        span.style.display = 'inline-block';
+        span.style.paddingLeft = '0.6em';
+        span.style.textIndent = '-0.6em';
+
+        if (item.configInactive) {
+            span.style.fontStyle = 'italic';
+            span.style.opacity = '0.75';
+        }
+
+        if (autoMode && !isHighlight) {
+            span.title = `Quelle: ${item.source || 'unbekannt'}`;
+            span.style.opacity = '0.92';
+        } else {
+            const sourceLabel = isLow
+                ? `Nur in Beschreibung gefunden (Quelle: ${item.source})`
+                : `Quelle: ${item.source}`;
+            const inactiveNote = item.configInactive
+                ? '\nIn deiner Konfiguration, aber deaktiviert – aktivieren zum Highlighten per Suchbegriff.'
+                : '';
+            const trigger = item.begriff ? `\nTrigger: "${item.begriff}"` : '';
+            const snippet = item.snippet ? `\nKontext: …${item.snippet}…` : '';
+            span.title = sourceLabel + inactiveNote + trigger + snippet;
+            if (isLow) {
+                span.style.fontStyle = 'italic';
+                span.style.opacity = '0.85';
+            }
+        }
+        el.appendChild(span);
+
+        if (autoMode && item.learnable && !isHighlight) {
+            const learnBtn = document.createElement('button');
+            learnBtn.type = 'button';
+            learnBtn.textContent = '+ Konfig';
+            learnBtn.title = 'Neuen Eintrag in der Konfiguration anlegen';
+            Object.assign(learnBtn.style, {
+                flexShrink: '0',
+                cursor: 'pointer',
+                fontSize: '11px',
+                padding: '2px 6px',
+                border: '1px solid rgba(255,255,255,0.25)',
+                borderRadius: '4px',
+                background: 'rgba(255,255,255,0.08)',
+                color: '#e0e0e0',
+                fontFamily: 'inherit'
+            });
+            learnBtn.addEventListener('click', e => {
+                e.preventDefault();
+                e.stopPropagation();
+                openLearnConfig(item.rawLabel || item.anzeige, item.source);
+            });
+            el.appendChild(learnBtn);
+        }
+
+        columns.appendChild(el);
+        return placed + 1;
+    }
+
     function ergebnisHinzufuegen() {
-        if (document.querySelector('#ergebnisBereich')) return;
+        document.querySelectorAll('.mobilede-result-article, .mobilede-tech-article').forEach(el => el.remove());
         const zielBereich = document.querySelector("article[data-testid='vip-key-features-box']");
         if (!zielBereich) return;
 
-        const gefundeneTexte = sucheBegriffe();
+        const autoMode = isAutoModeEnabled();
+        const gefundeneTexte = getResultEntries();
 
         const article = document.createElement('article');
         article.className = 'A3G6X lAeeF vTKPY HaBLt ku0Os mobilede-result-article';
@@ -823,7 +1390,7 @@
         title.style.color = 'white';
         title.style.marginBottom = '5px';
         title.style.width = '100%';
-        title.textContent = 'Gefundene Begriffe:';
+        title.textContent = autoMode ? 'Ausstattung (vollständig):' : 'Gefundene Begriffe:';
         ergebnisBereich.appendChild(title);
 
         if (gefundeneTexte.length > 0) {
@@ -852,46 +1419,32 @@
                     });
                     columns.appendChild(divider);
                 }
-                const el = document.createElement('div');
-                const isLow = item.confidence === 'low';
-                el.style.minWidth = '0';
-                el.style.gridColumn = (placed % 2 === 0) ? '1' : '2';
-                const span = document.createElement('span');
-                span.textContent = `- ${item.anzeige}${isLow ? ' *' : ''}`;
-                span.style.color = item.farbe;
-                span.style.cursor = 'help';
-                span.style.overflowWrap = 'anywhere';
-                span.style.display = 'inline-block';
-                span.style.paddingLeft = '0.6em';
-                span.style.textIndent = '-0.6em';
-                const sourceLabel = isLow
-                    ? `Nur in Beschreibung gefunden (Quelle: ${item.source})`
-                    : `Quelle: ${item.source}`;
-                const trigger = item.begriff ? `\nTrigger: "${item.begriff}"` : '';
-                const snippet = item.snippet ? `\nKontext: …${item.snippet}…` : '';
-                span.title = sourceLabel + trigger + snippet;
-                if (isLow) {
-                    span.style.fontStyle = 'italic';
-                    span.style.opacity = '0.85';
-                }
-                el.appendChild(span);
-                columns.appendChild(el);
-                placed++;
+                placed = appendResultRow(columns, item, placed, autoMode);
             });
             ergebnisBereich.appendChild(columns);
+
+            const legendParts = [];
+            if (autoMode) {
+                legendParts.push('Grau = nur auf der Seite gefunden · Farbig = in deiner Konfiguration erkannt · (inaktiv) = Eintrag vorhanden, aber deaktiviert');
+            }
             const hasLow = gefundeneTexte.some(i => i.confidence === 'low');
             if (hasLow) {
+                legendParts.push('* = nur in Beschreibungstext gefunden (geringere Sicherheit)');
+            }
+            if (legendParts.length > 0) {
                 const legend = document.createElement('div');
                 legend.style.width = '100%';
                 legend.style.fontSize = '11px';
                 legend.style.opacity = '0.7';
                 legend.style.marginTop = '6px';
-                legend.textContent = '* = nur in Beschreibungstext gefunden (geringere Sicherheit)';
+                legend.textContent = legendParts.join(' · ');
                 ergebnisBereich.appendChild(legend);
             }
         } else {
             const keine = document.createElement('div');
-            keine.textContent = 'Keine der gesuchten Begriffe gefunden.';
+            keine.textContent = autoMode
+                ? 'Keine Ausstattungseinträge auf der Seite gefunden.'
+                : 'Keine der gesuchten Begriffe gefunden.';
             keine.style.color = 'white';
             ergebnisBereich.appendChild(keine);
         }
@@ -1020,7 +1573,7 @@
     function startObserver() {
         if (observer) observer.disconnect();
         // Wir lassen den Observer dauerhaft laufen; trigger() ist debounced
-        // und ergebnisHinzufuegen() bricht früh ab, wenn bereits eingefügt.
+        // und ergebnisHinzufuegen() baut den Ergebnisblock bei Bedarf neu auf.
         // Bei SPA-Re-Renders (DOM ohne URL-Wechsel) wird so neu gerendert.
         observer = new MutationObserver(() => trigger());
         observer.observe(document.body, { childList: true, subtree: true });
@@ -1098,6 +1651,7 @@
 <h4>So bedienst du es:</h4>
 <ul>
 <li>Jede Karte beschreibt ein Feature und besitzt einen Toggle.</li>
+<li><strong>Automodus:</strong> Aus = nur Treffer aus deiner Ausstattungs-Konfiguration (wie bisher). An = vollständige Liste aus Ausstattungsliste und strukturierter Beschreibung; Konfig-Treffer farbig, unbekannte Zeilen mit <strong>+ Konfig</strong> übernehmbar.</li>
 <li>Beim Deaktivieren werden bereits aktive Manipulationen (z.B. die Maps-Verlinkung) auf der gerade geöffneten Detailseite optisch zurückgenommen.</li>
 <li>Neue Features werden automatisch mit ihren Standardwerten ergänzt; bestehende Einstellungen bleiben erhalten.</li>
 </ul>`]
@@ -1127,7 +1681,7 @@
         let expandedAusstattungIndex = null;
         /** Hilfe-Panel je Tab (Ausstattung, Tech, Merge, Import/Export, Config) — vermeidet Zustandsverlust beim Tab-Wechsel. */
         const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-        const SCRIPT_UI_VERSION = '2.7.5';
+        const SCRIPT_UI_VERSION = '2.8.6';
         let ausSort = { key: 'config', dir: 'asc' };
         let techSort = { key: 'config', dir: 'asc' };
         let mergeSort = { key: 'config', dir: 'asc' };
@@ -3222,6 +3776,32 @@
         updateTabBadges();
         refreshValidationUI();
         syncUndoBtn();
+
+        if (pendingAusstattungPrefill && pendingAusstattungPrefill.label) {
+            const label = pendingAusstattungPrefill.label.trim();
+            const cleaned = cleanText(label);
+            const begriffe = [];
+            if (cleaned) begriffe.push(cleaned);
+            const rawNorm = label.toLowerCase().trim();
+            if (rawNorm && rawNorm !== cleaned && !begriffe.includes(rawNorm)) {
+                begriffe.push(rawNorm);
+            }
+            if (begriffe.length === 0) begriffe.push(rawNorm || label);
+            aktuelleAusstattungsKonfig.unshift({
+                begriffe,
+                anzeige: label,
+                farbe: '#66ff66',
+                aktiv: true,
+                favorit: false
+            });
+            expandedAusstattungIndex = 0;
+            pendingAusstattungPrefill = null;
+            markDirty();
+            setActiveTab(0);
+            renderAusstattung();
+            updateTabBadges();
+            refreshValidationUI();
+        }
 
         requestAnimationFrame(() => {
             overlay.style.opacity = '1';

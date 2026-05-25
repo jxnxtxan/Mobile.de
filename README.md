@@ -8,7 +8,8 @@ Tampermonkey-Skript für **mobile.de**-Fahrzeugdetailseiten: definierte **Aussta
 - Kombination angezeigter Treffer („Merge-Gruppen“, z.&nbsp;B. Außenspiegel-Zusammenfassung).
 - Zusätzliche **Tech-Daten**-Zeilen im Ergebnisbereich.
 - **SPA-tauglich** (Observer + gedrosseltes Nachladen nach DOM-/URL-Wechsel).
-- Unter **Konfiguration → Config**: z.&nbsp;B. **Standort als Google-Maps-Link** (PLZ/Stadt klickbar).
+- Unter **Konfiguration → Config**: z.&nbsp;B. **Standort als Google-Maps-Link** (PLZ/Stadt klickbar) und optional **Automodus**.
+- **Automodus** (Config-Tab, standardmäßig aus): Zeigt alle Einträge aus der Ausstattungsliste und strukturierter Komma-Beschreibung in einer Liste. Treffer aus deiner Ausstattungs-Konfiguration werden **farbig** hervorgehoben; übrige Zeilen erscheinen grau. Per **+ Konfig** lässt sich ein unbekannter Eintrag im Popup vorausgefüllt anlegen. Ausgeschaltet verhält sich das Skript wie bisher (nur konfigurierte Suchbegriffe).
 - Popup mit Filter, Bulk-Aktionen, Drag-and-Drop, Undo, Hilfe-Tabs und Validierungshinweisen.
 
 ## Installation
@@ -20,7 +21,7 @@ Tampermonkey-Skript für **mobile.de**-Fahrzeugdetailseiten: definierte **Aussta
 
 ### Ergebnis auf der Detailseite
 
-Über dem Aktionsbereich erscheinen der Block **„Technische Daten:“** und **„Gefundene Begriffe:“** mit farblicher Zuordnung (z.&nbsp;B. Ampel-/Prioritätsfarben wie im Skript eingestellt).
+Über dem Aktionsbereich erscheinen der Block **„Technische Daten:“** und **„Gefundene Begriffe:“** bzw. im Automodus **„Ausstattung (vollständig):“** mit farblicher Zuordnung (z.&nbsp;B. Ampel-/Prioritätsfarben wie im Skript eingestellt).
 
 ![Technische Daten und gefundene Begriffe](./assets/ergebnis-techdaten.png)
 
