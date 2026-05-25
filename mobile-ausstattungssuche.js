@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile
-// @version      2.10.8
+// @version      2.10.14
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Token-basierte Match-Engine mit Wortgrenzen, Quellen-Gewichtung (Feature-Liste vs. Beschreibung), SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile
@@ -1312,6 +1312,22 @@
         return result;
     }
 
+    /** Übernimmt Automodus-Metadaten von Quell-Treffern (u. a. highlighted für consolidateAutoModeResults). */
+    function pickMergedEntryMeta(matching) {
+        const meta = {
+            highlighted: matching.some(e => e.highlighted !== false)
+        };
+        if (matching.some(e => e.learnable)) meta.learnable = true;
+        const rawLabel = matching.map(e => e.rawLabel).find(Boolean);
+        if (rawLabel) meta.rawLabel = rawLabel;
+        const begriff = matching.map(e => e.begriff).find(Boolean);
+        if (begriff) meta.begriff = begriff;
+        const snippet = matching.map(e => e.snippet).find(Boolean);
+        if (snippet) meta.snippet = snippet;
+        if (matching.some(e => e.configInactive)) meta.configInactive = true;
+        return meta;
+    }
+
     function generalizedMergeEntries(entries, gruppen) {
         if (!Array.isArray(gruppen) || gruppen.length === 0) return entries;
         let result = [...entries];
@@ -1341,7 +1357,8 @@
                 anzeige: merged,
                 farbe: matching[0].farbe,
                 source: sources,
-                confidence: bestConf
+                confidence: bestConf,
+                ...pickMergedEntryMeta(matching)
             });
         });
         return result;
@@ -1819,10 +1836,18 @@
         let aktuelleFeatureFlags = { ...featureFlagsDefault(), ...(featureFlags || {}) };
         aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
 
-        const baselineAus = JSON.parse(JSON.stringify(aktuelleAusstattungsKonfig));
-        const baselineTech = JSON.parse(JSON.stringify(aktuelleTechKonfigurationen));
-        const baselineMerge = JSON.parse(JSON.stringify(aktuelleMergeGruppen));
-        const baselineFlags = { ...aktuelleFeatureFlags };
+        let baselineAus = JSON.parse(JSON.stringify(aktuelleAusstattungsKonfig));
+        let baselineTech = JSON.parse(JSON.stringify(aktuelleTechKonfigurationen));
+        let baselineMerge = JSON.parse(JSON.stringify(aktuelleMergeGruppen));
+        let baselineFlags = JSON.parse(JSON.stringify(aktuelleFeatureFlags));
+
+        function refreshSaveBaseline() {
+            baselineAus = JSON.parse(JSON.stringify(aktuelleAusstattungsKonfig));
+            baselineTech = JSON.parse(JSON.stringify(aktuelleTechKonfigurationen));
+            baselineMerge = JSON.parse(JSON.stringify(aktuelleMergeGruppen));
+            baselineFlags = JSON.parse(JSON.stringify(aktuelleFeatureFlags));
+            baselineFlags.listOrder = mergeListOrder(baselineFlags.listOrder);
+        }
 
         let dirty = false;
         let saveBtnRef = null;
@@ -1832,7 +1857,7 @@
         let expandedAusstattungIndex = null;
         /** Hilfe-Panel je Tab (Ausstattung, Tech, Merge, Import/Export, Config) — vermeidet Zustandsverlust beim Tab-Wechsel. */
         const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-        const SCRIPT_UI_VERSION = '2.10.7';
+        const SCRIPT_UI_VERSION = '2.10.14';
         const pageWindow = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
         let ausSort = { key: 'config', dir: 'asc' };
         let techSort = { key: 'config', dir: 'asc' };
@@ -1845,7 +1870,9 @@
             if (!saveBtnRef) return;
             saveBtnRef.disabled = !dirty;
             saveBtnRef.classList.toggle('mc-btn--save-idle', !dirty);
-            if (!dirty && saveBtnRef.textContent === '✔ Gespeichert') {
+            if (dirty) {
+                saveBtnRef.textContent = 'Speichern';
+            } else if (saveBtnRef.textContent !== '✔ Gespeichert') {
                 saveBtnRef.textContent = 'Speichern';
             }
         }
@@ -2179,12 +2206,12 @@
 }
 .mc-merge-grid{
   display:grid;
-  grid-template-columns:44px minmax(120px,1fr) 88px 76px;
-  gap:8px;align-items:center;
+  grid-template-columns:44px minmax(140px,1.05fr) minmax(200px,1.2fr) 72px;
+  gap:10px;align-items:center;
 }
 .mc-col-sort-header.mc-aus-grid{min-width:720px;}
 .mc-col-sort-header.mc-tech-grid{min-width:420px;}
-.mc-col-sort-header.mc-merge-grid{min-width:520px;}
+.mc-col-sort-header.mc-merge-grid{min-width:580px;}
 .mc-col-sort-spacer,.mc-col-sort-inert{display:block;min-height:1px;}
 .mc-col-sort-btn{
   appearance:none;border:1px solid transparent;background:transparent;
@@ -2253,13 +2280,28 @@
   grid-template-columns:26px 44px minmax(120px,1fr) 76px;
   gap:8px;align-items:center;min-width:420px;
 }
-.mc-card__main-row--merge{
-  display:grid;
-  grid-template-columns:44px minmax(120px,1fr) 88px 76px;
-  gap:8px;align-items:start;min-width:520px;
+.mc-card__main-row--merge.mc-merge-grid{
+  display:grid;align-items:center;min-width:580px;
 }
 .mc-aus-list-scroll,.mc-tech-list-scroll,.mc-merge-list-scroll{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch;}
-.mc-card__main-row--merge > .mc-toggle-wrap{flex-shrink:0;padding-top:4px;}
+.mc-card__main-row--merge > .mc-toggle-wrap{
+  flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  align-self:center;min-height:38px;
+}
+.mc-card__main-row--merge .mc-input{
+  min-width:0;width:100%;box-sizing:border-box;min-height:38px;
+}
+.mc-merge-modifier{
+  resize:none;overflow:hidden;line-height:1.35;padding:8px 10px;
+  min-height:38px;max-height:38px;field-sizing:fixed;
+}
+.mc-merge-modifier--expanded{
+  max-height:min(200px,40vh);overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+  z-index:2;position:relative;box-shadow:0 4px 14px rgba(0,0,0,.35);
+}
+.mc-card__main-row--merge > .mc-btn{
+  justify-self:stretch;align-self:center;white-space:nowrap;min-height:38px;padding:6px 10px;
+}
 .mc-card__main-row--tech > .mc-drag-handle,
 .mc-card__main-row--tech > .mc-toggle-wrap,
 .mc-card__main-row--tech > .mc-btn{
@@ -2293,11 +2335,49 @@
 }
 .mc-list-dragging{user-select:none;cursor:grabbing;}
 .mc-list-dragging *{cursor:grabbing!important;}
-.mc-list-order-card{margin-top:12px;}
-.mc-list-order-scopes{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:8px;}
-.mc-list-order-scope label{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;}
-.mc-list-order-mode{display:flex;flex-wrap:wrap;gap:12px 20px;margin-top:8px;}
-.mc-list-order-mode label{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;}
+.mc-list-order-card{margin-top:12px;padding:16px 18px;display:flex;flex-direction:column;gap:6px;}
+.mc-list-order-card > .mc-feature-desc{margin-bottom:4px;}
+.mc-lo-body{display:flex;flex-direction:column;gap:14px;}
+.mc-lo-hint{
+  font-size:12px;line-height:1.45;color:var(--mc-muted);padding:8px 10px;border-radius:8px;
+  background:rgba(0,0,0,.14);border:1px solid var(--mc-border);
+}
+.mc-lo-hint--active{color:#b8d4f0;border-color:rgba(33,150,243,.35);background:rgba(33,150,243,.1);}
+.mc-lo-section{display:flex;flex-direction:column;gap:8px;}
+.mc-lo-section-title{
+  font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mc-muted);
+}
+.mc-lo-segment{
+  display:inline-flex;align-self:flex-start;flex-wrap:wrap;gap:0;padding:3px;border-radius:10px;
+  background:rgba(0,0,0,.22);border:1px solid var(--mc-border);
+}
+.mc-lo-segment-btn{
+  border:none;background:transparent;color:var(--mc-muted);font-size:13px;font-weight:500;
+  padding:8px 14px;border-radius:8px;cursor:pointer;white-space:nowrap;transition:background .15s,color .15s;
+}
+.mc-lo-segment-btn:hover:not(.mc-lo-segment-btn--active){color:var(--mc-text);background:rgba(255,255,255,.06);}
+.mc-lo-segment-btn--active{background:var(--mc-accent);color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.25);}
+.mc-lo-segment-btn:focus-visible{outline:2px solid var(--mc-accent);outline-offset:2px;}
+.mc-lo-scope-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;}
+.mc-lo-scope-item{
+  display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;
+  border:1px solid var(--mc-border);background:rgba(0,0,0,.12);transition:border-color .15s,background .15s,opacity .15s;
+}
+.mc-lo-scope-item:hover:not(.mc-lo-scope-item--disabled){border-color:#5c6bc0;background:rgba(92,107,192,.12);}
+.mc-lo-scope-item--on{border-color:var(--mc-accent);background:rgba(33,150,243,.12);}
+.mc-lo-scope-item--disabled{opacity:.45;cursor:not-allowed;}
+.mc-lo-scope-item input[type=checkbox]{margin-top:2px;flex-shrink:0;accent-color:var(--mc-accent);}
+.mc-lo-scope-text{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.mc-lo-scope-label{font-size:13px;font-weight:600;line-height:1.25;}
+.mc-lo-scope-sub{font-size:11px;color:var(--mc-muted);line-height:1.35;}
+.mc-lo-divider{height:1px;background:var(--mc-border);margin:2px 0;}
+.mc-lo-veh{
+  display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;
+  border:1px dashed var(--mc-border);background:rgba(0,0,0,.08);
+}
+.mc-lo-veh--disabled{opacity:.45;cursor:not-allowed;}
+.mc-lo-veh--on{border-color:var(--mc-accent);border-style:solid;background:rgba(33,150,243,.08);}
+.mc-lo-veh input[type=checkbox]{margin-top:2px;flex-shrink:0;accent-color:var(--mc-accent);}
 .mc-col-sort-header--disabled .mc-col-sort-btn{opacity:0.4;pointer-events:none;cursor:default;}
 .mc-toggle-wrap{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 .mc-toggle{position:relative;width:40px;height:22px;flex-shrink:0;}
@@ -2589,6 +2669,59 @@
             lab.appendChild(span);
             inp.addEventListener('change', () => onChange(inp.checked));
             return lab;
+        }
+
+        let mergeModifierExpandedEl = null;
+
+        function mkMergeModifierField(group, rowEl) {
+            const ta = document.createElement('textarea');
+            ta.className = 'mc-input mc-merge-modifier';
+            ta.rows = 1;
+            ta.value = (group.order || []).join(', ');
+            ta.placeholder = 'Modifier, kommagetrennt';
+            ta.title = 'Reihenfolge der Zusätze, z. B. beheizbar, anklappbar, elektr. verstellbar';
+            ta.setAttribute('autocomplete', 'off');
+
+            function applyOrder() {
+                group.order = ta.value.split(',').map(s => s.trim()).filter(Boolean);
+                markDirty();
+                refreshValidationUI();
+            }
+
+            function resizeExpanded() {
+                ta.style.height = 'auto';
+                const h = Math.max(38, Math.min(ta.scrollHeight + 2, 200));
+                ta.style.height = h + 'px';
+            }
+
+            function collapse() {
+                if (mergeModifierExpandedEl === ta) mergeModifierExpandedEl = null;
+                ta.classList.remove('mc-merge-modifier--expanded');
+                if (rowEl) rowEl.classList.remove('mc-merge-row--modifier-open');
+                ta.style.height = '';
+            }
+
+            function expand() {
+                if (mergeModifierExpandedEl && mergeModifierExpandedEl !== ta) {
+                    mergeModifierExpandedEl.blur();
+                }
+                mergeModifierExpandedEl = ta;
+                ta.classList.add('mc-merge-modifier--expanded');
+                if (rowEl) rowEl.classList.add('mc-merge-row--modifier-open');
+                resizeExpanded();
+            }
+
+            ta.addEventListener('focus', expand);
+            ta.addEventListener('input', () => {
+                applyOrder();
+                if (ta.classList.contains('mc-merge-modifier--expanded')) resizeExpanded();
+            });
+            ta.addEventListener('blur', () => {
+                applyOrder();
+                collapse();
+            });
+
+            return ta;
         }
 
         function namedColorToHex(name) {
@@ -4274,35 +4407,19 @@
                 const inputBasis = document.createElement('input');
                 inputBasis.type = 'text';
                 inputBasis.className = 'mc-input';
-                inputBasis.style.width = '100%';
-                inputBasis.style.minWidth = '0';
                 inputBasis.value = group.basis || '';
-                inputBasis.placeholder = 'Basis (z. B. außenspiegel)';
+                inputBasis.placeholder = 'Basis, z. B. außenspiegel';
+                inputBasis.title = 'Gemeinsamer Anzeige-Präfix für zusammengefasste Treffer';
                 inputBasis.addEventListener('input', () => {
                     group.basis = inputBasis.value;
                     markDirty();
                     refreshValidationUI();
                 });
 
-                const orderWrap = document.createElement('div');
-                orderWrap.style.minWidth = '0';
-                const lb = document.createElement('div');
-                lb.className = 'mc-label-sm';
-                lb.textContent = 'Modifier (Komma-getrennt)';
-                const inputOrder = document.createElement('input');
-                inputOrder.type = 'text';
-                inputOrder.className = 'mc-input';
-                inputOrder.style.width = '100%';
-                inputOrder.value = (group.order || []).join(', ');
-                inputOrder.addEventListener('input', () => {
-                    group.order = inputOrder.value.split(',').map(s => s.trim()).filter(Boolean);
-                    markDirty();
-                    refreshValidationUI();
-                });
-                orderWrap.appendChild(lb);
-                orderWrap.appendChild(inputOrder);
+                const inputOrder = mkMergeModifierField(group, rowTop);
+
                 rowTop.appendChild(inputBasis);
-                rowTop.appendChild(orderWrap);
+                rowTop.appendChild(inputOrder);
 
                 const btnDel = mkBtn('ghost', 'Löschen', () => {
                     pushUndo({ kind: 'merge', data: snapshotMerge() });
@@ -4521,84 +4638,168 @@
             aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
             const lo = aktuelleFeatureFlags.listOrder;
 
+            function listOrderHintText() {
+                if (lo.mode !== 'manual') {
+                    return 'Alphabetisch: Beim Speichern werden Ausstattung und Tech-Daten nach Anzeigetext sortiert.';
+                }
+                const parts = [];
+                if (lo.scopes.ausstattungFavorites) parts.push('Favoriten');
+                if (lo.scopes.ausstattung) parts.push('gesamte Ausstattungsliste');
+                if (lo.scopes.tech) parts.push('Tech-Daten');
+                if (!parts.length) {
+                    return 'Manuell: Wähle mindestens einen Bereich — dann erscheint am Griff ⋮⋮ Drag-and-Drop.';
+                }
+                let msg = 'Manuell aktiv: Ziehen per ⋮⋮ in ' + parts.join(', ') + '.';
+                if (lo.applyToVehicleResults) {
+                    msg += ' Dieselbe Reihenfolge gilt auf der Fahrzeugdetailseite.';
+                }
+                return msg;
+            }
+
+            function syncListOrderUi() {
+                const manual = lo.mode === 'manual';
+                const hasScope = manual &&
+                    (lo.scopes.ausstattung || lo.scopes.ausstattungFavorites || lo.scopes.tech);
+                loHint.textContent = listOrderHintText();
+                loHint.classList.toggle('mc-lo-hint--active', manual && hasScope);
+                modeBtns.forEach(({ val, btn }) => {
+                    const on = lo.mode === val;
+                    btn.classList.toggle('mc-lo-segment-btn--active', on);
+                    btn.setAttribute('aria-checked', on ? 'true' : 'false');
+                });
+                scopeUi.forEach(({ key, wrap, cb }) => {
+                    const on = !!lo.scopes[key];
+                    wrap.classList.toggle('mc-lo-scope-item--on', manual && on);
+                    wrap.classList.toggle('mc-lo-scope-item--disabled', !manual);
+                    cb.disabled = !manual;
+                    cb.checked = on;
+                });
+                vehWrap.classList.toggle('mc-lo-veh--disabled', !hasScope);
+                vehWrap.classList.toggle('mc-lo-veh--on', hasScope && !!lo.applyToVehicleResults);
+                vehCb.disabled = !hasScope;
+                vehCb.checked = !!lo.applyToVehicleResults;
+            }
+
             const loCard = document.createElement('div');
             loCard.className = 'mc-card mc-list-order-card';
-            const loRow = document.createElement('div');
-            loRow.className = 'mc-card__main-row mc-card__main-row--feature';
-            const loTxt = document.createElement('div');
-            loTxt.className = 'mc-feature-text';
-            const loTitle = document.createElement('div');
-            loTitle.className = 'mc-feature-title';
-            loTitle.textContent = 'Listen-Reihenfolge';
+            const loHead = document.createElement('div');
+            loHead.className = 'mc-feature-title';
+            loHead.textContent = 'Listen-Reihenfolge';
             const loDesc = document.createElement('div');
             loDesc.className = 'mc-feature-desc';
-            loDesc.textContent = 'Alphabetisch = Speichern sortiert die Listen. Manuell = Reihenfolge per Ziehen (⋮⋮) bleibt erhalten. Bereiche und Fahrzeugseite separat wählbar.';
-            loTxt.appendChild(loTitle);
-            loTxt.appendChild(loDesc);
+            loDesc.textContent = 'Steuert Sortierung beim Speichern und optional Drag-and-Drop im Konfig-Popup.';
+            const loHint = document.createElement('div');
+            loHint.className = 'mc-lo-hint';
+            const loBody = document.createElement('div');
+            loBody.className = 'mc-lo-body';
 
+            const modeSec = document.createElement('div');
+            modeSec.className = 'mc-lo-section';
+            const modeTitle = document.createElement('div');
+            modeTitle.className = 'mc-lo-section-title';
+            modeTitle.textContent = 'Modus';
             const loMode = document.createElement('div');
-            loMode.className = 'mc-list-order-mode';
-            [['alphabet', 'Alphabetisch'], ['manual', 'Manuell (Drag & Drop)']].forEach(([val, lab]) => {
-                const lbl = document.createElement('label');
-                const rb = document.createElement('input');
-                rb.type = 'radio';
-                rb.name = 'mc-list-order-mode';
-                rb.value = val;
-                rb.checked = lo.mode === val;
-                rb.addEventListener('change', () => {
-                    if (!rb.checked) return;
+            loMode.className = 'mc-lo-segment';
+            loMode.setAttribute('role', 'radiogroup');
+            loMode.setAttribute('aria-label', 'Sortiermodus');
+            const modeBtns = [];
+            [['alphabet', 'Alphabetisch'], ['manual', 'Manuell']].forEach(([val, lab]) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'mc-lo-segment-btn';
+                btn.textContent = lab;
+                btn.setAttribute('role', 'radio');
+                btn.addEventListener('click', () => {
                     lo.mode = val;
+                    syncListOrderUi();
                     onListOrderChanged();
                 });
-                lbl.appendChild(rb);
-                lbl.appendChild(document.createTextNode(lab));
-                loMode.appendChild(lbl);
+                modeBtns.push({ val, btn });
+                loMode.appendChild(btn);
             });
-            loTxt.appendChild(loMode);
+            modeSec.appendChild(modeTitle);
+            modeSec.appendChild(loMode);
 
-            const loScopes = document.createElement('div');
-            loScopes.className = 'mc-list-order-scopes';
+            const scopeSec = document.createElement('div');
+            scopeSec.className = 'mc-lo-section';
+            const scopeTitle = document.createElement('div');
+            scopeTitle.className = 'mc-lo-section-title';
+            scopeTitle.textContent = 'Bereiche (nur bei Manuell)';
+            const loScopeGrid = document.createElement('div');
+            loScopeGrid.className = 'mc-lo-scope-grid';
+            const scopeUi = [];
             [
-                ['ausstattungFavorites', 'Favoriten (Ausstattung)'],
-                ['ausstattung', 'Gesamte Ausstattungsliste'],
-                ['tech', 'Tech-Daten']
-            ].forEach(([key, lab]) => {
-                const lbl = document.createElement('label');
+                ['ausstattungFavorites', 'Favoriten', 'Nur Stern-Einträge im Ausstattungs-Tab'],
+                ['ausstattung', 'Gesamte Ausstattungsliste', 'Alle Zeilen inkl. Favoriten & Rest'],
+                ['tech', 'Tech-Daten', 'Reihenfolge im Tech-Daten-Tab']
+            ].forEach(([key, lab, sub]) => {
+                const wrap = document.createElement('label');
+                wrap.className = 'mc-lo-scope-item';
                 const cb = document.createElement('input');
                 cb.type = 'checkbox';
-                cb.checked = !!lo.scopes[key];
-                cb.disabled = lo.mode !== 'manual';
                 cb.addEventListener('change', () => {
                     lo.scopes[key] = cb.checked;
+                    syncListOrderUi();
                     onListOrderChanged();
                 });
-                lbl.appendChild(cb);
-                lbl.appendChild(document.createTextNode(lab));
-                loScopes.appendChild(lbl);
+                const text = document.createElement('span');
+                text.className = 'mc-lo-scope-text';
+                const labEl = document.createElement('span');
+                labEl.className = 'mc-lo-scope-label';
+                labEl.textContent = lab;
+                const subEl = document.createElement('span');
+                subEl.className = 'mc-lo-scope-sub';
+                subEl.textContent = sub;
+                text.appendChild(labEl);
+                text.appendChild(subEl);
+                wrap.appendChild(cb);
+                wrap.appendChild(text);
+                loScopeGrid.appendChild(wrap);
+                scopeUi.push({ key, wrap, cb });
             });
-            loTxt.appendChild(loScopes);
+            scopeSec.appendChild(scopeTitle);
+            scopeSec.appendChild(loScopeGrid);
 
-            const hasManualScope = lo.mode === 'manual' &&
-                (lo.scopes.ausstattung || lo.scopes.ausstattungFavorites || lo.scopes.tech);
-            const vehRow = document.createElement('div');
-            vehRow.className = 'mc-list-order-scopes';
-            vehRow.style.marginTop = '6px';
-            const vehLbl = document.createElement('label');
+            const vehSec = document.createElement('div');
+            vehSec.className = 'mc-lo-section';
+            const vehTitle = document.createElement('div');
+            vehTitle.className = 'mc-lo-section-title';
+            vehTitle.textContent = 'Fahrzeugdetailseite';
+            const vehWrap = document.createElement('label');
+            vehWrap.className = 'mc-lo-veh';
             const vehCb = document.createElement('input');
             vehCb.type = 'checkbox';
-            vehCb.checked = !!lo.applyToVehicleResults;
-            vehCb.disabled = !hasManualScope;
             vehCb.addEventListener('change', () => {
                 lo.applyToVehicleResults = vehCb.checked;
+                syncListOrderUi();
                 onListOrderChanged();
             });
-            vehLbl.appendChild(vehCb);
-            vehLbl.appendChild(document.createTextNode('Reihenfolge auf Fahrzeugseite übernehmen'));
-            vehRow.appendChild(vehLbl);
-            loTxt.appendChild(vehRow);
+            const vehText = document.createElement('span');
+            vehText.className = 'mc-lo-scope-text';
+            const vehLab = document.createElement('span');
+            vehLab.className = 'mc-lo-scope-label';
+            vehLab.textContent = 'Reihenfolge übernehmen';
+            const vehSub = document.createElement('span');
+            vehSub.className = 'mc-lo-scope-sub';
+            vehSub.textContent = 'Gefundene Begriffe / Tech-Daten in derselben Reihenfolge wie hier';
+            vehText.appendChild(vehLab);
+            vehText.appendChild(vehSub);
+            vehWrap.appendChild(vehCb);
+            vehWrap.appendChild(vehText);
+            vehSec.appendChild(vehTitle);
+            vehSec.appendChild(vehWrap);
 
-            loRow.appendChild(loTxt);
-            loCard.appendChild(loRow);
+            const loDivider = document.createElement('div');
+            loDivider.className = 'mc-lo-divider';
+            loBody.appendChild(modeSec);
+            loBody.appendChild(scopeSec);
+            loBody.appendChild(loDivider);
+            loBody.appendChild(vehSec);
+            loCard.appendChild(loHead);
+            loCard.appendChild(loDesc);
+            loCard.appendChild(loHint);
+            loCard.appendChild(loBody);
+            syncListOrderUi();
             configContainer.appendChild(loCard);
 
             if (!FEATURE_FLAG_DEFINITIONS.length) {
@@ -4764,15 +4965,23 @@
             mergeGruppenConfig = aktuelleMergeGruppen;
             featureFlags = aktuelleFeatureFlags;
 
+            refreshSaveBaseline();
             dirty = false;
+            undoStack.length = 0;
+            syncUndoBtn();
             syncSaveBtn();
             saveBtn.disabled = true;
             saveBtn.textContent = '✔ Gespeichert';
-            setTimeout(() => {
-                removeOverlay();
-                clearResults();
-                trigger();
-            }, 800);
+            showToast('Konfiguration gespeichert — Popup bleibt offen.', 'success');
+            clearResults();
+            trigger();
+            renderAusstattung();
+            renderTechData();
+            renderMergeConfig();
+            renderConfig();
+            updateTabBadges();
+            refreshValidationUI();
+            setTimeout(() => syncSaveBtn(), 1600);
         });
 
         refreshExportArea();
