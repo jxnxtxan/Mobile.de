@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile
-// @version      2.10.16
+// @version      2.10.21
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Token-basierte Match-Engine mit Wortgrenzen, Quellen-Gewichtung (Feature-Liste vs. Beschreibung), SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile
@@ -1365,6 +1365,70 @@
     }
 
     // ============================================================
+    // 7b) Ergebnis-UI Styles (minimal, eingebettet in mobile.de)
+    // ============================================================
+    function injectResultStyles() {
+        if (document.getElementById('mobilede-result-style')) return;
+        const st = document.createElement('style');
+        st.id = 'mobilede-result-style';
+        st.textContent = `
+article.mobilede-tech-article,article.mobilede-result-article{
+  box-sizing:border-box;margin:0;padding:12px 16px;
+}
+.mobilede-tech-article+.mobilede-result-article{margin-top:8px;}
+.mobilede-result-card,.mobilede-tech-card{
+  --mdr-text:inherit;--mdr-muted:rgba(255,255,255,.65);--mdr-divider:rgba(255,255,255,.12);
+  box-sizing:border-box;width:100%;padding:0;margin:0;background:transparent;
+  color:var(--mdr-text);font-size:14px;line-height:1.45;text-align:left;
+}
+.mobilede-section-title{
+  margin:0 0 8px;font-size:15px;font-weight:600;line-height:1.3;color:inherit;
+}
+.mobilede-subsection-title{
+  grid-column:1/-1;margin:0 0 4px;font-size:13px;font-weight:600;line-height:1.3;
+  color:var(--mdr-muted);
+}
+.mobilede-result-grid{
+  display:grid;grid-template-columns:1fr;gap:4px 0;align-items:start;
+}
+@media(min-width:560px){
+  .mobilede-result-grid{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px;}
+}
+.mobilede-result-row{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-width:0;
+}
+.mobilede-result-hit{
+  flex:1;min-width:0;overflow-wrap:anywhere;display:inline-block;
+  padding-left:.6em;text-indent:-.6em;
+}
+.mobilede-result-hit--help{cursor:help;}
+.mobilede-result-fav-divider{
+  grid-column:1/-1;border-top:1px solid rgba(255,255,255,.22);margin:8px 0 6px;height:0;
+}
+.mobilede-result-legend{
+  width:100%;margin-top:10px;font-size:11px;line-height:1.4;opacity:.7;color:var(--mdr-muted);
+}
+.mobilede-result-empty{color:var(--mdr-muted);}
+.mobilede-learn-btn{
+  flex-shrink:0;cursor:pointer;font-size:11px;padding:2px 6px;
+  border:1px solid rgba(255,255,255,.25);border-radius:4px;
+  background:rgba(255,255,255,.08);color:#e0e0e0;font-family:inherit;
+}
+.mobilede-learn-btn:hover{background:rgba(255,255,255,.14);}
+.mobilede-tech-list{display:flex;flex-direction:column;gap:8px;}
+.mobilede-tech-row{
+  display:grid;grid-template-columns:1fr;gap:2px 0;align-items:start;
+}
+@media(min-width:560px){
+  .mobilede-tech-row{grid-template-columns:minmax(8rem,38%) 1fr;column-gap:16px;}
+}
+.mobilede-tech-label{font-weight:500;color:var(--mdr-muted);}
+.mobilede-tech-value{overflow-wrap:anywhere;}
+`;
+        document.head.appendChild(st);
+    }
+
+    // ============================================================
     // 8) Suche nach Technischen Daten
     // ============================================================
     function sucheTechnischeDaten() {
@@ -1395,43 +1459,31 @@
     function technischeDatenHinzufuegen(parentElement) {
         const technischeDaten = sucheTechnischeDaten();
         if (technischeDaten.length === 0) return;
+        injectResultStyles();
         const techArticle = document.createElement('article');
         techArticle.className = 'A3G6X lAeeF vTKPY HaBLt ku0Os mobilede-tech-article';
-        techArticle.style.marginBottom = '10px';
         const techContainer = document.createElement('div');
-        Object.assign(techContainer.style, {
-            border: '1px solid #8a2be2',
-            padding: '10px',
-            backgroundColor: '#1e1f24',
-            color: 'white',
-            width: '100%',
-            textAlign: 'left',
-            boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
-            fontSize: '14px',
-            lineHeight: '1.5',
-            display: 'block'
-        });
+        techContainer.className = 'mobilede-tech-card';
         const title = document.createElement('div');
+        title.className = 'mobilede-section-title';
         title.textContent = 'Technische Daten:';
-        title.style.color = 'white';
-        title.style.marginBottom = '5px';
         techContainer.appendChild(title);
-        const table = document.createElement('table');
-        table.style.width = '100%';
-        table.style.borderCollapse = 'collapse';
+        const list = document.createElement('div');
+        list.className = 'mobilede-tech-list';
         technischeDaten.forEach(d => {
-            const tr = document.createElement('tr');
-            const tdKey = document.createElement('td');
-            tdKey.textContent = d.title + ':';
-            Object.assign(tdKey.style, { color: 'white', paddingRight: '20px', whiteSpace: 'nowrap', verticalAlign: 'top' });
-            const tdValue = document.createElement('td');
-            tdValue.textContent = d.value;
-            Object.assign(tdValue.style, { color: 'white', width: '100%', verticalAlign: 'top' });
-            tr.appendChild(tdKey);
-            tr.appendChild(tdValue);
-            table.appendChild(tr);
+            const row = document.createElement('div');
+            row.className = 'mobilede-tech-row';
+            const label = document.createElement('div');
+            label.className = 'mobilede-tech-label';
+            label.textContent = d.title + ':';
+            const value = document.createElement('div');
+            value.className = 'mobilede-tech-value';
+            value.textContent = d.value;
+            row.appendChild(label);
+            row.appendChild(value);
+            list.appendChild(row);
         });
-        techContainer.appendChild(table);
+        techContainer.appendChild(list);
         techArticle.appendChild(techContainer);
         parentElement.parentNode.insertBefore(techArticle, parentElement);
     }
@@ -1439,30 +1491,18 @@
     // ============================================================
     // 9) Render: Ergebnis-Article einfügen
     // ============================================================
-    function appendResultRow(columns, item, placed, autoMode) {
+    function appendResultRow(columns, item, autoMode) {
         const el = document.createElement('div');
+        el.className = 'mobilede-result-row';
         const isLow = item.confidence === 'low';
         const isHighlight = autoMode ? item.highlighted !== false : true;
-        el.style.minWidth = '0';
-        el.style.display = 'flex';
-        el.style.alignItems = 'flex-start';
-        el.style.justifyContent = 'space-between';
-        el.style.gap = '8px';
-        el.style.gridColumn = (placed % 2 === 0) ? '1' : '2';
 
         const span = document.createElement('span');
+        span.className = 'mobilede-result-hit';
         const inactiveSuffix = item.configInactive ? ' (inaktiv)' : '';
         span.textContent = `- ${item.anzeige}${inactiveSuffix}${isLow ? ' *' : ''}`;
         span.style.color = item.farbe || '#66ff66';
-        span.style.flex = '1';
-        span.style.minWidth = '0';
-        if (isHighlight) {
-            span.style.cursor = 'help';
-        }
-        span.style.overflowWrap = 'anywhere';
-        span.style.display = 'inline-block';
-        span.style.paddingLeft = '0.6em';
-        span.style.textIndent = '-0.6em';
+        if (isHighlight) span.classList.add('mobilede-result-hit--help');
 
         if (item.configInactive) {
             span.style.fontStyle = 'italic';
@@ -1492,19 +1532,9 @@
         if (autoMode && item.learnable && !isHighlight) {
             const learnBtn = document.createElement('button');
             learnBtn.type = 'button';
+            learnBtn.className = 'mobilede-learn-btn';
             learnBtn.textContent = '+ Konfig';
             learnBtn.title = 'Neuen Eintrag in der Konfiguration anlegen';
-            Object.assign(learnBtn.style, {
-                flexShrink: '0',
-                cursor: 'pointer',
-                fontSize: '11px',
-                padding: '2px 6px',
-                border: '1px solid rgba(255,255,255,0.25)',
-                borderRadius: '4px',
-                background: 'rgba(255,255,255,0.08)',
-                color: '#e0e0e0',
-                fontFamily: 'inherit'
-            });
             learnBtn.addEventListener('click', e => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1514,7 +1544,6 @@
         }
 
         columns.appendChild(el);
-        return placed + 1;
     }
 
     function ergebnisHinzufuegen() {
@@ -1522,6 +1551,7 @@
         const zielBereich = document.querySelector("article[data-testid='vip-key-features-box']");
         if (!zielBereich) return;
 
+        injectResultStyles();
         const autoMode = isAutoModeEnabled();
         const gefundeneTexte = getResultEntries();
 
@@ -1529,25 +1559,11 @@
         article.className = 'A3G6X lAeeF vTKPY HaBLt ku0Os mobilede-result-article';
         const ergebnisBereich = document.createElement('div');
         ergebnisBereich.id = 'ergebnisBereich';
-        Object.assign(ergebnisBereich.style, {
-            border: '1px solid #8a2be2',
-            padding: '10px',
-            marginTop: '10px',
-            backgroundColor: '#1e1f24',
-            color: 'white',
-            width: '100%',
-            textAlign: 'left',
-            boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
-            fontSize: '14px',
-            lineHeight: '1.5',
-            display: 'block'
-        });
+        ergebnisBereich.className = 'mobilede-result-card';
         article.appendChild(ergebnisBereich);
 
         const title = document.createElement('div');
-        title.style.color = 'white';
-        title.style.marginBottom = '5px';
-        title.style.width = '100%';
+        title.className = 'mobilede-section-title';
         title.textContent = autoMode ? 'Ausstattung (vollständig):' : 'Gefundene Begriffe:';
         ergebnisBereich.appendChild(title);
 
@@ -1556,28 +1572,22 @@
             const favCount = gefundeneTexte.filter(i =>
                 favKeys.has((i.anzeige || '').trim().toLowerCase())).length;
             const columns = document.createElement('div');
-            Object.assign(columns.style, {
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                columnGap: '24px',
-                rowGap: '2px',
-                alignItems: 'start'
-            });
+            columns.className = 'mobilede-result-grid';
 
-            let placed = 0;
             gefundeneTexte.forEach((item, index) => {
+                if (index === 0 && favCount > 0) {
+                    const favTitle = document.createElement('div');
+                    favTitle.className = 'mobilede-subsection-title';
+                    favTitle.textContent = 'Favoriten';
+                    columns.appendChild(favTitle);
+                }
                 if (favCount > 0 && favCount < gefundeneTexte.length && index === favCount) {
                     const divider = document.createElement('div');
+                    divider.className = 'mobilede-result-fav-divider';
                     divider.setAttribute('aria-hidden', 'true');
-                    Object.assign(divider.style, {
-                        gridColumn: '1 / -1',
-                        borderTop: '1px solid rgba(255,255,255,0.22)',
-                        margin: '8px 0 6px',
-                        height: '0'
-                    });
                     columns.appendChild(divider);
                 }
-                placed = appendResultRow(columns, item, placed, autoMode);
+                appendResultRow(columns, item, autoMode);
             });
             ergebnisBereich.appendChild(columns);
 
@@ -1591,19 +1601,16 @@
             }
             if (legendParts.length > 0) {
                 const legend = document.createElement('div');
-                legend.style.width = '100%';
-                legend.style.fontSize = '11px';
-                legend.style.opacity = '0.7';
-                legend.style.marginTop = '6px';
+                legend.className = 'mobilede-result-legend';
                 legend.textContent = legendParts.join(' · ');
                 ergebnisBereich.appendChild(legend);
             }
         } else {
             const keine = document.createElement('div');
+            keine.className = 'mobilede-result-empty';
             keine.textContent = autoMode
                 ? 'Keine Ausstattungseinträge auf der Seite gefunden.'
                 : 'Keine der gesuchten Begriffe gefunden.';
-            keine.style.color = 'white';
             ergebnisBereich.appendChild(keine);
         }
 
