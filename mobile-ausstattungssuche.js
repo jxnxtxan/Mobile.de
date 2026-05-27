@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile
-// @version      2.10.26
+// @version      2.10.27
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Token-basierte Match-Engine mit Wortgrenzen, Quellen-Gewichtung (Feature-Liste vs. Beschreibung), SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile
@@ -1346,6 +1346,11 @@
         return srcId + ':' + window.startIdx + ':' + window.endIdx;
     }
 
+    function isOnlyFeaturesSource(src) {
+        if (!src || !src.id) return false;
+        return src.id === 'features' || src.id === 'tech';
+    }
+
     /**
      * Sammelt Treffer pro Quelle/Fenster/Anzeige. Gleicher Begriff darf
      * mehrere Anzeige-Einträge treffen (z. B. beheizbar + verstellbar), aber
@@ -1365,7 +1370,7 @@
             const compound = cfg.compound === true;
 
             for (const src of sources) {
-                if (onlyHigh && src.confidence !== 'high') continue;
+                if (onlyHigh && !isOnlyFeaturesSource(src)) continue;
 
                 for (const begriff of cfg.begriffe) {
                     const parts = tokenize(begriff);
@@ -1763,9 +1768,27 @@ article.mobilede-tech-article,article.mobilede-result-article{
     // ============================================================
     let observer = null;
     let triggerTimer = null;
+
+    function hasActiveSelectionInsideResults() {
+        const sel = window.getSelection ? window.getSelection() : null;
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+        for (let i = 0; i < sel.rangeCount; i++) {
+            const range = sel.getRangeAt(i);
+            const nodes = [range.startContainer, range.endContainer];
+            for (const node of nodes) {
+                if (!node) continue;
+                const el = node.nodeType === 1 ? node : node.parentElement;
+                if (!el) continue;
+                if (el.closest('.mobilede-result-article, .mobilede-tech-article')) return true;
+            }
+        }
+        return false;
+    }
+
     function trigger() {
         clearTimeout(triggerTimer);
         triggerTimer = setTimeout(() => {
+            if (hasActiveSelectionInsideResults()) return;
             try { ergebnisHinzufuegen(); } catch (e) { console.error(e); }
             try { verlinkeStandortAufGoogleMaps(); } catch (e) { console.error(e); }
         }, 300);
