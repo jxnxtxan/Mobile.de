@@ -37,9 +37,9 @@ Filter, Schalter für jeden Eintrag, Farbwahl (Hex oder Schlüsselwort), Optione
 
 ![Konfigurations-Popup, Tab Ausstattung](./assets/popup-ausstattung.png)
 
-### Popup: Config (Google Maps)
+### Popup: Config (Listen & Suchergebnis-Sortierung)
 
-Im Tab **Config** lassen sich erweiterbare Feature-Flags umschalten, z.&nbsp;B. anklickbare Standortzeilen (**Google Maps**).
+Im Tab **Config** werden Skript-Optionen zentral gesteuert, z.&nbsp;B. **Listen-Reihenfolge** (alphabetisch/manuell, optionale Bereiche) und die **Standard-Sortierung** auf Suchergebnisseiten inkl. Schalter „Auf Suchergebnisseiten anwenden“.
 
 ![Konfigurations-Popup, Tab Config](./assets/popup-config-feature-flags.png)
 
