@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.10.28
+// @version      2.11.10
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Token-basierte Match-Engine mit Wortgrenzen, Quellen-Gewichtung (Feature-Liste vs. Beschreibung), SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile.de
@@ -214,18 +214,28 @@
         };
     }
 
+    function getConfigListUi(flags) {
+        return flags && flags.configListUi === 'split' ? 'split' : 'classic';
+    }
+
+    function mergeConfigListUi(stored, defaults) {
+        const v = stored && stored.configListUi;
+        return { ...defaults, configListUi: v === 'split' ? 'split' : 'classic' };
+    }
+
     function featureFlagsDefault() {
         const obj = {};
         FEATURE_FLAG_DEFINITIONS.forEach(d => { obj[d.key] = !!d.default; });
         obj.listOrder = listOrderDefault();
         obj.srpSort = srpSortDefault();
+        obj.configListUi = 'classic';
         return obj;
     }
     function ladeFeatureFlags() {
         const stored = ladeConfig(STORAGE_KEYS.featureFlags);
         const defaults = featureFlagsDefault();
         if (!stored || typeof stored !== 'object') return defaults;
-        const merged = { ...defaults, ...stored };
+        const merged = mergeConfigListUi(stored, { ...defaults, ...stored });
         merged.listOrder = mergeListOrder(stored.listOrder);
         merged.srpSort = mergeSrpSort(stored.srpSort);
         return merged;
@@ -590,7 +600,7 @@
 
         const userFlags = ladeConfig(STORAGE_KEYS.featureFlags);
         if (userFlags && typeof userFlags === 'object') {
-            const mergedFlags = { ...featureFlagsDefault(), ...userFlags };
+            const mergedFlags = mergeConfigListUi(userFlags, { ...featureFlagsDefault(), ...userFlags });
             mergedFlags.listOrder = mergeListOrder(userFlags.listOrder);
             mergedFlags.srpSort = mergeSrpSort(userFlags.srpSort);
             speichereConfig(STORAGE_KEYS.featureFlags, mergedFlags);
@@ -2155,6 +2165,20 @@ article.mobilede-tech-article,article.mobilede-result-article{
 <li><strong>Ziehen</strong> (⋮⋮): ganze Zeile als Vorschau; Live-Platzhalter beim Ziehen.</li>
 <li><strong>Filter</strong> „nur aktive“ / „nur Favoriten“ und <strong>Alle Einträge</strong> (Ein/Aus für alle Einträge im Tab) stehen in einer Zeile.</li>
 <li><strong>Defaults zurücksetzen</strong> im Footer neben <strong>Rückgängig</strong> (mit Trennlinie) – nicht in der Listen-Toolbar.</li>
+<li><strong>Listen-Layout</strong> (Tab Config): Umschaltung zwischen diesem klassischen Grid und der Split-View (Liste + Editor).</li>
+</ul>`],
+        ['aus_split', `
+<h4>Was macht das?</h4>
+<p>Wie im klassischen Modus — Ausstattungsbegriffe für die mobile.de-Detailseite konfigurieren.</p>
+<h4>Split-View:</h4>
+<ul>
+<li><strong>Liste links</strong>: Kompakte Zeilen (Aktiv, Favorit, Name, Farbe, Badges). Eintrag anklicken → Editor rechts.</li>
+<li><strong>Editor rechts</strong>: Anzeigetext, Suchbegriffe und Verbote als <strong>Chips</strong> (Enter oder Komma zum Hinzufügen, × zum Entfernen).</li>
+<li><strong>Farbe</strong>, <strong>Nur Ausstattungsliste</strong>, <strong>Wortteil-Suche</strong>, <strong>Duplizieren</strong> und <strong>Löschen</strong> im Editor.</li>
+<li><strong>Sortierung</strong> über Dropdown in der Toolbar (bei manueller Reihenfolge deaktiviert).</li>
+<li><strong>Filter</strong> inkl. „Mit Verboten“; Favoriten-Block und Drag&amp;Drop (⋮⋮) wie bisher.</li>
+<li>Auf schmalen Bildschirmen: Editor als Sheet von unten („Fertig“ zum Schließen).</li>
+<li>Layout umschalten: Tab <strong>Config</strong> → <strong>Listen-Layout</strong>.</li>
 </ul>`],
         ['tech', `
 <h4>Was macht das?</h4>
@@ -2166,6 +2190,17 @@ article.mobilede-tech-article,article.mobilede-result-article{
 <li><strong>Suche</strong>, <strong>Alle Einträge</strong> (Ein/Aus für alle Tech-Einträge) und <strong>Spaltenköpfe</strong> wie auf der Ausstattungs-Seite. <strong>Defaults zurücksetzen</strong> im Footer neben <strong>Rückgängig</strong>.</li>
 <li><strong>Listen-Reihenfolge</strong> (Tab Config): Bereich „Tech-Daten“ + Modus Manuell → Drag&amp;Drop; optional Reihenfolge auf der Fahrzeugseite übernehmen.</li>
 <li><strong>Reihenfolge</strong> per Drag&amp;Drop (⋮⋮) mit Live-Vorschau in der Liste.</li>
+<li><strong>Listen-Layout</strong> (Tab Config): optional Split-View (Liste + Editor).</li>
+</ul>`],
+        ['tech_split', `
+<h4>Was macht das?</h4>
+<p>Technische Datenfelder aus dem mobile.de-Tech-Block für die Ergebnisanzeige wählen.</p>
+<h4>Split-View:</h4>
+<ul>
+<li><strong>Liste links</strong>: Aktiv-Schalter und gekürzter Begriff — Zeile anklicken für den Editor.</li>
+<li><strong>Editor rechts</strong>: Vollständiger Begriff (exakt wie <code>&lt;dt&gt;</code>-Label), Aktiv-Toggle, Löschen.</li>
+<li><strong>Sortierung</strong> per Dropdown; Drag&amp;Drop bei manueller Tech-Reihenfolge (Config).</li>
+<li>Layout: Tab <strong>Config</strong> → <strong>Listen-Layout</strong>.</li>
 </ul>`],
         ['merge', `
 <h4>Was macht das?</h4>
@@ -2176,6 +2211,17 @@ article.mobilede-tech-article,article.mobilede-result-article{
 <li><strong>Basis</strong>: Das gemeinsame Wort, nach dem gruppiert wird (z.B. <code>außenspiegel</code>). Klein- und Großschreibung egal.</li>
 <li><strong>Reihenfolge</strong>: Komma-getrennte Liste der Modifizierer-Schlüsselwörter in der gewünschten Reihenfolge im zusammengefassten Eintrag (z.B. <code>elektr. verstellbar, beheizbar, anklappbar</code>). Treffer, die in keiner Reihenfolge auftauchen, kommen ans Ende.</li>
 <li><strong>Spaltenköpfe</strong> zum Sortieren, <strong>Filter „nur aktive“</strong> und <strong>Alle Einträge</strong> (Ein/Aus) in einer Zeile wie bei Ausstattung. Speichern sortiert alphabetisch nach Basis. <strong>Defaults zurücksetzen</strong> im Footer neben <strong>Rückgängig</strong>.</li>
+<li><strong>Listen-Layout</strong> (Tab Config): optional Split-View.</li>
+</ul>`],
+        ['merge_split', `
+<h4>Was macht das?</h4>
+<p>Merge-Gruppen fassen mehrere Treffer mit gleicher Basis zu einer Zeile zusammen.</p>
+<h4>Split-View:</h4>
+<ul>
+<li><strong>Liste links</strong>: Aktiv, Basis (gekürzt), Badge mit Anzahl Modifier.</li>
+<li><strong>Editor rechts</strong>: Basis-Feld; Modifier-Reihenfolge als <strong>Chips</strong> (Enter/Komma).</li>
+<li><strong>Sortierung</strong> per Dropdown in der Toolbar.</li>
+<li>Layout: Tab <strong>Config</strong> → <strong>Listen-Layout</strong>.</li>
 </ul>`],
         ['ie', `
 <h4>Was macht das?</h4>
@@ -2197,6 +2243,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
 <li><strong>Suchergebnis-Sortierung:</strong> Standard-Sortierung für die PKW-Suchergebnisseite (z.&nbsp;B. Preis aufsteigend). Beim Öffnen einer neuen Suche wird sie gesetzt; änderst du sie danach im Dropdown von mobile.de, bleibt deine Wahl bis zur nächsten Suche (auch nach Seiten-Reload). Auf der Suchergebnisseite öffnest du dieses Popup über das Tampermonkey-Menü.</li>
 <li>Neue Features werden automatisch mit ihren Standardwerten ergänzt; bestehende Einstellungen bleiben erhalten.</li>
 <li><strong>Defaults zurücksetzen</strong> für alle Feature-Flags: Footer neben <strong>Rückgängig</strong>.</li>
+<li><strong>Listen-Layout:</strong> Schaltet die Tabs Ausstattung, Tech-Daten und Merge-Gruppen zwischen klassischem Grid und Split-View (Liste + Editor) um. Gilt nach <strong>Speichern</strong>.</li>
 </ul>`]
     ]);
 
@@ -2213,7 +2260,10 @@ article.mobilede-tech-article,article.mobilede-result-article{
         let aktuelleAusstattungsKonfig = JSON.parse(JSON.stringify(suchKonfigurationen));
         let aktuelleTechKonfigurationen = JSON.parse(JSON.stringify(techDataKonfigurationen));
         let aktuelleMergeGruppen = JSON.parse(JSON.stringify(mergeGruppenConfig));
-        let aktuelleFeatureFlags = { ...featureFlagsDefault(), ...(featureFlags || {}) };
+        let aktuelleFeatureFlags = mergeConfigListUi(
+            featureFlags || {},
+            { ...featureFlagsDefault(), ...(featureFlags || {}) }
+        );
         aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
         aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
 
@@ -2229,6 +2279,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             baselineFlags = JSON.parse(JSON.stringify(aktuelleFeatureFlags));
             baselineFlags.listOrder = mergeListOrder(baselineFlags.listOrder);
             baselineFlags.srpSort = mergeSrpSort(baselineFlags.srpSort);
+            baselineFlags.configListUi = getConfigListUi(baselineFlags);
         }
 
         let dirty = false;
@@ -2237,9 +2288,13 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const undoStack = [];
         /** Max. eine Ausstattungs-Card mit geöffnetem Details-Panel — Array-Index in `aktuelleAusstattungsKonfig`. */
         let expandedAusstattungIndex = null;
+        let selectedAusIndex = null;
+        let selectedTechIndex = null;
+        let selectedMergeIndex = null;
+        const konfigHelpPanels = {};
         /** Hilfe-Panel je Tab (Ausstattung, Tech, Merge, Import/Export, Config) — vermeidet Zustandsverlust beim Tab-Wechsel. */
         const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-        const SCRIPT_UI_VERSION = '2.10.16';
+        const SCRIPT_UI_VERSION = '2.11.10';
         const pageWindow = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
         let ausSort = { key: 'config', dir: 'asc' };
         let techSort = { key: 'config', dir: 'asc' };
@@ -2471,6 +2526,10 @@ article.mobilede-tech-article,article.mobilede-result-article{
         function diffFeatureFlags(baseline, current) {
             const lines = diffListOrder(baseline, current);
             lines.push(...diffSrpSort(baseline, current));
+            if (getConfigListUi(baseline) !== getConfigListUi(current)) {
+                const labels = { classic: 'Klassisch', split: 'Split-View' };
+                lines.push('Listen-Layout: ' + labels[getConfigListUi(baseline)] + ' → ' + labels[getConfigListUi(current)]);
+            }
             FEATURE_FLAG_DEFINITIONS.forEach(def => {
                 const bOn = baseline[def.key] !== false;
                 const cOn = current[def.key] !== false;
@@ -2509,6 +2568,172 @@ article.mobilede-tech-article,article.mobilede-result-article{
   width:100%;max-width:920px;height:88vh;max-height:calc(100vh - 32px);display:flex;flex-direction:column;
   min-height:0;box-shadow:0 18px 50px rgba(0,0,0,.55);outline:none;
 }
+.mc-popup.mc-popup--config-split{max-width:1040px;}
+.mc-popup--config-split .mc-popup__scroll{display:flex;flex-direction:column;min-height:0;}
+.mc-popup--config-split .mc-panel--split-host.mc-panel--active{
+  flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:8px;
+}
+.mc-config-split-root{
+  display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;
+}
+.mc-config-split{
+  display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr);gap:12px;
+  flex:1;min-height:0;min-width:0;align-items:start;
+}
+.mc-config-split__list-scroll{
+  overflow-y:auto;overflow-x:hidden;min-height:0;max-height:100%;
+  -webkit-overflow-scrolling:touch;border:1px solid var(--mc-border);border-radius:10px;
+  background:rgba(0,0,0,.08);padding:8px;
+}
+.mc-config-split__list{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+  gap:6px;align-content:start;
+}
+.mc-config-split__list > .mc-section-head,
+.mc-config-split__list > .mc-section-divider,
+.mc-config-split__list > .mc-empty-state{grid-column:1/-1;}
+.mc-config-split__editor{
+  position:sticky;top:0;align-self:start;max-height:100%;overflow-y:auto;
+  padding:12px;border-radius:10px;box-sizing:border-box;
+  background:rgba(0,0,0,.12);border:1px solid var(--mc-border);
+}
+.mc-config-split__editor-placeholder{color:var(--mc-muted);font-size:13px;line-height:1.45;padding:8px 4px;}
+.mc-config-split__editor-title{font-size:12px;font-weight:600;color:var(--mc-muted);margin:0 0 10px;text-transform:uppercase;letter-spacing:.04em;}
+.mc-config-split__editor-fields{display:flex;flex-direction:column;gap:12px;}
+.mc-config-split__editor-field{display:flex;flex-direction:column;gap:5px;}
+.mc-config-split__editor-footer{
+  margin-top:4px;padding-top:12px;
+  display:flex;flex-direction:column;gap:10px;
+}
+.mc-config-split__editor-color-row{
+  display:flex;align-items:center;gap:8px;
+}
+.mc-config-split__editor-color-row .mc-color-row{flex:1;min-width:0;display:flex;align-items:center;gap:8px;}
+.mc-config-split__editor-color-row .mc-color-hex-input{flex:1;min-width:0;}
+.mc-config-split__editor-color-row .mc-color-native-hidden{
+  position:absolute;width:0;height:0;opacity:0;pointer-events:none;padding:0;border:0;
+}
+.mc-config-split__editor-color-swatch{
+  width:38px;height:38px;min-width:38px;flex-shrink:0;border-radius:8px;
+  border:none;padding:0;cursor:pointer;
+}
+.mc-config-split__editor-options{
+  display:flex;flex-direction:column;gap:0;
+  border:1px solid var(--mc-border);border-radius:8px;background:rgba(0,0,0,.1);overflow:hidden;
+}
+.mc-config-split__editor-check{
+  display:flex;align-items:flex-start;gap:10px;padding:10px 12px;
+  font-size:13px;line-height:1.35;cursor:pointer;user-select:none;
+  border-bottom:1px solid var(--mc-border);
+}
+.mc-config-split__editor-check:last-child{border-bottom:none;}
+.mc-config-split__editor-check:hover{background:rgba(255,255,255,.03);}
+.mc-config-split__editor-check input[type=checkbox]{
+  margin:2px 0 0;flex-shrink:0;accent-color:var(--mc-accent);width:15px;height:15px;
+}
+.mc-config-split__editor-check-text{flex:1;min-width:0;}
+.mc-config-split__editor-check-title{display:block;color:var(--mc-text);font-weight:500;}
+.mc-config-split__editor-check-hint{display:block;font-size:11px;color:var(--mc-muted);margin-top:2px;line-height:1.35;}
+.mc-config-split__editor-actions{
+  display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;
+  padding-top:10px;border-top:1px dashed var(--mc-border);margin-top:2px;
+}
+.mc-config-split__list-item.mc-card{
+  display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;
+  gap:6px;padding:6px 8px;margin:0;min-height:0;cursor:pointer;
+  border:1px solid var(--mc-border);background:var(--mc-elevated);border-radius:8px;
+  box-sizing:border-box;
+}
+.mc-config-split__list-item.mc-card:hover{background:rgba(255,255,255,.04);}
+.mc-config-split__list-item--selected.mc-card{
+  border-left:3px solid var(--mc-accent);padding-left:6px;
+  background:rgba(33,150,243,.1);box-shadow:inset 0 0 0 1px rgba(33,150,243,.15);
+}
+.mc-config-split__list-item--inactive{opacity:.55;}
+.mc-config-split__list-item-controls{
+  display:flex;align-items:center;gap:4px;flex-shrink:0;
+}
+.mc-config-split__list-item-main{
+  display:flex;align-items:center;gap:6px;flex:1;min-width:0;
+}
+.mc-config-split__list-item-label{
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:13px;line-height:1.25;
+}
+.mc-config-split__list-item-meta{
+  display:flex;align-items:center;gap:4px;flex-shrink:0;flex-wrap:wrap;
+}
+.mc-config-split__list-item-badges{display:flex;flex-wrap:wrap;gap:3px;}
+.mc-config-split__badge{font-size:10px;padding:2px 5px;border-radius:4px;background:rgba(255,255,255,.08);color:var(--mc-muted);white-space:nowrap;}
+.mc-config-split__color-dot{width:12px;height:12px;border-radius:3px;flex-shrink:0;border:1px solid rgba(255,255,255,.2);}
+.mc-config-split__warn{font-size:13px;color:var(--mc-warn);flex-shrink:0;line-height:1;}
+.mc-config-split__list-item .mc-drag-handle{width:22px;min-width:22px;font-size:11px;padding:0;}
+.mc-drag-spacer{width:26px;min-width:26px;flex-shrink:0;}
+.mc-card__main-row--aus > .mc-drag-spacer{box-sizing:border-box;}
+.mc-config-split__list-item .mc-fav-btn{width:30px;height:30px;min-width:30px;font-size:15px;}
+.mc-config-split__list-item .mc-toggle-wrap{min-height:0;}
+.mc-config-split--tech .mc-config-split__list,
+.mc-config-split--merge .mc-config-split__list{grid-template-columns:1fr;}
+.mc-chip-input{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 8px;min-height:38px;
+  border:1px solid var(--mc-border);border-radius:8px;background:var(--mc-elevated);
+}
+.mc-chip-input input{
+  flex:1;min-width:80px;border:none;background:transparent;color:var(--mc-text);
+  font-size:13px;padding:4px 2px;outline:none;
+}
+.mc-chip{
+  display:inline-flex;align-items:center;gap:2px;font-size:12px;padding:2px 4px 2px 8px;border-radius:6px;
+  background:var(--mc-elevated);border:1px solid var(--mc-border);color:var(--mc-text);
+  max-width:100%;
+}
+.mc-chip__text{
+  cursor:text;padding:2px 0;border-radius:3px;outline:none;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(200px,100%);
+}
+.mc-chip__text:hover{background:rgba(255,255,255,.06);}
+.mc-chip__edit{
+  border:1px solid var(--mc-accent);background:var(--mc-surface);color:var(--mc-text);
+  font-size:12px;padding:2px 6px;border-radius:4px;min-width:72px;max-width:min(200px,100%);
+  box-sizing:border-box;
+}
+.mc-chip--warn{border-color:rgba(255,152,0,.45);background:rgba(255,152,0,.12);}
+.mc-chip--dup{border-color:var(--mc-danger);background:rgba(229,57,53,.15);}
+.mc-chip__x{border:none;background:transparent;color:var(--mc-muted);cursor:pointer;padding:0 2px;font-size:14px;line-height:1;}
+.mc-chip__x:hover{color:var(--mc-text);}
+.mc-config-split__sheet-backdrop{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:8;
+}
+.mc-config-split__sheet-backdrop--open{display:block;}
+.mc-config-split__sheet{
+  display:none;position:fixed;left:0;right:0;bottom:0;max-height:80vh;z-index:9;
+  background:var(--mc-surface);border-top:1px solid var(--mc-border);border-radius:12px 12px 0 0;
+  flex-direction:column;box-shadow:0 -8px 32px rgba(0,0,0,.45);
+}
+.mc-config-split__sheet--open{display:flex;}
+.mc-config-split__sheet-head{display:flex;justify-content:flex-end;padding:8px 12px;border-bottom:1px solid var(--mc-border);}
+.mc-config-split__sheet-body{overflow-y:auto;padding:12px 16px 20px;flex:1;min-height:0;}
+.mc-toolbar-sort{display:flex;align-items:center;gap:6px;}
+.mc-toolbar-sort label{font-size:11px;color:var(--mc-muted);white-space:nowrap;}
+.mc-toolbar-sort select{
+  border:1px solid var(--mc-border);background:var(--mc-elevated);color:var(--mc-text);
+  border-radius:8px;font-size:12px;padding:6px 8px;min-height:32px;
+}
+.mc-toolbar-split-only{display:none;}
+.mc-popup--config-split .mc-toolbar-split-only{display:flex;}
+.mc-popup--config-split .mc-toolbar-classic-only{display:none;}
+@media(max-width:719px){
+  .mc-config-split{
+    grid-template-columns:1fr;
+    grid-template-rows:minmax(140px,1fr) auto;
+  }
+  .mc-config-split__list{grid-template-columns:1fr;}
+  .mc-config-split__editor{position:relative;max-height:min(45vh,320px);}
+}
+@media(max-width:559px){
+  .mc-config-split .mc-config-split__editor{display:none;}
+  .mc-config-split{grid-template-rows:1fr;}
+}
 .mc-popup__head{
   position:sticky;top:0;z-index:4;background:var(--mc-surface);
   border-bottom:1px solid var(--mc-border);padding:14px 16px 0;
@@ -2525,6 +2750,12 @@ article.mobilede-tech-article,article.mobilede-result-article{
 .mc-btn--primary{background:#1976d2;border-color:#1976d2;color:#fff;}
 .mc-btn--ghost{background:transparent;border-color:var(--mc-border);}
 .mc-btn--danger{background:rgba(229,115,115,.15);border-color:#c62828;color:#ffcdd2;}
+.mc-btn--action-dup:hover:not(:disabled){
+  filter:none;background:rgba(33,150,243,.2);border-color:#2196f3;color:#90caf9;
+}
+.mc-btn--action-del:hover:not(:disabled){
+  filter:none;background:rgba(229,57,53,.2);border-color:#c62828;color:#ffcdd2;
+}
 .mc-icon-btn{background:transparent;border:none;color:var(--mc-muted);padding:6px;cursor:pointer;border-radius:8px;line-height:0;}
 .mc-icon-btn:hover{color:#fff;background:var(--mc-elevated);}
 .mc-tabs-strip{
@@ -2948,7 +3179,12 @@ article.mobilede-tech-article,article.mobilede-result-article{
         function mkBtn(variant, label, onClick) {
             const b = document.createElement('button');
             b.type = 'button';
-            b.className = 'mc-btn' + (variant === 'primary' ? ' mc-btn--primary' : variant === 'ghost' ? ' mc-btn--ghost' : variant === 'danger' ? ' mc-btn--danger' : '');
+            b.className = 'mc-btn'
+                + (variant === 'primary' ? ' mc-btn--primary'
+                    : variant === 'ghost' ? ' mc-btn--ghost'
+                        : variant === 'danger' ? ' mc-btn--danger'
+                            : variant === 'dup' ? ' mc-btn--ghost mc-btn--action-dup'
+                                : variant === 'del' ? ' mc-btn--ghost mc-btn--action-del' : '');
             b.textContent = label;
             if (onClick) b.addEventListener('click', onClick);
             return b;
@@ -3076,7 +3312,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             head.appendChild(closeBtn);
             wrap.appendChild(head);
             wrap.appendChild(body);
-            return { wrap, closeBtn };
+            return { wrap, closeBtn, body };
         }
 
         function mkHelpButton(label) {
@@ -3092,25 +3328,42 @@ article.mobilede-tech-article,article.mobilede-result-article{
             return btn;
         }
 
-        function installKonfigTabHelp(tabKey, panelId, regionAriaLabel, btnLabel, toolbarEl, metaEl, panelColumn, beforeNode) {
-            const html = KONFIG_TAB_HELP_HTML.get(tabKey);
+        function konfigHelpKey(baseKey) {
+            if (baseKey === 'aus' || baseKey === 'tech' || baseKey === 'merge') {
+                return getConfigListUi(aktuelleFeatureFlags) === 'split' ? baseKey + '_split' : baseKey;
+            }
+            return baseKey;
+        }
+
+        function refreshKonfigHelpPanels() {
+            Object.keys(konfigHelpPanels).forEach(baseKey => {
+                const p = konfigHelpPanels[baseKey];
+                if (!p || !p.body) return;
+                const html = KONFIG_TAB_HELP_HTML.get(konfigHelpKey(baseKey));
+                if (html) p.body.innerHTML = html;
+            });
+        }
+
+        function installKonfigTabHelp(baseKey, panelId, regionAriaLabel, btnLabel, toolbarEl, metaEl, panelColumn, beforeNode) {
+            const html = KONFIG_TAB_HELP_HTML.get(konfigHelpKey(baseKey));
             if (!html) return;
-            const { wrap, closeBtn } = mkHelpPanel(html);
+            const { wrap, closeBtn, body } = mkHelpPanel(html);
             wrap.id = panelId;
             wrap.setAttribute('aria-label', regionAriaLabel);
+            konfigHelpPanels[baseKey] = { wrap, body };
             const btn = mkHelpButton(btnLabel);
             btn.setAttribute('aria-controls', panelId);
             function applyHelpState() {
-                const o = helpExpandedByTab[tabKey];
+                const o = helpExpandedByTab[baseKey];
                 btn.setAttribute('aria-expanded', o ? 'true' : 'false');
                 wrap.classList.toggle('mc-help-panel--open', o);
             }
             btn.addEventListener('click', () => {
-                helpExpandedByTab[tabKey] = !helpExpandedByTab[tabKey];
+                helpExpandedByTab[baseKey] = !helpExpandedByTab[baseKey];
                 applyHelpState();
             });
             closeBtn.addEventListener('click', () => {
-                helpExpandedByTab[tabKey] = false;
+                helpExpandedByTab[baseKey] = false;
                 applyHelpState();
             });
             const slot = document.createElement('div');
@@ -3120,6 +3373,332 @@ article.mobilede-tech-article,article.mobilede-result-article{
             else toolbarEl.appendChild(slot);
             panelColumn.insertBefore(wrap, beforeNode);
             applyHelpState();
+        }
+
+        function useConfigSplitView() {
+            return getConfigListUi(aktuelleFeatureFlags) === 'split';
+        }
+
+        let popupRef = null;
+
+        function syncPopupConfigLayoutClass() {
+            if (!popupRef) return;
+            const split = useConfigSplitView();
+            popupRef.classList.toggle('mc-popup--config-split', split);
+            [panelAus, panelTech, panelMerge].forEach(p => {
+                p.classList.toggle('mc-panel--split-host', split);
+            });
+        }
+
+        function syncAllTabSelectionOnUiModeSwitch() {
+            if (useConfigSplitView()) {
+                if (expandedAusstattungIndex !== null) selectedAusIndex = expandedAusstattungIndex;
+                expandedAusstattungIndex = null;
+            } else if (selectedAusIndex !== null) {
+                expandedAusstattungIndex = selectedAusIndex;
+            }
+        }
+
+        function onConfigListUiChanged() {
+            syncPopupConfigLayoutClass();
+            syncAllTabSelectionOnUiModeSwitch();
+            refreshKonfigHelpPanels();
+            syncSplitToolbarVisibility();
+            renderAusstattung();
+            renderTechData();
+            renderMergeConfig();
+        }
+
+        function mkChipInput(tokens, opts) {
+            const { variant = 'neutral', onChange } = opts || {};
+            const wrap = document.createElement('div');
+            wrap.className = 'mc-chip-input';
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.setAttribute('autocomplete', 'off');
+            inp.placeholder = opts && opts.placeholder ? opts.placeholder : 'Hinzufügen…';
+
+            function normDupSet(arr) {
+                const seen = new Map();
+                (arr || []).forEach(t => {
+                    const k = String(t).trim().toLowerCase();
+                    if (k) seen.set(k, (seen.get(k) || 0) + 1);
+                });
+                return seen;
+            }
+
+            function applyChipEdit(index, raw, prevVal) {
+                const trimmed = String(raw || '').trim();
+                if (!trimmed) {
+                    tokens.splice(index, 1);
+                    onChange([...tokens]);
+                    return true;
+                }
+                if (trimmed === prevVal) return false;
+                tokens[index] = trimmed;
+                onChange([...tokens]);
+                return true;
+            }
+
+            function startChipEdit(index, textEl) {
+                if (wrap._chipEditEnd) wrap._chipEditEnd(true);
+                const prev = tokens[index];
+                const editInp = document.createElement('input');
+                editInp.type = 'text';
+                editInp.className = 'mc-chip__edit';
+                editInp.value = prev;
+                textEl.replaceWith(editInp);
+                wrap.classList.add('mc-chip-input--editing');
+                editInp.focus();
+                editInp.select();
+                let done = false;
+                function finish(save) {
+                    if (done) return;
+                    done = true;
+                    wrap._chipEditEnd = null;
+                    wrap.classList.remove('mc-chip-input--editing');
+                    if (save) applyChipEdit(index, editInp.value, prev);
+                    renderChips();
+                }
+                wrap._chipEditEnd = finish;
+                editInp.addEventListener('blur', () => {
+                    setTimeout(() => {
+                        if (done) return;
+                        if (document.activeElement === editInp) return;
+                        finish(true);
+                    }, 0);
+                });
+                editInp.addEventListener('keydown', e => {
+                    e.stopPropagation();
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        finish(true);
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        finish(false);
+                    }
+                });
+            }
+
+            function bindChipText(textEl, index) {
+                textEl.title = 'Klicken zum Bearbeiten';
+                textEl.addEventListener('mousedown', e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    startChipEdit(index, textEl);
+                });
+            }
+
+            function renderChips() {
+                if (wrap._chipEditEnd) {
+                    wrap._chipEditEnd(true);
+                    return;
+                }
+                wrap.querySelectorAll('.mc-chip').forEach(c => c.remove());
+                const dup = normDupSet(tokens);
+                (tokens || []).forEach((tok, i) => {
+                    const chip = document.createElement('span');
+                    const k = String(tok).trim().toLowerCase();
+                    chip.className = 'mc-chip' + (variant === 'warn' ? ' mc-chip--warn' : '');
+                    if (dup.get(k) > 1) chip.classList.add('mc-chip--dup');
+                    const textEl = document.createElement('span');
+                    textEl.className = 'mc-chip__text';
+                    textEl.textContent = tok;
+                    bindChipText(textEl, i);
+                    chip.appendChild(textEl);
+                    const x = document.createElement('button');
+                    x.type = 'button';
+                    x.className = 'mc-chip__x';
+                    x.setAttribute('aria-label', 'Entfernen');
+                    x.textContent = '×';
+                    x.addEventListener('click', e => {
+                        e.stopPropagation();
+                        if (wrap._chipEditEnd) wrap._chipEditEnd(true);
+                        tokens.splice(i, 1);
+                        onChange([...tokens]);
+                        renderChips();
+                    });
+                    chip.appendChild(x);
+                    wrap.insertBefore(chip, inp);
+                });
+            }
+
+            function addToken(raw) {
+                const parts = String(raw).split(',').map(s => s.trim()).filter(Boolean);
+                if (!parts.length) return;
+                if (wrap._chipEditEnd) wrap._chipEditEnd(true);
+                let changed = false;
+                parts.forEach(p => {
+                    if (!tokens.some(t => String(t).trim().toLowerCase() === p.toLowerCase())) {
+                        tokens.push(p);
+                        changed = true;
+                    }
+                });
+                if (changed) {
+                    onChange([...tokens]);
+                    renderChips();
+                }
+                inp.value = '';
+            }
+
+            inp.addEventListener('keydown', e => {
+                if (wrap.querySelector('.mc-chip__edit')) return;
+                if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addToken(inp.value);
+                } else if (e.key === 'Backspace' && !inp.value && tokens.length) {
+                    tokens.pop();
+                    onChange([...tokens]);
+                    renderChips();
+                }
+            });
+            inp.addEventListener('blur', () => {
+                if (wrap._chipEditEnd || wrap.querySelector('.mc-chip__edit')) return;
+                if (inp.value.trim()) addToken(inp.value);
+            });
+
+            wrap.appendChild(inp);
+            renderChips();
+            return { wrap, focusInput: () => inp.focus(), refresh: renderChips };
+        }
+
+        function mkConfigSplitShell(tabId) {
+            const root = document.createElement('div');
+            root.className = 'mc-config-split-root mc-config-split-root--' + tabId;
+
+            const backdrop = document.createElement('div');
+            backdrop.className = 'mc-config-split__sheet-backdrop';
+            const sheet = document.createElement('div');
+            sheet.className = 'mc-config-split__sheet';
+            sheet.dataset.tab = tabId;
+            const sheetHead = document.createElement('div');
+            sheetHead.className = 'mc-config-split__sheet-head';
+            const sheetDone = mkBtn('ghost', 'Fertig', () => closeEditorSheet(tabId));
+            sheetHead.appendChild(sheetDone);
+            const sheetBody = document.createElement('div');
+            sheetBody.className = 'mc-config-split__sheet-body';
+
+            const split = document.createElement('div');
+            split.className = 'mc-config-split mc-config-split--' + tabId;
+            const listScroll = document.createElement('div');
+            listScroll.className = 'mc-config-split__list-scroll';
+            const list = document.createElement('div');
+            list.className = 'mc-config-split__list';
+            listScroll.appendChild(list);
+            const editor = document.createElement('div');
+            editor.className = 'mc-config-split__editor';
+            split.appendChild(listScroll);
+            split.appendChild(editor);
+
+            root.appendChild(split);
+            root.appendChild(backdrop);
+            sheet.appendChild(sheetHead);
+            sheet.appendChild(sheetBody);
+            root.appendChild(sheet);
+
+            function closeEditorSheet() {
+                backdrop.classList.remove('mc-config-split__sheet-backdrop--open');
+                sheet.classList.remove('mc-config-split__sheet--open');
+                if (editor.parentElement !== split) split.appendChild(editor);
+            }
+            function openEditorSheet() {
+                if (window.matchMedia('(min-width: 560px)').matches) return;
+                sheetBody.innerHTML = '';
+                sheetBody.appendChild(editor);
+                backdrop.classList.add('mc-config-split__sheet-backdrop--open');
+                sheet.classList.add('mc-config-split__sheet--open');
+            }
+            backdrop.addEventListener('click', closeEditorSheet);
+
+            return { root, split, listScroll, list, editor, sheetBody, openEditorSheet, closeEditorSheet };
+        }
+
+        function mkSortDropdown(sortState, options, locked, onChange) {
+            const wrap = document.createElement('div');
+            wrap.className = 'mc-toolbar-sort mc-toolbar-split-only';
+            const lab = document.createElement('label');
+            lab.textContent = 'Sortierung';
+            const sel = document.createElement('select');
+            sel.disabled = !!locked;
+            options.forEach(o => {
+                const opt = document.createElement('option');
+                opt.value = o.key + ':' + o.dir;
+                opt.textContent = o.label;
+                if (sortState.key === o.key && sortState.dir === o.dir) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            sel.addEventListener('change', () => {
+                const [key, dir] = sel.value.split(':');
+                sortState.key = key;
+                sortState.dir = dir;
+                onChange();
+            });
+            wrap.appendChild(lab);
+            wrap.appendChild(sel);
+            return wrap;
+        }
+
+        function mkSplitListItem(opts) {
+            const row = document.createElement('div');
+            row.className = 'mc-card mc-config-split__list-item';
+            if (opts.selected) row.classList.add('mc-config-split__list-item--selected');
+            if (opts.inactive) row.classList.add('mc-config-split__list-item--inactive');
+            if (opts.dragSection) row.dataset.dragSection = opts.dragSection;
+
+            const controls = document.createElement('div');
+            controls.className = 'mc-config-split__list-item-controls';
+            if (opts.handle) controls.appendChild(opts.handle);
+            if (opts.toggleWrap) controls.appendChild(opts.toggleWrap);
+            if (opts.favBtn) controls.appendChild(opts.favBtn);
+            row.appendChild(controls);
+
+            const main = document.createElement('div');
+            main.className = 'mc-config-split__list-item-main';
+            if (opts.colorDot) main.appendChild(opts.colorDot);
+            const lab = document.createElement('span');
+            lab.className = 'mc-config-split__list-item-label';
+            lab.textContent = opts.label || '';
+            if (opts.title) lab.title = opts.title;
+            main.appendChild(lab);
+            row.appendChild(main);
+
+            if ((opts.badges && opts.badges.length) || opts.warn) {
+                const meta = document.createElement('div');
+                meta.className = 'mc-config-split__list-item-meta';
+                if (opts.badges && opts.badges.length) {
+                    const bw = document.createElement('span');
+                    bw.className = 'mc-config-split__list-item-badges';
+                    opts.badges.forEach(t => {
+                        const b = document.createElement('span');
+                        b.className = 'mc-config-split__badge';
+                        b.textContent = t;
+                        bw.appendChild(b);
+                    });
+                    meta.appendChild(bw);
+                }
+                if (opts.warn) {
+                    const w = document.createElement('span');
+                    w.className = 'mc-config-split__warn';
+                    w.textContent = '⚠';
+                    w.title = opts.warn;
+                    meta.appendChild(w);
+                }
+                row.appendChild(meta);
+            }
+
+            row.addEventListener('click', e => {
+                if (e.target.closest('button, label, input, .mc-toggle, .mc-drag-handle, .mc-fav-btn')) return;
+                opts.onSelect();
+            });
+            return row;
+        }
+
+        function fillEditorPlaceholder(editorEl, msg) {
+            editorEl.innerHTML = '';
+            const p = document.createElement('div');
+            p.className = 'mc-config-split__editor-placeholder';
+            p.textContent = msg || 'Eintrag in der Liste wählen oder „+ Neu“ klicken.';
+            editorEl.appendChild(p);
         }
 
         function mkToggle(checked, onChange) {
@@ -3201,34 +3780,45 @@ article.mobilede-tech-article,article.mobilede-result-article{
             return n || '#66ff66';
         }
 
-        function mkColorInput(value, onChange) {
+        function mkColorInput(value, onChange, opts) {
+            const styledPicker = !!(opts && opts.styledPicker);
             const wrap = document.createElement('div');
             wrap.className = 'mc-color-row';
             const hex = normalizeHexColor(value);
             const colorInp = document.createElement('input');
             colorInp.type = 'color';
             colorInp.value = hex;
-            colorInp.className = 'mc-input';
+            colorInp.className = 'mc-input' + (styledPicker ? ' mc-color-native-hidden' : '');
             const textInp = document.createElement('input');
             textInp.type = 'text';
             textInp.className = 'mc-input mc-color-hex-input';
             textInp.value = value || '';
             textInp.placeholder = '#66ff66';
-            function applyFromText() {
-                const h = normalizeHexColor(textInp.value);
-                colorInp.value = h;
-                onChange(textInp.value.trim());
+            let swatch = null;
+            function syncSwatch() {
+                if (swatch) swatch.style.background = normalizeHexColor(textInp.value || value);
             }
             function applyFromPicker() {
                 textInp.value = colorInp.value;
                 onChange(colorInp.value);
+                syncSwatch();
             }
             textInp.addEventListener('input', () => {
                 const h = normalizeHexColor(textInp.value);
                 colorInp.value = h;
                 onChange(textInp.value.trim());
+                syncSwatch();
             });
             colorInp.addEventListener('input', applyFromPicker);
+            if (styledPicker) {
+                swatch = document.createElement('button');
+                swatch.type = 'button';
+                swatch.className = 'mc-config-split__editor-color-swatch';
+                swatch.title = 'Farbe wählen';
+                syncSwatch();
+                swatch.addEventListener('click', () => colorInp.click());
+                wrap.appendChild(swatch);
+            }
             wrap.appendChild(colorInp);
             wrap.appendChild(textInp);
             return wrap;
@@ -3293,6 +3883,11 @@ article.mobilede-tech-article,article.mobilede-result-article{
 
             function getScrollParent() {
                 if (scrollParent) return scrollParent;
+                const listPane = container.closest('.mc-config-split__list-scroll');
+                if (listPane) {
+                    scrollParent = listPane;
+                    return scrollParent;
+                }
                 const preferred = container.closest('.mc-popup__scroll');
                 let best = null;
                 let bestOverflow = 0;
@@ -3601,25 +4196,52 @@ article.mobilede-tech-article,article.mobilede-result-article{
             return section === 'fav' && isPopupManualScope('ausstattungFavorites');
         }
 
+        function ausShowsDragHandles() {
+            return isPopupManualScope('ausstattung') || isPopupManualScope('ausstattungFavorites');
+        }
+
+        function mkAusDragSpacer() {
+            const sp = document.createElement('div');
+            sp.className = 'mc-drag-spacer';
+            sp.setAttribute('aria-hidden', 'true');
+            return sp;
+        }
+
         function techDragEnabled() {
             return isPopupManualScope('tech');
         }
 
         function listOrderMetaHint(kind) {
             const lo = getAusListOrder();
+            const split = useConfigSplitView();
             if (lo.mode === 'manual') {
                 if (kind === 'aus') {
                     const parts = [];
                     if (isPopupManualScope('ausstattung')) parts.push('gesamte Liste');
                     else if (isPopupManualScope('ausstattungFavorites')) parts.push('Favoriten');
-                    return 'Manuelle Reihenfolge' + (parts.length ? ' (' + parts.join(', ') + ')' : '') + ' · Ziehen (⋮⋮) zum Sortieren';
+                    let msg = 'Manuelle Reihenfolge' + (parts.length ? ' (' + parts.join(', ') + ')' : '');
+                    if (split && columnSortLockedForAus()) msg += ' · Sort-Dropdown deaktiviert';
+                    if (ausShowsDragHandles()) msg += ' · Ziehen (⋮⋮) zum Sortieren';
+                    return msg;
                 }
                 if (kind === 'tech' && isPopupManualScope('tech')) {
-                    return 'Manuelle Reihenfolge (Tech) · Ziehen (⋮⋮) zum Sortieren';
+                    let msg = 'Manuelle Reihenfolge (Tech) · Ziehen (⋮⋮) zum Sortieren';
+                    if (split && columnSortLockedForTech()) msg += ' · Sort-Dropdown deaktiviert';
+                    return msg;
                 }
             }
-            if (kind === 'aus') return 'Spaltenköpfe sortieren die Anzeige · Speichern sortiert alphabetisch nach Anzeigetext';
-            if (kind === 'tech') return 'Spaltenköpfe sortieren die Anzeige · Speichern sortiert alphabetisch nach Begriff';
+            if (kind === 'aus') {
+                if (split) {
+                    return 'Sortierung über Dropdown · Speichern sortiert alphabetisch nach Anzeigetext';
+                }
+                return 'Spaltenköpfe sortieren die Anzeige · Speichern sortiert alphabetisch nach Anzeigetext';
+            }
+            if (kind === 'tech') {
+                if (split) {
+                    return 'Sortierung über Dropdown · Speichern sortiert alphabetisch nach Begriff';
+                }
+                return 'Spaltenköpfe sortieren die Anzeige · Speichern sortiert alphabetisch nach Begriff';
+            }
             return '';
         }
 
@@ -3927,6 +4549,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const popup = document.createElement('div');
         popup.className = 'mc-popup';
         popup.tabIndex = -1;
+        popupRef = popup;
 
         const head = document.createElement('div');
         head.className = 'mc-popup__head';
@@ -4088,7 +4711,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
             onSearch: () => { renderAusstattung(); },
             filters: [
                 { label: 'nur aktive', title: 'Nur aktive Einträge anzeigen' },
-                { label: 'nur Favoriten', title: 'Nur favorisierte Einträge anzeigen' }
+                { label: 'nur Favoriten', title: 'Nur favorisierte Einträge anzeigen' },
+                { label: 'mit Verboten', title: 'Nur Einträge mit verbotenen Begriffen' }
             ],
             bulk: { onAll: flag => bulkAusAlle(flag) },
             onNeu: () => {
@@ -4096,6 +4720,9 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 ausTb.search._input.value = '';
                 onlyCb.checked = false;
                 favOnlyCb.checked = false;
+                verbotenOnlyCb.checked = false;
+                selectedAusIndex = 0;
+                expandedAusstattungIndex = useConfigSplitView() ? null : 0;
                 markDirty();
                 renderAusstattung();
                 showToast('Neuer Ausstattungseintrag', 'success');
@@ -4107,6 +4734,32 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const ausMetaHint = ausTb.metaHint;
         const onlyCb = ausTb.filterCbs[0];
         const favOnlyCb = ausTb.filterCbs[1];
+        const verbotenOnlyCb = ausTb.filterCbs[2];
+        const ausSortDropdown = mkSortDropdown(ausSort, [
+            { key: 'anzeige', dir: 'asc', label: 'Anzeige A–Z' },
+            { key: 'anzeige', dir: 'desc', label: 'Anzeige Z–A' },
+            { key: 'aktiv', dir: 'desc', label: 'Aktiv zuerst' },
+            { key: 'favorit', dir: 'desc', label: 'Favoriten zuerst' },
+            { key: 'begriffeCount', dir: 'desc', label: 'Meiste Begriffe' }
+        ], false, () => renderAusstattung());
+        const ausDupToolbarBtn = mkBtn('ghost', 'Duplizieren', () => {
+            if (selectedAusIndex === null) return;
+            duplicateAusEntry(selectedAusIndex);
+        });
+        ausDupToolbarBtn.classList.add('mc-toolbar-split-only');
+        ausDupToolbarBtn.disabled = true;
+        const ausToolbarMetaRow = ausToolbar.querySelector('.mc-toolbar__row--meta');
+        if (ausToolbarMetaRow) {
+            ausToolbarMetaRow.insertBefore(ausSortDropdown, ausToolbarMetaRow.firstChild);
+            const neuBtn = ausToolbarMetaRow.querySelector('.mc-btn--primary');
+            if (neuBtn) ausToolbarMetaRow.insertBefore(ausDupToolbarBtn, neuBtn);
+            else ausToolbarMetaRow.appendChild(ausDupToolbarBtn);
+        }
+        function syncSplitToolbarVisibility() {
+            const split = useConfigSplitView();
+            ausSortDropdown.querySelector('select').disabled = columnSortLockedForAus();
+            ausDupToolbarBtn.disabled = !split || selectedAusIndex === null;
+        }
         footerResetHandlers[0] = async () => {
             const ok = await confirmAsync('Ausstattungs-Konfiguration auf Defaults zurücksetzen? Aktueller Stand wird vorher gesichert.');
             if (!ok) return;
@@ -4119,9 +4772,14 @@ article.mobilede-tech-article,article.mobilede-result-article{
         };
 
         const ausstattungContainer = document.createElement('div');
-        ausstattungContainer.className = 'mc-aus-list-scroll';
+        ausstattungContainer.className = 'mc-aus-list-scroll mc-config-classic-root';
+        const ausSplitShell = mkConfigSplitShell('aus');
+        ausSplitShell.root.classList.add('mc-config-split-root');
+        ausSplitShell.root.hidden = true;
+        const ausSplit = ausSplitShell;
         panelAus.appendChild(ausToolbar);
         panelAus.appendChild(ausstattungContainer);
+        panelAus.appendChild(ausSplit.root);
         installKonfigTabHelp('aus', 'mc-konfig-help-aus', 'Hilfe zum Tab Ausstattung', 'Hilfe zu Ausstattung', ausTb.searchRow, null, panelAus, ausstattungContainer);
 
         function ausCompareValue(item, idx, key) {
@@ -4155,10 +4813,218 @@ article.mobilede-tech-article,article.mobilede-result-article{
             const f = ausSearch._input.value.trim().toLowerCase();
             if (onlyCb.checked && !item.aktiv) return false;
             if (favOnlyCb.checked && item.favorit !== true) return false;
+            if (verbotenOnlyCb.checked && !(Array.isArray(item.verboten) && item.verboten.length)) return false;
             if (!f) return true;
             if ((item.anzeige || '').toLowerCase().includes(f)) return true;
             if ((item.begriffe || []).some(b => String(b).toLowerCase().includes(f))) return true;
+            if ((item.verboten || []).some(b => String(b).toLowerCase().includes(f))) return true;
             return false;
+        }
+
+        function duplicateAusEntry(idx) {
+            pushUndo({ kind: 'ausstattung', data: snapshotAus() });
+            const copy = JSON.parse(JSON.stringify(aktuelleAusstattungsKonfig[idx]));
+            copy.anzeige = (copy.anzeige || '') + ' (Kopie)';
+            aktuelleAusstattungsKonfig.splice(idx + 1, 0, copy);
+            selectedAusIndex = idx + 1;
+            expandedAusstattungIndex = useConfigSplitView() ? null : selectedAusIndex;
+            markDirty();
+            renderAusstattung();
+            showToast('Eintrag dupliziert', 'success');
+        }
+
+        function sanitizeSelectedAusIndex() {
+            if (selectedAusIndex === null) return;
+            const n = aktuelleAusstattungsKonfig.length;
+            if (!Number.isInteger(selectedAusIndex) || selectedAusIndex < 0 || selectedAusIndex >= n) {
+                selectedAusIndex = null;
+            }
+        }
+
+        function reorderSelectedAusAfterDrop(from, to) {
+            if (selectedAusIndex === null) return;
+            const insertAt = from < to ? to - 1 : to;
+            if (selectedAusIndex === from) {
+                selectedAusIndex = insertAt;
+                return;
+            }
+            let e = selectedAusIndex;
+            if (from < e) e--;
+            if (insertAt <= e) e++;
+            selectedAusIndex = e;
+        }
+
+        function selectAusIndex(idx, openSheet) {
+            selectedAusIndex = idx;
+            syncSplitToolbarVisibility();
+            if (openSheet !== false && useConfigSplitView()) {
+                fillAusEditor(idx);
+                ausSplit.openEditorSheet();
+            } else if (useConfigSplitView()) {
+                fillAusEditor(idx);
+            }
+            ausSplit.list.querySelectorAll('.mc-config-split__list-item').forEach(el => {
+                const i = parseInt(el.dataset.cfgIndex, 10);
+                el.classList.toggle('mc-config-split__list-item--selected', i === idx);
+            });
+        }
+
+        function fillAusEditor(idx) {
+            const editor = ausSplit.editor;
+            editor.innerHTML = '';
+            if (idx === null || !aktuelleAusstattungsKonfig[idx]) {
+                fillEditorPlaceholder(editor);
+                return;
+            }
+            const item = aktuelleAusstattungsKonfig[idx];
+            const title = document.createElement('div');
+            title.className = 'mc-config-split__editor-title';
+            title.textContent = (item.anzeige || '').trim() || 'Neuer Eintrag';
+            editor.appendChild(title);
+
+            const fields = document.createElement('div');
+            fields.className = 'mc-config-split__editor-fields';
+
+            function addField(labelText, el) {
+                const grp = document.createElement('div');
+                grp.className = 'mc-config-split__editor-field';
+                const lb = document.createElement('div');
+                lb.className = 'mc-label-sm';
+                lb.textContent = labelText;
+                grp.appendChild(lb);
+                grp.appendChild(el);
+                fields.appendChild(grp);
+            }
+
+            const inpAnz = document.createElement('input');
+            inpAnz.type = 'text';
+            inpAnz.className = 'mc-input';
+            inpAnz.value = item.anzeige || '';
+            inpAnz.addEventListener('input', () => {
+                item.anzeige = inpAnz.value;
+                markDirty();
+                refreshValidationUI();
+                title.textContent = (item.anzeige || '').trim() || 'Neuer Eintrag';
+            });
+            addField('Anzeigetext', inpAnz);
+
+            if (!Array.isArray(item.begriffe)) item.begriffe = [];
+            const chipB = mkChipInput(item.begriffe, {
+                onChange: arr => {
+                    item.begriffe = arr;
+                    markDirty();
+                    refreshValidationUI();
+                    renderAusstattungSplitListOnly();
+                }
+            });
+            addField('Suchbegriffe (Komma oder Enter · Klick auf Chip zum Bearbeiten)', chipB.wrap);
+
+            if (!Array.isArray(item.verboten)) item.verboten = [];
+            const chipV = mkChipInput(item.verboten, {
+                variant: 'warn',
+                onChange: arr => {
+                    item.verboten = arr;
+                    markDirty();
+                    refreshValidationUI();
+                    renderAusstattungSplitListOnly();
+                }
+            });
+            addField('Verbotene Begriffe', chipV.wrap);
+
+            editor.appendChild(fields);
+
+            const footer = document.createElement('div');
+            footer.className = 'mc-config-split__editor-footer';
+
+            const colorField = document.createElement('div');
+            colorField.className = 'mc-config-split__editor-field';
+            const lbC = document.createElement('div');
+            lbC.className = 'mc-label-sm';
+            lbC.textContent = 'Farbe';
+            const colorRowWrap = document.createElement('div');
+            colorRowWrap.className = 'mc-config-split__editor-color-row';
+            const colorRow = mkColorInput(item.farbe || '', v => {
+                item.farbe = v;
+                markDirty();
+                renderAusstattungSplitListOnly();
+            }, { styledPicker: true });
+            colorRowWrap.appendChild(colorRow);
+            colorField.appendChild(lbC);
+            colorField.appendChild(colorRowWrap);
+            footer.appendChild(colorField);
+
+            function mkEditorCheck(checked, title, hint, onChange) {
+                const lab = document.createElement('label');
+                lab.className = 'mc-config-split__editor-check';
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = !!checked;
+                cb.addEventListener('change', () => onChange(cb.checked));
+                const txt = document.createElement('span');
+                txt.className = 'mc-config-split__editor-check-text';
+                const tTitle = document.createElement('span');
+                tTitle.className = 'mc-config-split__editor-check-title';
+                tTitle.textContent = title;
+                txt.appendChild(tTitle);
+                if (hint) {
+                    const tHint = document.createElement('span');
+                    tHint.className = 'mc-config-split__editor-check-hint';
+                    tHint.textContent = hint;
+                    txt.appendChild(tHint);
+                }
+                lab.appendChild(cb);
+                lab.appendChild(txt);
+                return { lab, cb };
+            }
+
+            const optionsField = document.createElement('div');
+            optionsField.className = 'mc-config-split__editor-field';
+            const lbOpt = document.createElement('div');
+            lbOpt.className = 'mc-label-sm';
+            lbOpt.textContent = 'Optionen';
+            const optionsBox = document.createElement('div');
+            optionsBox.className = 'mc-config-split__editor-options';
+            optionsBox.appendChild(mkEditorCheck(
+                item.nurInFeatures === true,
+                'Nur Ausstattungsliste',
+                'Treffer nur in der strukturierten Liste, nicht im Beschreibungstext',
+                v => {
+                    item.nurInFeatures = v;
+                    markDirty();
+                    renderAusstattungSplitListOnly();
+                }
+            ).lab);
+            optionsBox.appendChild(mkEditorCheck(
+                item.compound === true,
+                'Wortteil-Suche',
+                'Treffer auch mitten im Wort (z. B. „heizung" findet „Standheizung")',
+                v => {
+                    item.compound = v;
+                    markDirty();
+                    renderAusstattungSplitListOnly();
+                }
+            ).lab);
+            optionsField.appendChild(lbOpt);
+            optionsField.appendChild(optionsBox);
+            footer.appendChild(optionsField);
+
+            const actions = document.createElement('div');
+            actions.className = 'mc-config-split__editor-actions';
+            actions.appendChild(mkBtn('dup', 'Duplizieren', () => duplicateAusEntry(idx)));
+            actions.appendChild(mkBtn('del', 'Löschen', async () => {
+                const ok = await confirmAsync('Eintrag wirklich löschen?');
+                if (!ok) return;
+                pushUndo({ kind: 'ausstattung', data: snapshotAus() });
+                aktuelleAusstattungsKonfig.splice(idx, 1);
+                if (selectedAusIndex === idx) selectedAusIndex = null;
+                else if (selectedAusIndex !== null && selectedAusIndex > idx) selectedAusIndex--;
+                markDirty();
+                renderAusstattung();
+                showToast('Eintrag entfernt', 'success');
+            }));
+            footer.appendChild(actions);
+
+            editor.appendChild(footer);
         }
 
         function countAusaktiv() {
@@ -4269,7 +5135,6 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 rowTop.className = 'mc-card__main-row mc-card__main-row--aus mc-aus-grid';
 
                 const dragOn = ausDragEnabledForSection(section);
-                const handle = mkDragHandle(dragOn);
 
                 const toggleEl = mkToggle(item.aktiv === true, v => {
                     item.aktiv = v;
@@ -4296,7 +5161,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
                     markDirty();
                 });
 
-                rowTop.appendChild(handle);
+                if (dragOn) rowTop.appendChild(mkDragHandle(true));
+                else rowTop.appendChild(mkAusDragSpacer());
                 rowTop.appendChild(mkFavBtn(item, () => renderAusstattung()));
                 const tw = document.createElement('div');
                 tw.className = 'mc-toggle-wrap';
@@ -4440,9 +5306,9 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 adv.appendChild(btnLoeschen);
                 card.appendChild(adv);
 
-                setupListDragReorder({
+                if (dragOn) setupListDragReorder({
                     container: ausstattungContainer,
-                    handle,
+                    handle: card.querySelector('.mc-drag-handle'),
                     card,
                     indexAttr: 'data-cfg-index',
                     getFromIndex: () => parseInt(card.dataset.cfgIndex, 10),
@@ -4468,7 +5334,170 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 ausstattungContainer.appendChild(card);
         }
 
-        function renderAusstattung() {
+        function appendAusListRow(index, dragSection) {
+            const item = aktuelleAusstattungsKonfig[index];
+            if (!item) return;
+            const section = dragSection || 'rest';
+            const dragOn = ausDragEnabledForSection(section);
+            const handle = dragOn ? mkDragHandle(true) : null;
+            const toggleEl = mkToggle(item.aktiv === true, v => {
+                item.aktiv = v;
+                markDirty();
+                renderAusstattung();
+                refreshValidationUI();
+            });
+            const tw = document.createElement('div');
+            tw.className = 'mc-toggle-wrap';
+            tw.appendChild(toggleEl);
+            const favBtn = mkFavBtn(item, () => renderAusstattung());
+            const dot = document.createElement('span');
+            dot.className = 'mc-config-split__color-dot';
+            dot.style.background = normalizeHexColor(item.farbe || '');
+            const badges = [];
+            if (item.nurInFeatures) badges.push('Ausstattung');
+            if (item.compound) badges.push('Wortteil');
+            const vCount = Array.isArray(item.verboten) ? item.verboten.length : 0;
+            if (vCount) badges.push(vCount + ' verboten');
+            const errs = cardIssuesAus(index, item);
+            const row = mkSplitListItem({
+                index,
+                dragSection: section,
+                selected: selectedAusIndex === index,
+                inactive: !item.aktiv,
+                handle,
+                toggleWrap: tw,
+                favBtn,
+                colorDot: dot,
+                label: (item.anzeige || '').trim() || '(ohne Anzeige)',
+                title: item.anzeige || '',
+                badges,
+                warn: errs.length ? errs.join(' · ') : null,
+                onSelect: () => selectAusIndex(index, true)
+            });
+            row.dataset.cfgIndex = String(index);
+            row.dataset.dragSection = section;
+            if (dragOn && handle) setupListDragReorder({
+                container: ausSplit.list,
+                handle,
+                card: row,
+                indexAttr: 'data-cfg-index',
+                getFromIndex: () => parseInt(row.dataset.cfgIndex, 10),
+                isEnabled: () => ausDragEnabledForSection(section),
+                getSection: c => c.dataset.dragSection || 'rest',
+                canDropInSection: (fromSec, toSec) => {
+                    if (isPopupManualScope('ausstattung')) return true;
+                    return fromSec === toSec;
+                },
+                onDrop: (from, to) => {
+                    if (from === to) return;
+                    pushUndo({ kind: 'ausstattung', data: snapshotAus() });
+                    const moved = aktuelleAusstattungsKonfig[from];
+                    aktuelleAusstattungsKonfig.splice(from, 1);
+                    const insertAt = from < to ? to - 1 : to;
+                    aktuelleAusstattungsKonfig.splice(insertAt, 0, moved);
+                    reorderSelectedAusAfterDrop(from, to);
+                    markDirty();
+                    renderAusstattung();
+                }
+            });
+            ausSplit.list.appendChild(row);
+        }
+
+        function getSortedAusVisibleIndices() {
+            const vis = getVisibleAusIndices();
+            const manualFull = isPopupManualScope('ausstattung');
+            const manualFavOnly = isPopupManualScope('ausstattungFavorites') && !manualFull;
+            const sortKey = columnSortLockedForAus() ? 'config' : ausSort.key;
+            const sortDir = ausSort.dir;
+            const { fav, rest } = partitionFavoriteIndices(vis, aktuelleAusstattungsKonfig);
+            let sortedFav;
+            let sortedRest;
+            if (manualFull) {
+                sortedFav = orderIndicesByArrayPosition(fav);
+                sortedRest = orderIndicesByArrayPosition(rest);
+            } else if (manualFavOnly) {
+                sortedFav = orderIndicesByArrayPosition(fav);
+                sortedRest = sortIndices(rest, aktuelleAusstattungsKonfig, sortKey, sortDir, ausCompareValue);
+            } else {
+                sortedFav = sortIndices(fav, aktuelleAusstattungsKonfig, sortKey, sortDir, ausCompareValue);
+                sortedRest = sortIndices(rest, aktuelleAusstattungsKonfig, sortKey, sortDir, ausCompareValue);
+            }
+            return { vis, sortedFav, sortedRest, favVis: vis.filter(i => aktuelleAusstattungsKonfig[i].favorit === true).length };
+        }
+
+        function renderAusstattungSplitListOnly() {
+            if (!useConfigSplitView()) return;
+            const sel = selectedAusIndex;
+            ausSplit.list.innerHTML = '';
+            const { vis, sortedFav, sortedRest, favVis } = getSortedAusVisibleIndices();
+            if (!vis.length) return;
+            function renderBlock(indices, heading, dragSection) {
+                if (!indices.length) return;
+                if (heading) ausSplit.list.appendChild(mkSectionHead(heading));
+                indices.forEach(idx => appendAusListRow(idx, dragSection));
+            }
+            if (sortedFav.length && sortedRest.length) {
+                renderBlock(sortedFav, 'Favoriten', 'fav');
+                ausSplit.list.appendChild(mkSectionDivider());
+                renderBlock(sortedRest, 'Weitere Einträge', 'rest');
+            } else if (sortedFav.length) {
+                renderBlock(sortedFav, favVis < vis.length ? 'Favoriten' : null, 'fav');
+            } else {
+                renderBlock(sortedRest, null, 'rest');
+            }
+            if (sel !== null) {
+                ausSplit.list.querySelectorAll('.mc-config-split__list-item').forEach(el => {
+                    el.classList.toggle('mc-config-split__list-item--selected', parseInt(el.dataset.cfgIndex, 10) === sel);
+                });
+            }
+        }
+
+        function renderAusstattungSplit() {
+            sanitizeSelectedAusIndex();
+            ausSplit.list.innerHTML = '';
+            const { a, t } = countAusaktiv();
+            const { vis, sortedFav, sortedRest, favVis } = getSortedAusVisibleIndices();
+            ausMetaStats.textContent = vis.length + ' sichtbar · ' + a + ' von ' + t + ' aktiv · ' + favVis + ' Favoriten';
+            ausMetaHint.textContent = listOrderMetaHint('aus');
+            syncSplitToolbarVisibility();
+            if (aktuelleAusstattungsKonfig.length === 0) {
+                ausSplit.list.appendChild(mkEmptyState('Noch keine Einträge.'));
+                fillEditorPlaceholder(ausSplit.editor);
+                updateTabBadges();
+                refreshValidationUI();
+                return;
+            }
+            if (vis.length === 0) {
+                ausSplit.list.appendChild(mkEmptyState('Keine Treffer für den aktuellen Filter.'));
+                fillEditorPlaceholder(ausSplit.editor);
+                updateTabBadges();
+                refreshValidationUI();
+                return;
+            }
+            function renderBlock(indices, heading, dragSection) {
+                if (!indices.length) return;
+                if (heading) ausSplit.list.appendChild(mkSectionHead(heading));
+                indices.forEach(idx => appendAusListRow(idx, dragSection));
+            }
+            if (sortedFav.length && sortedRest.length) {
+                renderBlock(sortedFav, 'Favoriten', 'fav');
+                ausSplit.list.appendChild(mkSectionDivider());
+                renderBlock(sortedRest, 'Weitere Einträge', 'rest');
+            } else if (sortedFav.length) {
+                renderBlock(sortedFav, favVis < vis.length ? 'Favoriten' : null, 'fav');
+            } else {
+                renderBlock(sortedRest, null, 'rest');
+            }
+            if (selectedAusIndex === null || !vis.includes(selectedAusIndex)) {
+                selectedAusIndex = vis[0];
+            }
+            fillAusEditor(selectedAusIndex);
+            selectAusIndex(selectedAusIndex, false);
+            updateTabBadges();
+            refreshValidationUI();
+        }
+
+        function renderAusstattungClassic() {
             sanitizeExpandedAusstattungIndex();
             ausstattungContainer.innerHTML = '';
             const vis = getVisibleAusIndices();
@@ -4493,24 +5522,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             if (columnSortLockedForAus()) colHeader.classList.add('mc-col-sort-header--disabled');
             ausstattungContainer.appendChild(colHeader);
 
-            const manualFull = isPopupManualScope('ausstattung');
-            const manualFavOnly = isPopupManualScope('ausstattungFavorites') && !manualFull;
-            const sortKey = columnSortLockedForAus() ? 'config' : ausSort.key;
-            const sortDir = ausSort.dir;
-
-            const { fav, rest } = partitionFavoriteIndices(vis, aktuelleAusstattungsKonfig);
-            let sortedFav;
-            let sortedRest;
-            if (manualFull) {
-                sortedFav = orderIndicesByArrayPosition(fav);
-                sortedRest = orderIndicesByArrayPosition(rest);
-            } else if (manualFavOnly) {
-                sortedFav = orderIndicesByArrayPosition(fav);
-                sortedRest = sortIndices(rest, aktuelleAusstattungsKonfig, sortKey, sortDir, ausCompareValue);
-            } else {
-                sortedFav = sortIndices(fav, aktuelleAusstattungsKonfig, sortKey, sortDir, ausCompareValue);
-                sortedRest = sortIndices(rest, aktuelleAusstattungsKonfig, sortKey, sortDir, ausCompareValue);
-            }
+            const { sortedFav, sortedRest } = getSortedAusVisibleIndices();
             colHeader._syncColSort();
 
             function renderAusBlock(indices, heading, dragSection) {
@@ -4532,6 +5544,15 @@ article.mobilede-tech-article,article.mobilede-result-article{
             refreshValidationUI();
         }
 
+        function renderAusstattung() {
+            ausstattungContainer.hidden = useConfigSplitView();
+            ausSplit.root.hidden = !useConfigSplitView();
+            syncPopupConfigLayoutClass();
+            syncSplitToolbarVisibility();
+            if (useConfigSplitView()) renderAusstattungSplit();
+            else renderAusstattungClassic();
+        }
+
         /** --- Tech --- */
         const techTb = buildListToolbar({
             searchPlaceholder: 'Suche (Begriff)…',
@@ -4539,6 +5560,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             bulk: { onAll: flag => bulkTechAlle(flag) },
             onNeu: () => {
                 aktuelleTechKonfigurationen.push({ begriff: '', aktiv: true });
+                selectedTechIndex = aktuelleTechKonfigurationen.length - 1;
                 markDirty();
                 renderTechData();
             }
@@ -4547,6 +5569,13 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const techSearch = techTb.search;
         const techMetaStats = techTb.metaStats;
         const techMetaHint = techTb.metaHint;
+        const techSortDropdown = mkSortDropdown(techSort, [
+            { key: 'begriff', dir: 'asc', label: 'Begriff A–Z' },
+            { key: 'begriff', dir: 'desc', label: 'Begriff Z–A' },
+            { key: 'aktiv', dir: 'desc', label: 'Aktiv zuerst' }
+        ], false, () => renderTechData());
+        const techMetaRow = techToolbar.querySelector('.mc-toolbar__row--meta');
+        if (techMetaRow) techMetaRow.insertBefore(techSortDropdown, techMetaRow.firstChild);
         footerResetHandlers[1] = async () => {
             const ok = await confirmAsync('Tech-Konfiguration auf Defaults zurücksetzen? Aktueller Stand wird vorher gesichert.');
             if (!ok) return;
@@ -4559,9 +5588,13 @@ article.mobilede-tech-article,article.mobilede-result-article{
         };
 
         const techContainer = document.createElement('div');
-        techContainer.className = 'mc-tech-list-scroll';
+        techContainer.className = 'mc-tech-list-scroll mc-config-classic-root';
+        const techSplitShell = mkConfigSplitShell('tech');
+        techSplitShell.root.hidden = true;
+        const techSplit = techSplitShell;
         panelTech.appendChild(techToolbar);
         panelTech.appendChild(techContainer);
+        panelTech.appendChild(techSplit.root);
         installKonfigTabHelp('tech', 'mc-konfig-help-tech', 'Hilfe zum Tab Tech-Daten', 'Hilfe zu Tech-Daten', techTb.searchRow, null, panelTech, techContainer);
 
         function techCompareValue(item, idx, key) {
@@ -4610,15 +5643,197 @@ article.mobilede-tech-article,article.mobilede-result-article{
             return errs;
         }
 
-        function renderTechData() {
+        function sanitizeSelectedTechIndex() {
+            if (selectedTechIndex === null) return;
+            if (selectedTechIndex < 0 || selectedTechIndex >= aktuelleTechKonfigurationen.length) {
+                selectedTechIndex = null;
+            }
+        }
+
+        function selectTechIndex(idx, openSheet) {
+            selectedTechIndex = idx;
+            if (useConfigSplitView()) {
+                fillTechEditor(idx);
+                if (openSheet !== false) techSplit.openEditorSheet();
+                techSplit.list.querySelectorAll('.mc-config-split__list-item').forEach(el => {
+                    el.classList.toggle('mc-config-split__list-item--selected', parseInt(el.dataset.techIndex, 10) === idx);
+                });
+            }
+        }
+
+        function fillTechEditor(idx) {
+            const editor = techSplit.editor;
+            editor.innerHTML = '';
+            if (idx === null || !aktuelleTechKonfigurationen[idx]) {
+                fillEditorPlaceholder(editor);
+                return;
+            }
+            const item = aktuelleTechKonfigurationen[idx];
+            const title = document.createElement('div');
+            title.className = 'mc-config-split__editor-title';
+            title.textContent = (item.begriff || '').trim() || 'Neuer Tech-Eintrag';
+            editor.appendChild(title);
+            const fields = document.createElement('div');
+            fields.className = 'mc-config-split__editor-fields';
+            const lb = document.createElement('div');
+            lb.className = 'mc-label-sm';
+            lb.textContent = 'Begriff (exakt wie mobile.de dt-Label)';
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.className = 'mc-input';
+            inp.value = item.begriff || '';
+            inp.placeholder = 'z. B. Fahrzeugzustand';
+            inp.addEventListener('input', () => {
+                item.begriff = inp.value;
+                title.textContent = (item.begriff || '').trim() || 'Neuer Tech-Eintrag';
+                markDirty();
+                refreshValidationUI();
+                renderTechSplitListOnly();
+            });
+            fields.appendChild(lb);
+            fields.appendChild(inp);
+            const actLab = document.createElement('label');
+            actLab.className = 'mc-pill' + (item.aktiv ? ' mc-pill--on' : '');
+            const actCb = document.createElement('input');
+            actCb.type = 'checkbox';
+            actCb.checked = item.aktiv === true;
+            actCb.addEventListener('change', () => {
+                item.aktiv = actCb.checked;
+                actLab.classList.toggle('mc-pill--on', actCb.checked);
+                markDirty();
+                renderTechSplitListOnly();
+            });
+            actLab.appendChild(actCb);
+            actLab.appendChild(document.createTextNode(' Aktiv'));
+            fields.appendChild(actLab);
+            editor.appendChild(fields);
+            const actions = document.createElement('div');
+            actions.className = 'mc-config-split__editor-actions';
+            actions.appendChild(mkBtn('del', 'Löschen', async () => {
+                const ok = await confirmAsync('Tech-Eintrag löschen?');
+                if (!ok) return;
+                pushUndo({ kind: 'tech', data: snapshotTech() });
+                aktuelleTechKonfigurationen.splice(idx, 1);
+                if (selectedTechIndex === idx) selectedTechIndex = null;
+                else if (selectedTechIndex !== null && selectedTechIndex > idx) selectedTechIndex--;
+                markDirty();
+                renderTechData();
+            }));
+            editor.appendChild(actions);
+        }
+
+        function appendTechListRow(index) {
+            const item = aktuelleTechKonfigurationen[index];
+            if (!item) return;
+            const handle = mkDragHandle(techDragEnabled());
+            const toggleEl = mkToggle(item.aktiv === true, v => {
+                item.aktiv = v;
+                markDirty();
+                renderTechData();
+                refreshValidationUI();
+            });
+            const tw = document.createElement('div');
+            tw.className = 'mc-toggle-wrap';
+            tw.appendChild(toggleEl);
+            const errs = cardIssuesTech(item);
+            const row = mkSplitListItem({
+                index,
+                selected: selectedTechIndex === index,
+                inactive: !item.aktiv,
+                handle,
+                toggleWrap: tw,
+                label: (item.begriff || '').trim() || '(ohne Begriff)',
+                title: item.begriff || '',
+                warn: errs.length ? errs.join(' · ') : null,
+                onSelect: () => selectTechIndex(index, true)
+            });
+            row.dataset.techIndex = String(index);
+            setupListDragReorder({
+                container: techSplit.list,
+                handle,
+                card: row,
+                indexAttr: 'data-tech-index',
+                getFromIndex: () => parseInt(row.dataset.techIndex, 10),
+                isEnabled: techDragEnabled,
+                onDrop: (from, to) => {
+                    if (from === to) return;
+                    pushUndo({ kind: 'tech', data: snapshotTech() });
+                    const moved = aktuelleTechKonfigurationen[from];
+                    aktuelleTechKonfigurationen.splice(from, 1);
+                    const insertAt = from < to ? to - 1 : to;
+                    aktuelleTechKonfigurationen.splice(insertAt, 0, moved);
+                    if (selectedTechIndex === from) selectedTechIndex = insertAt;
+                    else if (selectedTechIndex !== null) {
+                        if (from < selectedTechIndex && insertAt >= selectedTechIndex) selectedTechIndex--;
+                        else if (from > selectedTechIndex && insertAt <= selectedTechIndex) selectedTechIndex++;
+                    }
+                    markDirty();
+                    renderTechData();
+                }
+            });
+            techSplit.list.appendChild(row);
+        }
+
+        function getSortedTechVisibleIndices() {
+            const vis = getVisibleTechIndices();
+            const techSortKey = columnSortLockedForTech() ? 'config' : techSort.key;
+            return isPopupManualScope('tech')
+                ? orderIndicesByArrayPosition(vis)
+                : sortIndices(vis, aktuelleTechKonfigurationen, techSortKey, techSort.dir, techCompareValue);
+        }
+
+        function renderTechSplitListOnly() {
+            if (!useConfigSplitView()) return;
+            const sel = selectedTechIndex;
+            techSplit.list.innerHTML = '';
+            getSortedTechVisibleIndices().forEach(idx => appendTechListRow(idx));
+            if (sel !== null) {
+                techSplit.list.querySelectorAll('.mc-config-split__list-item').forEach(el => {
+                    el.classList.toggle('mc-config-split__list-item--selected', parseInt(el.dataset.techIndex, 10) === sel);
+                });
+            }
+        }
+
+        function renderTechDataSplit() {
+            sanitizeSelectedTechIndex();
+            techSplit.list.innerHTML = '';
+            const vis = getVisibleTechIndices();
+            const total = aktuelleTechKonfigurationen.length;
+            const act = aktuelleTechKonfigurationen.filter(t => t.aktiv).length;
+            techMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
+            techMetaHint.textContent = listOrderMetaHint('tech');
+            techSortDropdown.querySelector('select').disabled = columnSortLockedForTech();
+            if (aktuelleTechKonfigurationen.length === 0) {
+                techSplit.list.appendChild(mkEmptyState('Keine Tech-Parameter.'));
+                fillEditorPlaceholder(techSplit.editor);
+                updateTabBadges();
+                refreshValidationUI();
+                return;
+            }
+            if (!vis.length) {
+                techSplit.list.appendChild(mkEmptyState('Keine Treffer.'));
+                fillEditorPlaceholder(techSplit.editor);
+                updateTabBadges();
+                refreshValidationUI();
+                return;
+            }
+            const sortedVis = getSortedTechVisibleIndices();
+            sortedVis.forEach(index => appendTechListRow(index));
+            if (selectedTechIndex === null || !vis.includes(selectedTechIndex)) {
+                selectedTechIndex = vis[0];
+            }
+            fillTechEditor(selectedTechIndex);
+            selectTechIndex(selectedTechIndex, false);
+            updateTabBadges();
+            refreshValidationUI();
+        }
+
+        function renderTechDataClassic() {
             techContainer.innerHTML = '';
             const vis = getVisibleTechIndices();
             const total = aktuelleTechKonfigurationen.length;
             const act = aktuelleTechKonfigurationen.filter(t => t.aktiv).length;
-            const techSortKey = columnSortLockedForTech() ? 'config' : techSort.key;
-            const sortedVis = isPopupManualScope('tech')
-                ? orderIndicesByArrayPosition(vis)
-                : sortIndices(vis, aktuelleTechKonfigurationen, techSortKey, techSort.dir, techCompareValue);
+            const sortedVis = getSortedTechVisibleIndices();
             techMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
             techMetaHint.textContent = listOrderMetaHint('tech');
 
@@ -4727,6 +5942,13 @@ article.mobilede-tech-article,article.mobilede-result-article{
             refreshValidationUI();
         }
 
+        function renderTechData() {
+            techContainer.hidden = useConfigSplitView();
+            techSplit.root.hidden = !useConfigSplitView();
+            if (useConfigSplitView()) renderTechDataSplit();
+            else renderTechDataClassic();
+        }
+
         /** --- Merge --- */
         const mergeTb = buildListToolbar({
             searchPlaceholder: 'Suche nach Basis…',
@@ -4737,6 +5959,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             bulk: { onAll: flag => bulkMergeAlle(flag) },
             onNeu: () => {
                 aktuelleMergeGruppen.push({ basis: '', order: [], aktiv: true });
+                selectedMergeIndex = aktuelleMergeGruppen.length - 1;
                 markDirty();
                 renderMergeConfig();
             }
@@ -4746,6 +5969,14 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const mergeMetaStats = mergeTb.metaStats;
         const mergeMetaHint = mergeTb.metaHint;
         const mergeOnlyCb = mergeTb.filterCbs[0];
+        const mergeSortDropdown = mkSortDropdown(mergeSort, [
+            { key: 'basis', dir: 'asc', label: 'Basis A–Z' },
+            { key: 'basis', dir: 'desc', label: 'Basis Z–A' },
+            { key: 'aktiv', dir: 'desc', label: 'Aktiv zuerst' },
+            { key: 'orderCount', dir: 'desc', label: 'Meiste Modifier' }
+        ], false, () => renderMergeConfig());
+        const mergeMetaRow = mergeToolbar.querySelector('.mc-toolbar__row--meta');
+        if (mergeMetaRow) mergeMetaRow.insertBefore(mergeSortDropdown, mergeMetaRow.firstChild);
         footerResetHandlers[2] = async () => {
             const ok = await confirmAsync('Merge-Gruppen auf Defaults zurücksetzen? Aktueller Stand wird vorher gesichert.');
             if (!ok) return;
@@ -4758,9 +5989,13 @@ article.mobilede-tech-article,article.mobilede-result-article{
         };
 
         const mergeContainer = document.createElement('div');
-        mergeContainer.className = 'mc-merge-list-scroll';
+        mergeContainer.className = 'mc-merge-list-scroll mc-config-classic-root';
+        const mergeSplitShell = mkConfigSplitShell('merge');
+        mergeSplitShell.root.hidden = true;
+        const mergeSplit = mergeSplitShell;
         panelMerge.appendChild(mergeToolbar);
         panelMerge.appendChild(mergeContainer);
+        panelMerge.appendChild(mergeSplit.root);
         installKonfigTabHelp('merge', 'mc-konfig-help-merge', 'Hilfe zum Tab Merge-Gruppen', 'Hilfe zu Merge-Gruppen', mergeTb.searchRow, null, panelMerge, mergeContainer);
 
         function mergeCompareValue(group, idx, key) {
@@ -4814,14 +6049,192 @@ article.mobilede-tech-article,article.mobilede-result-article{
             return errs;
         }
 
-        function renderMergeConfig() {
+        function sanitizeSelectedMergeIndex() {
+            if (selectedMergeIndex === null) return;
+            if (selectedMergeIndex < 0 || selectedMergeIndex >= aktuelleMergeGruppen.length) {
+                selectedMergeIndex = null;
+            }
+        }
+
+        function selectMergeIndex(idx, openSheet) {
+            selectedMergeIndex = idx;
+            if (useConfigSplitView()) {
+                fillMergeEditor(idx);
+                if (openSheet !== false) mergeSplit.openEditorSheet();
+                mergeSplit.list.querySelectorAll('.mc-config-split__list-item').forEach(el => {
+                    el.classList.toggle('mc-config-split__list-item--selected', parseInt(el.dataset.mergeIndex, 10) === idx);
+                });
+            }
+        }
+
+        function fillMergeEditor(idx) {
+            const editor = mergeSplit.editor;
+            editor.innerHTML = '';
+            if (idx === null || !aktuelleMergeGruppen[idx]) {
+                fillEditorPlaceholder(editor);
+                return;
+            }
+            const group = aktuelleMergeGruppen[idx];
+            const title = document.createElement('div');
+            title.className = 'mc-config-split__editor-title';
+            title.textContent = (group.basis || '').trim() || 'Neue Merge-Gruppe';
+            editor.appendChild(title);
+            const fields = document.createElement('div');
+            fields.className = 'mc-config-split__editor-fields';
+            const lbB = document.createElement('div');
+            lbB.className = 'mc-label-sm';
+            lbB.textContent = 'Basis';
+            const inpB = document.createElement('input');
+            inpB.type = 'text';
+            inpB.className = 'mc-input';
+            inpB.value = group.basis || '';
+            inpB.placeholder = 'Basis, z. B. außenspiegel';
+            inpB.addEventListener('input', () => {
+                group.basis = inpB.value;
+                title.textContent = (group.basis || '').trim() || 'Neue Merge-Gruppe';
+                markDirty();
+                refreshValidationUI();
+                renderMergeSplitListOnly();
+            });
+            fields.appendChild(lbB);
+            fields.appendChild(inpB);
+            const lbO = document.createElement('div');
+            lbO.className = 'mc-label-sm';
+            lbO.textContent = 'Modifier-Reihenfolge (Komma oder Enter)';
+            if (!Array.isArray(group.order)) group.order = [];
+            const chipO = mkChipInput(group.order, {
+                onChange: arr => {
+                    group.order = arr;
+                    markDirty();
+                    refreshValidationUI();
+                    renderMergeSplitListOnly();
+                }
+            });
+            fields.appendChild(lbO);
+            fields.appendChild(chipO.wrap);
+            const actLab = document.createElement('label');
+            actLab.className = 'mc-pill' + (group.aktiv !== false ? ' mc-pill--on' : '');
+            const actCb = document.createElement('input');
+            actCb.type = 'checkbox';
+            actCb.checked = group.aktiv !== false;
+            actCb.addEventListener('change', () => {
+                group.aktiv = actCb.checked;
+                actLab.classList.toggle('mc-pill--on', actCb.checked);
+                markDirty();
+                renderMergeSplitListOnly();
+            });
+            actLab.appendChild(actCb);
+            actLab.appendChild(document.createTextNode(' Aktiv'));
+            fields.appendChild(actLab);
+            editor.appendChild(fields);
+            const actions = document.createElement('div');
+            actions.className = 'mc-config-split__editor-actions';
+            actions.appendChild(mkBtn('del', 'Löschen', async () => {
+                const ok = await confirmAsync('Merge-Gruppe löschen?');
+                if (!ok) return;
+                pushUndo({ kind: 'merge', data: snapshotMerge() });
+                aktuelleMergeGruppen.splice(idx, 1);
+                if (selectedMergeIndex === idx) selectedMergeIndex = null;
+                else if (selectedMergeIndex !== null && selectedMergeIndex > idx) selectedMergeIndex--;
+                markDirty();
+                renderMergeConfig();
+                showToast('Merge-Gruppe entfernt', 'success');
+            }));
+            editor.appendChild(actions);
+        }
+
+        function appendMergeListRow(index) {
+            const group = aktuelleMergeGruppen[index];
+            if (!group) return;
+            const toggleEl = mkToggle(group.aktiv !== false, v => {
+                group.aktiv = v;
+                markDirty();
+                renderMergeConfig();
+                refreshValidationUI();
+            });
+            const tw = document.createElement('div');
+            tw.className = 'mc-toggle-wrap';
+            tw.appendChild(toggleEl);
+            const nMod = Array.isArray(group.order) ? group.order.length : 0;
+            const badges = [nMod + ' Modifier'];
+            const errs = cardIssuesMerge(group);
+            const row = mkSplitListItem({
+                index,
+                selected: selectedMergeIndex === index,
+                inactive: group.aktiv === false,
+                toggleWrap: tw,
+                label: (group.basis || '').trim() || '(ohne Basis)',
+                title: group.basis || '',
+                badges,
+                warn: errs.length ? errs.join(' · ') : null,
+                onSelect: () => selectMergeIndex(index, true)
+            });
+            row.dataset.mergeIndex = String(index);
+            mergeSplit.list.appendChild(row);
+        }
+
+        function getSortedMergeVisibleIndices() {
+            const vis = getVisibleMergeIndices();
+            return sortIndices(vis, aktuelleMergeGruppen, mergeSort.key, mergeSort.dir, mergeCompareValue);
+        }
+
+        function renderMergeSplitListOnly() {
+            if (!useConfigSplitView()) return;
+            const sel = selectedMergeIndex;
+            mergeSplit.list.innerHTML = '';
+            getSortedMergeVisibleIndices().forEach(idx => appendMergeListRow(idx));
+            if (sel !== null) {
+                mergeSplit.list.querySelectorAll('.mc-config-split__list-item').forEach(el => {
+                    el.classList.toggle('mc-config-split__list-item--selected', parseInt(el.dataset.mergeIndex, 10) === sel);
+                });
+            }
+        }
+
+        function mergeMetaHintText() {
+            if (useConfigSplitView()) return 'Sortierung über Dropdown · Speichern nach Basis';
+            return 'Spaltenköpfe sortieren die Anzeige · Speichern nach Basis';
+        }
+
+        function renderMergeConfigSplit() {
+            sanitizeSelectedMergeIndex();
+            mergeSplit.list.innerHTML = '';
+            const vis = getVisibleMergeIndices();
+            const total = aktuelleMergeGruppen.length;
+            const act = aktuelleMergeGruppen.filter(g => g.aktiv !== false).length;
+            mergeMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
+            mergeMetaHint.textContent = mergeMetaHintText();
+            if (aktuelleMergeGruppen.length === 0) {
+                mergeSplit.list.appendChild(mkEmptyState('Keine Merge-Gruppen.'));
+                fillEditorPlaceholder(mergeSplit.editor);
+                updateTabBadges();
+                refreshValidationUI();
+                return;
+            }
+            if (!vis.length) {
+                mergeSplit.list.appendChild(mkEmptyState('Keine Treffer für den aktuellen Filter.'));
+                fillEditorPlaceholder(mergeSplit.editor);
+                updateTabBadges();
+                refreshValidationUI();
+                return;
+            }
+            getSortedMergeVisibleIndices().forEach(index => appendMergeListRow(index));
+            if (selectedMergeIndex === null || !vis.includes(selectedMergeIndex)) {
+                selectedMergeIndex = vis[0];
+            }
+            fillMergeEditor(selectedMergeIndex);
+            selectMergeIndex(selectedMergeIndex, false);
+            updateTabBadges();
+            refreshValidationUI();
+        }
+
+        function renderMergeConfigClassic() {
             mergeContainer.innerHTML = '';
             const vis = getVisibleMergeIndices();
             const total = aktuelleMergeGruppen.length;
             const act = aktuelleMergeGruppen.filter(g => g.aktiv !== false).length;
-            const sortedVis = sortIndices(vis, aktuelleMergeGruppen, mergeSort.key, mergeSort.dir, mergeCompareValue);
+            const sortedVis = getSortedMergeVisibleIndices();
             mergeMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
-            mergeMetaHint.textContent = 'Spaltenköpfe sortieren die Anzeige · Speichern nach Basis';
+            mergeMetaHint.textContent = mergeMetaHintText();
             if (aktuelleMergeGruppen.length === 0) {
                 mergeContainer.appendChild(mkEmptyState('Keine Merge-Gruppen.'));
                 updateTabBadges();
@@ -4898,6 +6311,13 @@ article.mobilede-tech-article,article.mobilede-result-article{
             });
             updateTabBadges();
             refreshValidationUI();
+        }
+
+        function renderMergeConfig() {
+            mergeContainer.hidden = useConfigSplitView();
+            mergeSplit.root.hidden = !useConfigSplitView();
+            if (useConfigSplitView()) renderMergeConfigSplit();
+            else renderMergeConfigClassic();
         }
 
         /** --- Import / Export --- */
@@ -5088,14 +6508,15 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 if (Array.isArray(obj.techDataKonfigurationen)) aktuelleTechKonfigurationen = obj.techDataKonfigurationen;
                 if (Array.isArray(obj.mergeGruppenConfig)) aktuelleMergeGruppen = obj.mergeGruppenConfig;
                 if (obj.featureFlags && typeof obj.featureFlags === 'object') {
-                    aktuelleFeatureFlags = { ...featureFlagsDefault(), ...obj.featureFlags };
+                    aktuelleFeatureFlags = mergeConfigListUi(
+                        obj.featureFlags,
+                        { ...featureFlagsDefault(), ...obj.featureFlags }
+                    );
                     aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
                     aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
                 }
                 markDirty();
-                renderAusstattung();
-                renderTechData();
-                renderMergeConfig();
+                onConfigListUiChanged();
                 renderConfig();
                 refreshExportArea();
                 showToast('Import angewendet. Backup-Zeitstempel: ' + ts + '. Bitte Speichern klicken.', 'success');
@@ -5139,6 +6560,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             if (!ok) return;
             aktuelleFeatureFlags = featureFlagsDefault();
             markDirty();
+            onConfigListUiChanged();
             renderConfig();
             showToast('Feature-Flags zurückgesetzt', 'success');
         };
@@ -5200,6 +6622,55 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 vehCb.disabled = !hasScope;
                 vehCb.checked = hasScope && !!lo.applyToVehicleResults;
             }
+
+            const uiListCard = document.createElement('div');
+            uiListCard.className = 'mc-card mc-list-order-card';
+            const uiHead = document.createElement('div');
+            uiHead.className = 'mc-feature-title';
+            uiHead.textContent = 'Listen-Layout';
+            const uiDesc = document.createElement('div');
+            uiDesc.className = 'mc-feature-desc';
+            uiDesc.textContent = 'Gilt für die Tabs Ausstattung, Tech-Daten und Merge-Gruppen. Split-View: kompakte Liste links, Editor rechts (auf schmalen Screens als Sheet).';
+            const uiMode = document.createElement('div');
+            uiMode.className = 'mc-lo-segment';
+            uiMode.setAttribute('role', 'radiogroup');
+            uiMode.setAttribute('aria-label', 'Listen-Layout');
+            const uiLayoutBtns = [];
+            function syncUiLayoutBtns() {
+                const cur = getConfigListUi(aktuelleFeatureFlags);
+                uiLayoutBtns.forEach(({ val, btn }) => {
+                    btn.classList.toggle('mc-lo-segment-btn--active', cur === val);
+                    btn.setAttribute('aria-checked', cur === val ? 'true' : 'false');
+                });
+            }
+            [['classic', 'Klassisch'], ['split', 'Split-View (neu)']].forEach(([val, lab]) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'mc-lo-segment-btn';
+                btn.textContent = lab;
+                btn.setAttribute('role', 'radio');
+                btn.addEventListener('click', () => {
+                    aktuelleFeatureFlags.configListUi = val;
+                    syncUiLayoutBtns();
+                    markDirty();
+                    onConfigListUiChanged();
+                });
+                uiLayoutBtns.push({ val, btn });
+                uiMode.appendChild(btn);
+            });
+            uiListCard.appendChild(uiHead);
+            uiListCard.appendChild(uiDesc);
+            uiListCard.appendChild(uiMode);
+            syncUiLayoutBtns();
+
+            const uiListSec = document.createElement('div');
+            uiListSec.className = 'mc-config-section';
+            const uiListSecTitle = document.createElement('div');
+            uiListSecTitle.className = 'mc-config-section-title';
+            uiListSecTitle.textContent = 'Konfig-Popup';
+            uiListSec.appendChild(uiListSecTitle);
+            uiListSec.appendChild(uiListCard);
+            configContainer.appendChild(uiListSec);
 
             const loCard = document.createElement('div');
             loCard.className = 'mc-card mc-list-order-card';
@@ -5638,7 +7109,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 aktiv: true,
                 favorit: false
             });
-            expandedAusstattungIndex = 0;
+            expandedAusstattungIndex = useConfigSplitView() ? null : 0;
+            selectedAusIndex = 0;
             pendingAusstattungPrefill = null;
             markDirty();
             setActiveTab(0);
