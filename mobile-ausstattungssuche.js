@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.11.10
+// @version      2.11.13
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Token-basierte Match-Engine mit Wortgrenzen, Quellen-Gewichtung (Feature-Liste vs. Beschreibung), SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile.de
@@ -2198,7 +2198,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
 <h4>Split-View:</h4>
 <ul>
 <li><strong>Liste links</strong>: Aktiv-Schalter und gekürzter Begriff — Zeile anklicken für den Editor.</li>
-<li><strong>Editor rechts</strong>: Vollständiger Begriff (exakt wie <code>&lt;dt&gt;</code>-Label), Aktiv-Toggle, Löschen.</li>
+<li><strong>Editor rechts</strong>: Vollständiger Begriff (exakt wie <code>&lt;dt&gt;</code>-Label), Option <strong>Aktiv</strong>, Löschen.</li>
 <li><strong>Sortierung</strong> per Dropdown; Drag&amp;Drop bei manueller Tech-Reihenfolge (Config).</li>
 <li>Layout: Tab <strong>Config</strong> → <strong>Listen-Layout</strong>.</li>
 </ul>`],
@@ -2219,7 +2219,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
 <h4>Split-View:</h4>
 <ul>
 <li><strong>Liste links</strong>: Aktiv, Basis (gekürzt), Badge mit Anzahl Modifier.</li>
-<li><strong>Editor rechts</strong>: Basis-Feld; Modifier-Reihenfolge als <strong>Chips</strong> (Enter/Komma).</li>
+<li><strong>Editor rechts</strong>: Basis-Feld; Modifier-Reihenfolge als <strong>Chips</strong> (Enter/Komma); Option <strong>Aktiv</strong>, Löschen.</li>
 <li><strong>Sortierung</strong> per Dropdown in der Toolbar.</li>
 <li>Layout: Tab <strong>Config</strong> → <strong>Listen-Layout</strong>.</li>
 </ul>`],
@@ -2294,7 +2294,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const konfigHelpPanels = {};
         /** Hilfe-Panel je Tab (Ausstattung, Tech, Merge, Import/Export, Config) — vermeidet Zustandsverlust beim Tab-Wechsel. */
         const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-        const SCRIPT_UI_VERSION = '2.11.10';
+        const SCRIPT_UI_VERSION = '2.11.13';
         const pageWindow = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
         let ausSort = { key: 'config', dir: 'asc' };
         let techSort = { key: 'config', dir: 'asc' };
@@ -2714,7 +2714,10 @@ article.mobilede-tech-article,article.mobilede-result-article{
 .mc-config-split__sheet-head{display:flex;justify-content:flex-end;padding:8px 12px;border-bottom:1px solid var(--mc-border);}
 .mc-config-split__sheet-body{overflow-y:auto;padding:12px 16px 20px;flex:1;min-height:0;}
 .mc-toolbar-sort{display:flex;align-items:center;gap:6px;}
-.mc-toolbar-sort label{font-size:11px;color:var(--mc-muted);white-space:nowrap;}
+.mc-toolbar-sort label{
+  font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--mc-muted);white-space:nowrap;min-width:4.5rem;
+}
 .mc-toolbar-sort select{
   border:1px solid var(--mc-border);background:var(--mc-elevated);color:var(--mc-text);
   border-radius:8px;font-size:12px;padding:6px 8px;min-height:32px;
@@ -3100,6 +3103,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
 @media(max-width:699px){
   .mc-toolbar-zone{flex-direction:column;align-items:flex-start;}
   .mc-toolbar-zone__label{min-width:0;}
+  .mc-toolbar-sort label{min-width:0;}
 }
 .mc-status-btn{border:none;background:transparent;padding:4px 6px;cursor:pointer;font-size:13px;border-radius:8px;text-align:left;}
 .mc-status-btn:hover{background:var(--mc-elevated);}
@@ -3699,6 +3703,69 @@ article.mobilede-tech-article,article.mobilede-result-article{
             p.className = 'mc-config-split__editor-placeholder';
             p.textContent = msg || 'Eintrag in der Liste wählen oder „+ Neu“ klicken.';
             editorEl.appendChild(p);
+        }
+
+        function mkConfigSplitEditorField(labelText, el) {
+            const grp = document.createElement('div');
+            grp.className = 'mc-config-split__editor-field';
+            const lb = document.createElement('div');
+            lb.className = 'mc-label-sm';
+            lb.textContent = labelText;
+            grp.appendChild(lb);
+            grp.appendChild(el);
+            return grp;
+        }
+
+        function mkConfigSplitEditorCheck(checked, checkTitle, hint, onChange) {
+            const lab = document.createElement('label');
+            lab.className = 'mc-config-split__editor-check';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = !!checked;
+            cb.addEventListener('change', () => onChange(cb.checked));
+            const txt = document.createElement('span');
+            txt.className = 'mc-config-split__editor-check-text';
+            const tTitle = document.createElement('span');
+            tTitle.className = 'mc-config-split__editor-check-title';
+            tTitle.textContent = checkTitle;
+            txt.appendChild(tTitle);
+            if (hint) {
+                const tHint = document.createElement('span');
+                tHint.className = 'mc-config-split__editor-check-hint';
+                tHint.textContent = hint;
+                txt.appendChild(tHint);
+            }
+            lab.appendChild(cb);
+            lab.appendChild(txt);
+            return { lab, cb };
+        }
+
+        function mkConfigSplitOptionsField(checks) {
+            const optionsField = document.createElement('div');
+            optionsField.className = 'mc-config-split__editor-field';
+            const lbOpt = document.createElement('div');
+            lbOpt.className = 'mc-label-sm';
+            lbOpt.textContent = 'Optionen';
+            const optionsBox = document.createElement('div');
+            optionsBox.className = 'mc-config-split__editor-options';
+            checks.forEach(c => {
+                optionsBox.appendChild(mkConfigSplitEditorCheck(c.checked, c.title, c.hint, c.onChange).lab);
+            });
+            optionsField.appendChild(lbOpt);
+            optionsField.appendChild(optionsBox);
+            return optionsField;
+        }
+
+        function mkConfigSplitEditorFooter() {
+            const footer = document.createElement('div');
+            footer.className = 'mc-config-split__editor-footer';
+            return footer;
+        }
+
+        function mkConfigSplitEditorActions() {
+            const actions = document.createElement('div');
+            actions.className = 'mc-config-split__editor-actions';
+            return actions;
         }
 
         function mkToggle(checked, onChange) {
@@ -4885,17 +4952,6 @@ article.mobilede-tech-article,article.mobilede-result-article{
             const fields = document.createElement('div');
             fields.className = 'mc-config-split__editor-fields';
 
-            function addField(labelText, el) {
-                const grp = document.createElement('div');
-                grp.className = 'mc-config-split__editor-field';
-                const lb = document.createElement('div');
-                lb.className = 'mc-label-sm';
-                lb.textContent = labelText;
-                grp.appendChild(lb);
-                grp.appendChild(el);
-                fields.appendChild(grp);
-            }
-
             const inpAnz = document.createElement('input');
             inpAnz.type = 'text';
             inpAnz.className = 'mc-input';
@@ -4906,7 +4962,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 refreshValidationUI();
                 title.textContent = (item.anzeige || '').trim() || 'Neuer Eintrag';
             });
-            addField('Anzeigetext', inpAnz);
+            fields.appendChild(mkConfigSplitEditorField('Anzeigetext', inpAnz));
 
             if (!Array.isArray(item.begriffe)) item.begriffe = [];
             const chipB = mkChipInput(item.begriffe, {
@@ -4917,7 +4973,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
                     renderAusstattungSplitListOnly();
                 }
             });
-            addField('Suchbegriffe (Komma oder Enter · Klick auf Chip zum Bearbeiten)', chipB.wrap);
+            fields.appendChild(mkConfigSplitEditorField('Suchbegriffe (Komma oder Enter · Klick auf Chip zum Bearbeiten)', chipB.wrap));
 
             if (!Array.isArray(item.verboten)) item.verboten = [];
             const chipV = mkChipInput(item.verboten, {
@@ -4929,12 +4985,11 @@ article.mobilede-tech-article,article.mobilede-result-article{
                     renderAusstattungSplitListOnly();
                 }
             });
-            addField('Verbotene Begriffe', chipV.wrap);
+            fields.appendChild(mkConfigSplitEditorField('Verbotene Begriffe', chipV.wrap));
 
             editor.appendChild(fields);
 
-            const footer = document.createElement('div');
-            footer.className = 'mc-config-split__editor-footer';
+            const footer = mkConfigSplitEditorFooter();
 
             const colorField = document.createElement('div');
             colorField.className = 'mc-config-split__editor-field';
@@ -4953,63 +5008,30 @@ article.mobilede-tech-article,article.mobilede-result-article{
             colorField.appendChild(colorRowWrap);
             footer.appendChild(colorField);
 
-            function mkEditorCheck(checked, title, hint, onChange) {
-                const lab = document.createElement('label');
-                lab.className = 'mc-config-split__editor-check';
-                const cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.checked = !!checked;
-                cb.addEventListener('change', () => onChange(cb.checked));
-                const txt = document.createElement('span');
-                txt.className = 'mc-config-split__editor-check-text';
-                const tTitle = document.createElement('span');
-                tTitle.className = 'mc-config-split__editor-check-title';
-                tTitle.textContent = title;
-                txt.appendChild(tTitle);
-                if (hint) {
-                    const tHint = document.createElement('span');
-                    tHint.className = 'mc-config-split__editor-check-hint';
-                    tHint.textContent = hint;
-                    txt.appendChild(tHint);
+            footer.appendChild(mkConfigSplitOptionsField([
+                {
+                    checked: item.nurInFeatures === true,
+                    title: 'Nur Ausstattungsliste',
+                    hint: 'Treffer nur in der strukturierten Liste, nicht im Beschreibungstext',
+                    onChange: v => {
+                        item.nurInFeatures = v;
+                        markDirty();
+                        renderAusstattungSplitListOnly();
+                    }
+                },
+                {
+                    checked: item.compound === true,
+                    title: 'Wortteil-Suche',
+                    hint: 'Treffer auch mitten im Wort (z. B. „heizung" findet „Standheizung")',
+                    onChange: v => {
+                        item.compound = v;
+                        markDirty();
+                        renderAusstattungSplitListOnly();
+                    }
                 }
-                lab.appendChild(cb);
-                lab.appendChild(txt);
-                return { lab, cb };
-            }
+            ]));
 
-            const optionsField = document.createElement('div');
-            optionsField.className = 'mc-config-split__editor-field';
-            const lbOpt = document.createElement('div');
-            lbOpt.className = 'mc-label-sm';
-            lbOpt.textContent = 'Optionen';
-            const optionsBox = document.createElement('div');
-            optionsBox.className = 'mc-config-split__editor-options';
-            optionsBox.appendChild(mkEditorCheck(
-                item.nurInFeatures === true,
-                'Nur Ausstattungsliste',
-                'Treffer nur in der strukturierten Liste, nicht im Beschreibungstext',
-                v => {
-                    item.nurInFeatures = v;
-                    markDirty();
-                    renderAusstattungSplitListOnly();
-                }
-            ).lab);
-            optionsBox.appendChild(mkEditorCheck(
-                item.compound === true,
-                'Wortteil-Suche',
-                'Treffer auch mitten im Wort (z. B. „heizung" findet „Standheizung")',
-                v => {
-                    item.compound = v;
-                    markDirty();
-                    renderAusstattungSplitListOnly();
-                }
-            ).lab);
-            optionsField.appendChild(lbOpt);
-            optionsField.appendChild(optionsBox);
-            footer.appendChild(optionsField);
-
-            const actions = document.createElement('div');
-            actions.className = 'mc-config-split__editor-actions';
+            const actions = mkConfigSplitEditorActions();
             actions.appendChild(mkBtn('dup', 'Duplizieren', () => duplicateAusEntry(idx)));
             actions.appendChild(mkBtn('del', 'Löschen', async () => {
                 const ok = await confirmAsync('Eintrag wirklich löschen?');
@@ -5675,9 +5697,6 @@ article.mobilede-tech-article,article.mobilede-result-article{
             editor.appendChild(title);
             const fields = document.createElement('div');
             fields.className = 'mc-config-split__editor-fields';
-            const lb = document.createElement('div');
-            lb.className = 'mc-label-sm';
-            lb.textContent = 'Begriff (exakt wie mobile.de dt-Label)';
             const inp = document.createElement('input');
             inp.type = 'text';
             inp.className = 'mc-input';
@@ -5690,25 +5709,22 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 refreshValidationUI();
                 renderTechSplitListOnly();
             });
-            fields.appendChild(lb);
-            fields.appendChild(inp);
-            const actLab = document.createElement('label');
-            actLab.className = 'mc-pill' + (item.aktiv ? ' mc-pill--on' : '');
-            const actCb = document.createElement('input');
-            actCb.type = 'checkbox';
-            actCb.checked = item.aktiv === true;
-            actCb.addEventListener('change', () => {
-                item.aktiv = actCb.checked;
-                actLab.classList.toggle('mc-pill--on', actCb.checked);
-                markDirty();
-                renderTechSplitListOnly();
-            });
-            actLab.appendChild(actCb);
-            actLab.appendChild(document.createTextNode(' Aktiv'));
-            fields.appendChild(actLab);
+            fields.appendChild(mkConfigSplitEditorField('Begriff (exakt wie mobile.de dt-Label)', inp));
             editor.appendChild(fields);
-            const actions = document.createElement('div');
-            actions.className = 'mc-config-split__editor-actions';
+
+            const footer = mkConfigSplitEditorFooter();
+            footer.appendChild(mkConfigSplitOptionsField([{
+                checked: item.aktiv === true,
+                title: 'Aktiv',
+                hint: 'Feld in Suche und Ergebnisanzeige ein- oder ausblenden',
+                onChange: v => {
+                    item.aktiv = v;
+                    markDirty();
+                    renderTechSplitListOnly();
+                }
+            }]));
+
+            const actions = mkConfigSplitEditorActions();
             actions.appendChild(mkBtn('del', 'Löschen', async () => {
                 const ok = await confirmAsync('Tech-Eintrag löschen?');
                 if (!ok) return;
@@ -5719,7 +5735,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 markDirty();
                 renderTechData();
             }));
-            editor.appendChild(actions);
+            footer.appendChild(actions);
+            editor.appendChild(footer);
         }
 
         function appendTechListRow(index) {
@@ -6081,9 +6098,6 @@ article.mobilede-tech-article,article.mobilede-result-article{
             editor.appendChild(title);
             const fields = document.createElement('div');
             fields.className = 'mc-config-split__editor-fields';
-            const lbB = document.createElement('div');
-            lbB.className = 'mc-label-sm';
-            lbB.textContent = 'Basis';
             const inpB = document.createElement('input');
             inpB.type = 'text';
             inpB.className = 'mc-input';
@@ -6096,11 +6110,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 refreshValidationUI();
                 renderMergeSplitListOnly();
             });
-            fields.appendChild(lbB);
-            fields.appendChild(inpB);
-            const lbO = document.createElement('div');
-            lbO.className = 'mc-label-sm';
-            lbO.textContent = 'Modifier-Reihenfolge (Komma oder Enter)';
+            fields.appendChild(mkConfigSplitEditorField('Basis', inpB));
             if (!Array.isArray(group.order)) group.order = [];
             const chipO = mkChipInput(group.order, {
                 onChange: arr => {
@@ -6110,25 +6120,22 @@ article.mobilede-tech-article,article.mobilede-result-article{
                     renderMergeSplitListOnly();
                 }
             });
-            fields.appendChild(lbO);
-            fields.appendChild(chipO.wrap);
-            const actLab = document.createElement('label');
-            actLab.className = 'mc-pill' + (group.aktiv !== false ? ' mc-pill--on' : '');
-            const actCb = document.createElement('input');
-            actCb.type = 'checkbox';
-            actCb.checked = group.aktiv !== false;
-            actCb.addEventListener('change', () => {
-                group.aktiv = actCb.checked;
-                actLab.classList.toggle('mc-pill--on', actCb.checked);
-                markDirty();
-                renderMergeSplitListOnly();
-            });
-            actLab.appendChild(actCb);
-            actLab.appendChild(document.createTextNode(' Aktiv'));
-            fields.appendChild(actLab);
+            fields.appendChild(mkConfigSplitEditorField('Modifier-Reihenfolge (Komma oder Enter)', chipO.wrap));
             editor.appendChild(fields);
-            const actions = document.createElement('div');
-            actions.className = 'mc-config-split__editor-actions';
+
+            const footer = mkConfigSplitEditorFooter();
+            footer.appendChild(mkConfigSplitOptionsField([{
+                checked: group.aktiv !== false,
+                title: 'Aktiv',
+                hint: 'Gruppe beim Zusammenfassen auf der Fahrzeugseite ein- oder ausblenden',
+                onChange: v => {
+                    group.aktiv = v;
+                    markDirty();
+                    renderMergeSplitListOnly();
+                }
+            }]));
+
+            const actions = mkConfigSplitEditorActions();
             actions.appendChild(mkBtn('del', 'Löschen', async () => {
                 const ok = await confirmAsync('Merge-Gruppe löschen?');
                 if (!ok) return;
@@ -6140,7 +6147,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 renderMergeConfig();
                 showToast('Merge-Gruppe entfernt', 'success');
             }));
-            editor.appendChild(actions);
+            footer.appendChild(actions);
+            editor.appendChild(footer);
         }
 
         function appendMergeListRow(index) {
