@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
-// @namespace    https://github.com/jxnxtxan/Mobile
-// @version      2.10.27
+// @namespace    https://github.com/jxnxtxan/Mobile.de
+// @version      2.10.28
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Token-basierte Match-Engine mit Wortgrenzen, Quellen-Gewichtung (Feature-Liste vs. Beschreibung), SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
-// @homepageURL  https://github.com/jxnxtxan/Mobile
-// @supportURL   https://github.com/jxnxtxan/Mobile/issues
-// @updateURL    https://raw.githubusercontent.com/jxnxtxan/Mobile/main/mobile-ausstattungssuche.js
-// @downloadURL  https://raw.githubusercontent.com/jxnxtxan/Mobile/main/mobile-ausstattungssuche.js
+// @homepageURL  https://github.com/jxnxtxan/Mobile.de
+// @supportURL   https://github.com/jxnxtxan/Mobile.de/issues
+// @updateURL    https://raw.githubusercontent.com/jxnxtxan/Mobile.de/main/mobile-ausstattungssuche.js
+// @downloadURL  https://raw.githubusercontent.com/jxnxtxan/Mobile.de/main/mobile-ausstattungssuche.js
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
 // @match        http://suchen.mobile.de/fahrzeuge/details.html*
 // @match        https://suchen.mobile.de/fahrzeuge/details.html*
