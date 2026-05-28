@@ -6,8 +6,8 @@ import {
 } from '../features/price-rating/index.js';
 import { syncDebugLogCardsOnPage } from '../features/srp-sort/index.js';
 import { isVehicleDetailPage } from '../core/page-context.js';
+import { ensureConfigButton } from '../core/search/popup-bridge.js';
 import { scheduleTask } from './scheduler.js';
-import { verlinkeStandortAufGoogleMaps } from './maps-link.js';
 
 export let observer = null;
 export let triggerTimer = null;
@@ -18,14 +18,14 @@ export function startObserver() {
     observer.observe(document.body, { childList: true, subtree: true });
 }
 
-export function trigger() {
+export function trigger(immediate) {
     clearTimeout(triggerTimer);
-    triggerTimer = setTimeout(() => {
+    const run = () => {
         if (hasActiveSelectionInsideResults()) return;
         scheduleTask('ui:results', 'ui', () => {
             ergebnisHinzufuegen();
-            verlinkeStandortAufGoogleMaps();
             syncDebugLogCardsOnPage();
+            ensureConfigButton();
         });
         scheduleTask('network:cohort-sync', 'network', () => syncCohortCacheFromSearchPage());
         if (!isVehicleDetailPage()) {
@@ -34,7 +34,9 @@ export function trigger() {
             });
         }
         scheduleTask('rating:srp-scan', 'rating', () => scanSrpPriceBadges());
-    }, 300);
+    };
+    if (immediate) run();
+    else triggerTimer = setTimeout(run, 300);
 }
 
 export function hasActiveSelectionInsideResults() {

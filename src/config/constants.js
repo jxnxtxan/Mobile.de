@@ -1,4 +1,8 @@
 export const SCHEMA_VERSION = 11;
+
+/** Eingebettete Seiten-UI (Ergebnisse, Button, Badges) – unter Konfig-Popup. */
+export const PAGE_UI_Z_INDEX = 2147483000;
+export const POPUP_OVERLAY_Z_INDEX = 2147483647;
 export const STORAGE_KEYS = {
         config:        'mobilede_config',
         techConfig:    'mobilede_techconfig',
@@ -18,7 +22,7 @@ export const FEATURE_FLAG_DEFINITIONS = [
         {
             key: 'mapsLink',
             title: 'Standort als Google-Maps-Link',
-            description: 'Macht Standort-Texte auf der Detailseite (z.B. „DE-92690 Pressath") anklickbar. Ein Klick öffnet Google Maps mit der Adresse als Suche.',
+            description: 'Macht Standort-Texte (z.B. „DE-92690 Pressath") anklickbar. Ein Klick öffnet Google Maps mit der Adresse als Suche.',
             default: true
         },
         {

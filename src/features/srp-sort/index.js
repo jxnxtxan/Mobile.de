@@ -5,7 +5,7 @@ import {
     getSrpSort, findSrpSortOption,
     getStoredSrpUserChoice, setStoredSrpUserChoice, clearStoredSrpUserChoice,
     getStoredSrpSortApplied, markSrpSortApplied, clearStoredSrpSortApplied,
-    srpSortParamsEqual, getPriceRating,
+    srpSortParamsEqual, getPriceRating, getDebugConfig,
 } from '../../config/feature-flags/index.js';
 import { syncLastUrl } from '../../lifecycle/navigation-state.js';
 import {

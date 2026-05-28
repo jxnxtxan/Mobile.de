@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.9
+// @version      2.16.15
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -27,6 +27,8 @@
   'use strict';
 
   const SCHEMA_VERSION = 11;
+  const PAGE_UI_Z_INDEX = 2147483e3;
+  const POPUP_OVERLAY_Z_INDEX = 2147483647;
   const STORAGE_KEYS = {
     config: "mobilede_config",
     techConfig: "mobilede_techconfig",
@@ -39,7 +41,7 @@
     {
       key: "mapsLink",
       title: "Standort als Google-Maps-Link",
-      description: 'Macht Standort-Texte auf der Detailseite (z.B. „DE-92690 Pressath") anklickbar. Ein Klick öffnet Google Maps mit der Adresse als Suche.',
+      description: 'Macht Standort-Texte (z.B. „DE-92690 Pressath") anklickbar. Ein Klick öffnet Google Maps mit der Adresse als Suche.',
       default: true
     },
     {
@@ -453,15 +455,15 @@
   }
   function persistShowSrpLogCard(enabled) {
     const merged = ladeFeatureFlags();
-    const dbg = getDebugConfig$1(merged);
+    const dbg = getDebugConfig(merged);
     persistDebugConfig({ ...dbg, showSrpLogCard: !!enabled });
   }
-  function getDebugConfig$1(flags) {
+  function getDebugConfig(flags) {
     const merged = mergeDebugConfig(flags && flags.debug, flags || runtimeState.featureFlags);
     return merged;
   }
   function isDebugEnabled(scope, flags) {
-    const dbg = getDebugConfig$1(runtimeState.featureFlags);
+    const dbg = getDebugConfig(runtimeState.featureFlags);
     if (!dbg.enabled) return false;
     if (!scope) return true;
     return dbg.scopes[scope] === true;
@@ -481,12 +483,12 @@
   }
   function persistDebugMaster(enabled) {
     const merged = ladeFeatureFlags();
-    const dbg = getDebugConfig$1(merged);
+    const dbg = getDebugConfig(merged);
     persistDebugConfig({ ...dbg, enabled: !!enabled });
   }
   function persistDebugScope(scope, enabled) {
     const merged = ladeFeatureFlags();
-    const dbg = getDebugConfig$1(merged);
+    const dbg = getDebugConfig(merged);
     persistDebugConfig({
       ...dbg,
       scopes: { ...dbg.scopes, [scope]: !!enabled }
@@ -1505,7 +1507,7 @@
     debugLog("ausstattung", "Gefundene Begriffe", unique.map((i) => `${i.anzeige} [${i.source}]`));
     return unique;
   }
-  const resultCss = "article.mobilede-tech-article,article.mobilede-result-article{box-sizing:border-box;margin:0;padding:12px 16px}.mobilede-tech-article+.mobilede-result-article{margin-top:8px}.mobilede-result-card,.mobilede-tech-card{--mdr-text:inherit;--mdr-muted:rgba(255,255,255,.65);--mdr-divider:rgba(255,255,255,.12);box-sizing:border-box;width:100%;padding:0;margin:0;background:transparent;color:var(--mdr-text);font-size:14px;line-height:1.45;text-align:left}.mobilede-section-title{margin:0 0 8px;font-size:15px;font-weight:600;line-height:1.3;color:inherit}.mobilede-subsection-title{grid-column:1/-1;margin:0 0 4px;font-size:13px;font-weight:600;line-height:1.3;color:var(--mdr-muted)}.mobilede-result-grid{display:grid;grid-template-columns:1fr;gap:4px 0;align-items:start}@media(min-width:560px){.mobilede-result-grid{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px}}.mobilede-result-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-width:0}.mobilede-result-hit{flex:1;min-width:0;overflow-wrap:anywhere;display:inline-block;padding-left:.6em;text-indent:-.6em}.mobilede-result-hit--help{cursor:help}.mobilede-result-fav-divider{grid-column:1/-1;border-top:1px solid rgba(255,255,255,.22);margin:8px 0 6px;height:0}.mobilede-result-legend{width:100%;margin-top:10px;font-size:11px;line-height:1.4;opacity:.7;color:var(--mdr-muted)}.mobilede-result-empty{color:var(--mdr-muted)}.mobilede-learn-btn{flex-shrink:0;cursor:pointer;font-size:11px;padding:2px 6px;border:1px solid rgba(255,255,255,.25);border-radius:4px;background:#ffffff14;color:#e0e0e0;font-family:inherit}.mobilede-learn-btn:hover{background:#ffffff24}.mobilede-tech-list{display:flex;flex-direction:column;gap:8px}.mobilede-tech-row{display:grid;grid-template-columns:1fr;gap:2px 0;align-items:start}@media(min-width:560px){.mobilede-tech-row{grid-template-columns:minmax(8rem,38%) 1fr;column-gap:16px}}.mobilede-tech-label{font-weight:500;color:var(--mdr-muted)}.mobilede-tech-value{overflow-wrap:anywhere}";
+  const resultCss = "article.mobilede-tech-article,article.mobilede-result-article,#mobilede-config-btn-wrap{position:relative;z-index:2147483000;box-sizing:border-box}article.mobilede-tech-article,article.mobilede-result-article{margin:0;padding:12px 16px}.mobilede-tech-article+.mobilede-result-article{margin-top:8px}.mobilede-result-card,.mobilede-tech-card{--mdr-text:inherit;--mdr-muted:rgba(255,255,255,.65);--mdr-divider:rgba(255,255,255,.12);box-sizing:border-box;width:100%;padding:0;margin:0;background:transparent;color:var(--mdr-text);font-size:14px;line-height:1.45;text-align:left}.mobilede-section-title{margin:0 0 8px;font-size:15px;font-weight:600;line-height:1.3;color:inherit}.mobilede-subsection-title{grid-column:1/-1;margin:0 0 4px;font-size:13px;font-weight:600;line-height:1.3;color:var(--mdr-muted)}.mobilede-result-grid{display:grid;grid-template-columns:1fr;gap:4px 0;align-items:start}@media(min-width:560px){.mobilede-result-grid{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px}}.mobilede-result-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-width:0}.mobilede-result-hit{flex:1;min-width:0;overflow-wrap:anywhere;display:inline-block;padding-left:.6em;text-indent:-.6em}.mobilede-result-hit--help{cursor:help}.mobilede-result-fav-divider{grid-column:1/-1;border-top:1px solid rgba(255,255,255,.22);margin:8px 0 6px;height:0}.mobilede-result-legend{width:100%;margin-top:10px;font-size:11px;line-height:1.4;opacity:.7;color:var(--mdr-muted)}.mobilede-result-empty{color:var(--mdr-muted)}.mobilede-learn-btn{flex-shrink:0;cursor:pointer;font-size:11px;padding:2px 6px;border:1px solid rgba(255,255,255,.25);border-radius:4px;background:#ffffff14;color:#e0e0e0;font-family:inherit}.mobilede-learn-btn:hover{background:#ffffff24}.mobilede-tech-list{display:flex;flex-direction:column;gap:8px}.mobilede-tech-row{display:grid;grid-template-columns:1fr;gap:2px 0;align-items:start}@media(min-width:560px){.mobilede-tech-row{grid-template-columns:minmax(8rem,38%) 1fr;column-gap:16px}}.mobilede-tech-label{font-weight:500;color:var(--mdr-muted)}.mobilede-tech-value{overflow-wrap:anywhere}";
   function injectResultStyles() {
     if (document.getElementById("mobilede-result-style")) return;
     const st = document.createElement("style");
@@ -1946,9 +1948,12 @@ Kontext: …${item.snippet}…` : "";
   }
   function applyMakeModelIdsToProfile(profile, makeId, modelId, modelGroupId) {
     if (!profile) return profile;
-    if (makeId) profile.makeId = String(makeId);
-    if (modelId) profile.modelId = String(modelId);
-    if (modelGroupId) profile.modelGroupId = String(modelGroupId);
+    const mk = resolveNumericId(makeId);
+    const md = resolveNumericId(modelId);
+    const mg = resolveNumericId(modelGroupId);
+    if (mk) profile.makeId = mk;
+    if (md) profile.modelId = md;
+    if (mg) profile.modelGroupId = mg;
     profile.searchMs = formatMsParam(profile.makeId, profile.modelId, profile.modelGroupId) || profile.searchMs || "";
     return profile;
   }
@@ -2113,7 +2118,7 @@ Kontext: …${item.snippet}…` : "";
   }
   let vehicleProfileMemo = { key: "", ts: 0, profile: null };
   function getVehicleProfileMemoKey(adId) {
-    const id = getAdIdFromUrl() || "";
+    const id = adId || getAdIdFromUrl() || "";
     const cfg = getPriceRating(runtimeState.featureFlags);
     const desc = isVehicleDetailPage() && getDescriptionEl() ? (getDescriptionEl().textContent || "").length : 0;
     return [
@@ -2127,12 +2132,12 @@ Kontext: …${item.snippet}…` : "";
     ].join("|");
   }
   function buildVehicleProfile(adId) {
-    const memoKey = getVehicleProfileMemoKey();
+    const memoKey = getVehicleProfileMemoKey(adId);
     const now = Date.now();
     if (vehicleProfileMemo.key === memoKey && now - vehicleProfileMemo.ts < 1200) {
       return vehicleProfileMemo.profile ? { ...vehicleProfileMemo.profile } : null;
     }
-    const id = getAdIdFromUrl();
+    const id = adId || getAdIdFromUrl();
     const ad = getVipAdFromState(id);
     let profile = null;
     if (ad) profile = buildVehicleProfileFromAd(ad, id);
@@ -2362,14 +2367,48 @@ Kontext: …${item.snippet}…` : "";
   }
   function cohortCacheKey(profile, prCfg) {
     const p = profileForCohortCacheKey(profile, prCfg);
+    const mk = resolveNumericId(p.makeId) || "";
+    const md = resolveNumericId(p.modelId) || "";
     return [
-      p.makeId || p.make,
-      p.modelId || p.model,
+      mk || (p.make || "").toLowerCase(),
+      md,
       p.modelRange,
       p.mileageKm,
       p.firstRegistrationYear,
       p.powerKw || p.powerPs
     ].join("|").toLowerCase();
+  }
+  async function waitForVipAdInState(adId, timeoutMs = 3500) {
+    const id = adId || getAdIdFromUrl();
+    if (!id) return null;
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      const ad = getVipAdFromState(id);
+      if (ad) return ad;
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    return getVipAdFromState(id);
+  }
+  async function ensureVehicleProfileReady(profile) {
+    if (!profile || !profile.id) return profile;
+    let ad = getVipAdFromState(profile.id);
+    if (!ad) {
+      ad = await waitForVipAdInState(profile.id);
+      if (ad) {
+        vehicleProfileMemo = { key: "", ts: 0, profile: null };
+        const rebuilt = buildVehicleProfile(profile.id);
+        if (rebuilt) Object.assign(profile, rebuilt);
+      }
+    }
+    await resolveMakeModelIdsForProfile(profile);
+    if (!resolveNumericId(profile.modelId) && profile.model) {
+      await new Promise((r) => setTimeout(r, 350));
+      vehicleProfileMemo = { key: "", ts: 0, profile: null };
+      const rebuilt = buildVehicleProfile(profile.id);
+      if (rebuilt) Object.assign(profile, rebuilt);
+      await resolveMakeModelIdsForProfile(profile);
+    }
+    return profile;
   }
   function cohortHumanLabel(profile, prCfg) {
     if (!profile) return null;
@@ -3018,6 +3057,36 @@ Kontext: …${item.snippet}…` : "";
   function countCohortVipDetailCount(items) {
     return (items || []).filter((c) => c && c.equipmentFromVipCache).length;
   }
+  function countCohortComparablePrices(items) {
+    return (items || []).filter((c) => c && typeof c.priceGross === "number" && c.priceGross > 0).length;
+  }
+  function mergeCohortSourcesFromCacheAndStore(profile, prCfg) {
+    const cacheKey = cohortCacheKey(profile, prCfg);
+    const cached = readCohortCache(cacheKey) || [];
+    const storeScan = findCohortItemsFromStoreByProfile(profile, prCfg);
+    const byId = new Map();
+    cached.forEach((it) => {
+      if (it && it.id) byId.set(String(it.id), it);
+    });
+    storeScan.forEach((it) => {
+      if (it && it.id) byId.set(String(it.id), it);
+    });
+    const items = enrichCohortItemsWithVipCache([...byId.values()]);
+    return {
+      cacheKey,
+      items,
+      cachedLen: cached.length,
+      storeScanLen: storeScan.length,
+      shouldWrite: items.length >= 3 && items.length > cached.length
+    };
+  }
+  function ratingCohortMetaMatches(rating, cohortRes) {
+    if (!rating || !rating.ok) return false;
+    const items = cohortRes && cohortRes.items || [];
+    if (countCohortComparablePrices(items) !== (rating.cohortCount || 0)) return false;
+    if (countCohortVipDetailCount(items) !== (rating.cohortVipDetailCount || 0)) return false;
+    return true;
+  }
   function enrichCohortItemsWithVipCache(items) {
     if (!Array.isArray(items)) return [];
     return items.map((c) => {
@@ -3058,31 +3127,26 @@ Kontext: …${item.snippet}…` : "";
       });
       return memo.value;
     }
-    const cached = readCohortCache(cacheKey);
-    if (cached && cached.length) {
-      const items = enrichCohortItemsWithVipCache(cached);
-      priceRatingDebugLog("Kohorte aus Cache", {
-        cacheKey,
-        count: items.length,
-        vipDetails: countCohortVipDetailCount(items),
-        uniqueModelsInSource: uniqueModelCount(items),
-        storeSource: "local-cache"
+    const merged = mergeCohortSourcesFromCacheAndStore(profile, prCfg);
+    if (merged.items.length >= 3) {
+      if (merged.shouldWrite) writeCohortCache(merged.cacheKey, merged.items);
+      const storeSource = merged.cachedLen && merged.storeScanLen ? "cache+store" : merged.storeScanLen ? "store-scan" : "local-cache";
+      priceRatingDebugLog("Kohorte aus Cache/Store (vereinigt)", {
+        cacheKey: merged.cacheKey,
+        count: merged.items.length,
+        comparablePrices: countCohortComparablePrices(merged.items),
+        vipDetails: countCohortVipDetailCount(merged.items),
+        cachedLen: merged.cachedLen,
+        storeScanLen: merged.storeScanLen,
+        uniqueModelsInSource: uniqueModelCount(merged.items),
+        storeSource
       });
-      const out2 = { items, fromCache: true, cacheKey };
-      cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out2 });
-      return out2;
-    }
-    const fromStoreScan = enrichCohortItemsWithVipCache(findCohortItemsFromStoreByProfile(profile, prCfg));
-    if (fromStoreScan.length >= 3) {
-      writeCohortCache(cacheKey, fromStoreScan);
-      priceRatingDebugLog("Kohorte aus Store-Scan (passende Keys)", {
-        cacheKey,
-        count: fromStoreScan.length,
-        vipDetails: countCohortVipDetailCount(fromStoreScan),
-        uniqueModelsInSource: uniqueModelCount(fromStoreScan),
-        storeSource: "store-scan"
-      });
-      const out2 = { items: fromStoreScan, fromCache: true, cacheKey, storeScan: true };
+      const out2 = {
+        items: merged.items,
+        fromCache: true,
+        cacheKey: merged.cacheKey,
+        storeScan: merged.storeScanLen > 0
+      };
       cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out2 });
       return out2;
     }
@@ -3273,7 +3337,10 @@ Kontext: …${item.snippet}…` : "";
   function enrichRatingWithCohortMeta(rating, cohortRes) {
     if (!rating) return rating;
     const items = cohortRes && cohortRes.items || [];
+    const prCfg = getPriceRating(runtimeState.featureFlags);
+    rating.cohortCount = countCohortComparablePrices(items);
     rating.cohortVipDetailCount = countCohortVipDetailCount(items);
+    rating.insufficientCohort = rating.cohortCount < prCfg.minComparables;
     if (cohortRes && cohortRes.cacheKey) rating.cohortCacheKey = cohortRes.cacheKey;
     return rating;
   }
@@ -3352,6 +3419,7 @@ Kontext: …${item.snippet}…` : "";
   let vipRatingUiBootstrapped = false;
   function resetVipRatingUiOnNavigation() {
     vipRatingUiBootstrapped = false;
+    invalidateVipRatingCacheForReload();
   }
   function disconnectSrpPriceRatingObserver() {
     if (srpPriceRatingIo) {
@@ -3366,6 +3434,9 @@ Kontext: …${item.snippet}…` : "";
     const st = document.createElement("style");
     st.id = "mobilede-price-rating-style";
     st.textContent = `
+.mobilede-price-rating,.mobilede-srp-price-badge,.mobilede-srp-debug-card{
+  position:relative;z-index:2147483000;
+}
 .mobilede-price-rating{
   display:flex;flex-direction:column;gap:6px;margin-top:10px;padding-top:10px;
   border-top:1px solid rgba(255,255,255,.08);font-size:13px;line-height:1.35;
@@ -3690,8 +3761,10 @@ Kontext: …${item.snippet}…` : "";
   function invalidateVipRatingCacheForReload() {
     const id = getAdIdFromUrl();
     if (!id) return;
+    cohortComparablesMemo.clear();
     try {
       sessionStorage.removeItem(PRICE_RATING_CACHE_PREFIX + id);
+      localStorage.removeItem(PRICE_RATING_UI_CACHE_PREFIX + id);
     } catch (e) {
     }
   }
@@ -3701,6 +3774,9 @@ Kontext: …${item.snippet}…` : "";
     return [
       location.pathname,
       profile && profile.id ? String(profile.id) : "",
+      profile && profile.makeId ? String(profile.makeId) : "",
+      profile && profile.modelId ? String(profile.modelId) : "",
+      profile && profile.modelGroupId ? String(profile.modelGroupId) : "",
       pr.enabled !== false ? 1 : 0,
       pr.enabledVip ? 1 : 0,
       pr.mobileFallback ? 1 : 0,
@@ -3748,19 +3824,24 @@ Kontext: …${item.snippet}…` : "";
     try {
       const token = ++priceRatingFetchToken;
       priceRatingDebugLog("Preisbewertung Lauf gestartet", { adId: profile.id, token, force: !!options.force });
-      const uiCached = readRatingUiCache(profile.id);
       if (!vipRatingUiBootstrapped) {
-        if (uiCached && uiCached.ok) {
-          renderVipPriceRatingWidget(uiCached, false);
-          priceRatingDebugLog("UI-Cache für Preisbewertung genutzt", { adId: profile.id });
-        } else {
-          renderVipPriceRatingWidget(null, true);
-        }
+        renderVipPriceRatingWidget(null, true);
         vipRatingUiBootstrapped = true;
       }
+      const cohortKeyBefore = cohortCacheKey(profile, prCfg);
       try {
-        await resolveMakeModelIdsForProfile(profile);
+        await ensureVehicleProfileReady(profile);
       } catch (e) {
+      }
+      const cohortKeyAfter = cohortCacheKey(profile, prCfg);
+      if (cohortKeyBefore !== cohortKeyAfter) {
+        cohortComparablesMemo.delete(cohortKeyBefore);
+        cohortComparablesMemo.delete(cohortKeyAfter);
+        priceRatingDebugLog("Kohorten-Key nach ID-Auflösung geändert", {
+          adId: profile.id,
+          before: cohortKeyBefore,
+          after: cohortKeyAfter
+        });
       }
       if (token !== priceRatingFetchToken) {
         priceRatingDebugLog("Preisbewertung Lauf verworfen: Token gewechselt", { adId: profile.id, token });
@@ -3770,11 +3851,20 @@ Kontext: …${item.snippet}…` : "";
       }
       persistVipCohortAnchor(profile, prCfg);
       syncVipEquipmentCache(profile);
+      const cohortResForUi = getCohortComparables(profile, prCfg);
+      const uiCached = readRatingUiCache(profile.id);
+      const uiCacheValid = uiCached && uiCached.ok && ratingCohortMetaMatches(uiCached, cohortResForUi);
+      if (uiCacheValid) {
+        renderVipPriceRatingWidget(
+          enrichRatingWithCohortMeta({ ...uiCached }, cohortResForUi),
+          false
+        );
+      }
       const cached = readRatingCache(profile.id);
-      if (cached && cached.ok && !cached.needsCohortSearch) {
-        const cohortRes = getCohortComparables(profile, prCfg);
+      const cohortRes = cohortResForUi;
+      if (cached && cached.ok && !cached.needsCohortSearch && ratingCohortMetaMatches(cached, cohortRes)) {
         if (cohortRes.items.length || !cached.usedMobileFallback) {
-          const rating2 = enrichRatingWithCohortMeta(cached, cohortRes);
+          const rating2 = enrichRatingWithCohortMeta({ ...cached }, cohortRes);
           renderVipPriceRatingWidget(rating2, false);
           vipRatingLastRunSig = runSig;
           vipRatingLastRunTs = Date.now();
@@ -3789,6 +3879,14 @@ Kontext: …${item.snippet}…` : "";
         priceRatingDebugLog("Session-Cache vorhanden, aber Recompute nötig", {
           adId: profile.id,
           usedMobileFallback: cached.usedMobileFallback
+        });
+      } else if (cached && cached.ok) {
+        priceRatingDebugLog("Session-Cache verworfen: Kohorten-Metadaten geändert", {
+          adId: profile.id,
+          cachedCount: cached.cohortCount,
+          freshCount: countCohortComparablePrices(cohortRes.items),
+          cachedVip: cached.cohortVipDetailCount,
+          freshVip: countCohortVipDetailCount(cohortRes.items)
         });
       }
       let rating;
@@ -4657,98 +4755,6 @@ Kontext: …${item.snippet}…` : "";
     const overlay = document.querySelector("#mobilede-config-overlay");
     return !!(overlay && overlay.querySelector(".mc-popup"));
   }
-  function verlinkeStandortAufGoogleMaps() {
-    const enabled = !!(runtimeState.featureFlags && runtimeState.featureFlags.mapsLink !== false);
-    const re = /^[A-Z]{2}-\d{4,5}\s+\S.*$/;
-    const candidates = document.querySelectorAll("div, span, p, address");
-    const matched = [];
-    for (const el of candidates) {
-      if (!el || !el.dataset) continue;
-      if (el.children && el.children.length > 0) continue;
-      const txt = (el.textContent || "").trim();
-      if (txt.length < 6 || txt.length > 80) continue;
-      if (!re.test(txt)) continue;
-      if (el.closest && el.closest("#mobilede-config-popup")) continue;
-      matched.push({ el, txt });
-    }
-    if (!enabled) {
-      matched.forEach(({ el }) => {
-        if (el.dataset.mobiledeStandort !== "1") return;
-        const ctl = el._mobileDeMapsCtl;
-        if (ctl && typeof ctl.abort === "function") {
-          try {
-            ctl.abort();
-          } catch (_) {
-          }
-        }
-        el._mobileDeMapsCtl = null;
-        el.style.cursor = "";
-        el.style.textDecoration = "";
-        el.style.textDecorationStyle = "";
-        el.style.textUnderlineOffset = "";
-        el.style.opacity = "";
-        el.removeAttribute("role");
-        el.removeAttribute("tabindex");
-        el.removeAttribute("title");
-        delete el.dataset.mobiledeStandort;
-      });
-      return;
-    }
-    matched.forEach(({ el, txt }) => {
-      el.style.cursor = "pointer";
-      el.style.textDecoration = "underline";
-      el.style.textDecorationStyle = "dotted";
-      el.style.textUnderlineOffset = "3px";
-      el.title = "In Google Maps öffnen: " + txt;
-      el.setAttribute("role", "link");
-      el.setAttribute("tabindex", "0");
-      const existing = el._mobileDeMapsCtl;
-      if (el.dataset.mobiledeStandort === "1" && existing && !existing.signal.aborted) {
-        return;
-      }
-      if (existing && typeof existing.abort === "function") {
-        try {
-          existing.abort();
-        } catch (_) {
-        }
-      }
-      el.dataset.mobiledeStandort = "1";
-      const ac = new AbortController();
-      el._mobileDeMapsCtl = ac;
-      const opts = { signal: ac.signal };
-      el.addEventListener("mouseenter", () => {
-        if (!runtimeState.featureFlags || runtimeState.featureFlags.mapsLink === false) return;
-        el.style.textDecorationStyle = "solid";
-        el.style.opacity = "0.85";
-      }, opts);
-      el.addEventListener("mouseleave", () => {
-        el.style.textDecorationStyle = "dotted";
-        el.style.opacity = "";
-      }, opts);
-      const open = () => {
-        const url = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(txt);
-        window.open(url, "_blank", "noopener,noreferrer");
-      };
-      el.addEventListener(
-        "click",
-        (e) => {
-          if (!runtimeState.featureFlags || runtimeState.featureFlags.mapsLink === false) return;
-          e.preventDefault();
-          e.stopPropagation();
-          if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
-          open();
-        },
-        { capture: true, signal: ac.signal }
-      );
-      el.addEventListener("keydown", (e) => {
-        if (!runtimeState.featureFlags || runtimeState.featureFlags.mapsLink === false) return;
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open();
-        }
-      }, opts);
-    });
-  }
   let observer = null;
   let triggerTimer = null;
   function startObserver() {
@@ -4756,14 +4762,14 @@ Kontext: …${item.snippet}…` : "";
     observer = new MutationObserver(() => trigger());
     observer.observe(document.body, { childList: true, subtree: true });
   }
-  function trigger() {
+  function trigger(immediate) {
     clearTimeout(triggerTimer);
-    triggerTimer = setTimeout(() => {
+    const run = () => {
       if (hasActiveSelectionInsideResults()) return;
       scheduleTask("ui:results", "ui", () => {
         ergebnisHinzufuegen();
-        verlinkeStandortAufGoogleMaps();
         syncDebugLogCardsOnPage();
+        ensureConfigButton();
       });
       scheduleTask("network:cohort-sync", "network", () => syncCohortCacheFromSearchPage());
       if (!isVehicleDetailPage()) {
@@ -4772,7 +4778,9 @@ Kontext: …${item.snippet}…` : "";
         });
       }
       scheduleTask("rating:srp-scan", "rating", () => scanSrpPriceBadges());
-    }, 300);
+    };
+    if (immediate) run();
+    else triggerTimer = setTimeout(run, 300);
   }
   function hasActiveSelectionInsideResults() {
     const sel = window.getSelection ? window.getSelection() : null;
@@ -4789,6 +4797,175 @@ Kontext: …${item.snippet}…` : "";
     }
     return false;
   }
+  const STANDORT_RE = /^[A-Z]{2}-\d{4,5}\s+\S.*$/;
+  const EXCLUDE_SELECTOR = "#mobilede-config-popup, #mobilede-config-overlay, .mobilede-result-article, .mobilede-tech-article, #mobilede-srp-debug-card";
+  const MAPS_SCAN_DEBOUNCE_MS = 400;
+  let mapsMo = null;
+  let mapsDebounceTimer = null;
+  let mapsIdlePending = false;
+  const pendingScanRoots = new Set();
+  function isMapsEnabled() {
+    return !!(runtimeState.featureFlags && runtimeState.featureFlags.mapsLink !== false);
+  }
+  function isExcluded(el) {
+    return !!(el && el.closest && el.closest(EXCLUDE_SELECTOR));
+  }
+  function removeAllMapsLinks() {
+    document.querySelectorAll('[data-mobilede-standort="1"]').forEach(unlinkStandortElement);
+  }
+  function unlinkStandortElement(el) {
+    const ctl = el._mobileDeMapsCtl;
+    if (ctl && typeof ctl.abort === "function") {
+      try {
+        ctl.abort();
+      } catch (_) {
+      }
+    }
+    el._mobileDeMapsCtl = null;
+    el.style.cursor = "";
+    el.style.textDecoration = "";
+    el.style.textDecorationStyle = "";
+    el.style.textUnderlineOffset = "";
+    el.style.opacity = "";
+    el.removeAttribute("role");
+    el.removeAttribute("tabindex");
+    el.removeAttribute("title");
+    delete el.dataset.mobiledeStandort;
+  }
+  function linkStandortElement(el, txt) {
+    el.style.cursor = "pointer";
+    el.style.textDecoration = "underline";
+    el.style.textDecorationStyle = "dotted";
+    el.style.textUnderlineOffset = "3px";
+    el.title = "In Google Maps öffnen: " + txt;
+    el.setAttribute("role", "link");
+    el.setAttribute("tabindex", "0");
+    const existing = el._mobileDeMapsCtl;
+    if (el.dataset.mobiledeStandort === "1" && existing && !existing.signal.aborted) return;
+    if (existing && typeof existing.abort === "function") {
+      try {
+        existing.abort();
+      } catch (_) {
+      }
+    }
+    el.dataset.mobiledeStandort = "1";
+    const ac = new AbortController();
+    el._mobileDeMapsCtl = ac;
+    const opts = { signal: ac.signal };
+    el.addEventListener("mouseenter", () => {
+      if (!isMapsEnabled()) return;
+      el.style.textDecorationStyle = "solid";
+      el.style.opacity = "0.85";
+    }, opts);
+    el.addEventListener("mouseleave", () => {
+      el.style.textDecorationStyle = "dotted";
+      el.style.opacity = "";
+    }, opts);
+    const open = () => {
+      const url = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(txt);
+      window.open(url, "_blank", "noopener,noreferrer");
+    };
+    el.addEventListener(
+      "click",
+      (e) => {
+        if (!isMapsEnabled()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+        open();
+      },
+      { capture: true, signal: ac.signal }
+    );
+    el.addEventListener("keydown", (e) => {
+      if (!isMapsEnabled()) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        open();
+      }
+    }, opts);
+  }
+  function scanStandortInRoot(root) {
+    if (!root || root.nodeType !== 1 || !isMapsEnabled()) return;
+    if (isExcluded(root)) return;
+    const nodes = root === document.body ? root.querySelectorAll("div, span, p, address") : collectElementsUnderRoot(root);
+    for (const el of nodes) {
+      if (!el || !el.dataset) continue;
+      if (el.children && el.children.length > 0) continue;
+      if (isExcluded(el)) continue;
+      if (el.dataset.mobiledeStandort === "1") continue;
+      const txt = (el.textContent || "").trim();
+      if (txt.length < 6 || txt.length > 80) continue;
+      if (!STANDORT_RE.test(txt)) continue;
+      linkStandortElement(el, txt);
+    }
+  }
+  function collectElementsUnderRoot(root) {
+    const out = [];
+    if (matchesStandortCandidate(root)) out.push(root);
+    root.querySelectorAll("div, span, p, address").forEach((el) => out.push(el));
+    return out;
+  }
+  function matchesStandortCandidate(el) {
+    return el && (el.tagName === "DIV" || el.tagName === "SPAN" || el.tagName === "P" || el.tagName === "ADDRESS");
+  }
+  function flushPendingScans() {
+    mapsIdlePending = false;
+    if (!isMapsEnabled() || !pendingScanRoots.size) return;
+    const roots = [...pendingScanRoots];
+    pendingScanRoots.clear();
+    for (const root of roots) scanStandortInRoot(root);
+  }
+  function scheduleIncrementalScan() {
+    if (!isMapsEnabled()) return;
+    clearTimeout(mapsDebounceTimer);
+    mapsDebounceTimer = setTimeout(() => {
+      if (mapsIdlePending) return;
+      mapsIdlePending = true;
+      requestIdle(flushPendingScans, 350);
+    }, MAPS_SCAN_DEBOUNCE_MS);
+  }
+  function onMapsDomMutation(mutations) {
+    if (!isMapsEnabled()) return;
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (isExcluded(node)) continue;
+        pendingScanRoots.add(node);
+      }
+    }
+    if (pendingScanRoots.size) scheduleIncrementalScan();
+  }
+  function stopMapsLinkObserver() {
+    if (mapsMo) {
+      mapsMo.disconnect();
+      mapsMo = null;
+    }
+    clearTimeout(mapsDebounceTimer);
+    mapsDebounceTimer = null;
+    mapsIdlePending = false;
+    pendingScanRoots.clear();
+  }
+  function startMapsLinkObserver() {
+    stopMapsLinkObserver();
+    mapsMo = new MutationObserver(onMapsDomMutation);
+    mapsMo.observe(document.body, { childList: true, subtree: true });
+  }
+  function verlinkeStandortAufGoogleMaps() {
+    if (!isMapsEnabled()) {
+      removeAllMapsLinks();
+      return;
+    }
+    scanStandortInRoot(document.body);
+  }
+  function refreshMapsLinkBehavior() {
+    stopMapsLinkObserver();
+    if (!isMapsEnabled()) {
+      removeAllMapsLinks();
+      return;
+    }
+    startMapsLinkObserver();
+    requestIdle(() => verlinkeStandortAufGoogleMaps(), 200);
+  }
   function onUrlChange() {
     if (location.href === lastUrl) return;
     syncLastUrl(location.href);
@@ -4797,7 +4974,8 @@ Kontext: …${item.snippet}…` : "";
     priceRatingFetchTokenIncrement();
     clearPriceRatingUi$1();
     startObserver();
-    trigger();
+    trigger(true);
+    refreshMapsLinkBehavior();
     if (isSearchResultsPage()) {
       ensureSrpSortBehavior();
       handleSrpUrlChange();
@@ -4811,7 +4989,7 @@ Kontext: …${item.snippet}…` : "";
         preisBewertungAktualisieren({ force: true });
       });
     }
-    setTimeout(ensureConfigButton, 1500);
+    setTimeout(ensureConfigButton, 600);
   }
   function onStorageCohortUpdate(e) {
     if (e.key !== PRICE_COHORT_CACHE_PREFIX + "_updated") return;
@@ -4823,6 +5001,7 @@ Kontext: …${item.snippet}…` : "";
     });
   }
   function initApp() {
+    if (isVehicleDetailPage()) invalidateVipRatingCacheForReload();
     window.addEventListener("popstate", onUrlChange);
     window.addEventListener("hashchange", onUrlChange);
     setInterval(onUrlChange, 1e3);
@@ -4830,7 +5009,8 @@ Kontext: …${item.snippet}…` : "";
     window.addEventListener("pointermove", markSrpInteraction, { passive: true });
     window.addEventListener("storage", onStorageCohortUpdate);
     startObserver();
-    trigger();
+    trigger(true);
+    refreshMapsLinkBehavior();
     scheduleTask("rating:vip-initial-detail", "rating", () => {
       preisBewertungAktualisieren({ force: true });
     });
@@ -4955,6 +5135,9 @@ Kontext: …${item.snippet}…` : "";
     aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
     aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
     aktuelleFeatureFlags.priceRating = mergePriceRating(aktuelleFeatureFlags.priceRating);
+    aktuelleFeatureFlags.debug = mergeDebugConfig(aktuelleFeatureFlags.debug, aktuelleFeatureFlags);
+    aktuelleFeatureFlags.priceRatingDebug = aktuelleFeatureFlags.debug.enabled && aktuelleFeatureFlags.debug.scopes.price === true;
+    aktuelleFeatureFlags.priceRatingPerfDebug = aktuelleFeatureFlags.debug.enabled && aktuelleFeatureFlags.debug.scopes.perf === true;
     let baselineAus = JSON.parse(JSON.stringify(aktuelleAusstattungsKonfig));
     let baselineTech = JSON.parse(JSON.stringify(aktuelleTechKonfigurationen));
     let baselineMerge = JSON.parse(JSON.stringify(aktuelleMergeGruppen));
@@ -5292,6 +5475,7 @@ Kontext: …${item.snippet}…` : "";
       st.id = "mobilede-config-style";
       st.textContent = `
 #mobilede-config-overlay.mc-overlay-root{
+  position:fixed;inset:0;z-index:${POPUP_OVERLAY_Z_INDEX};
   --mc-bg:#1a1b20;--mc-surface:#25262c;--mc-elevated:#32333a;--mc-border:#4a4b55;
   --mc-text:#f2f3f5;--mc-muted:#aeb0ba;--mc-accent:#2196f3;--mc-danger:#e57373;
   --mc-warn:#ffb74d;--mc-ok:#81c784;--mc-radius:10px;
@@ -7159,7 +7343,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       bottom: "0",
       width: "100vw",
       height: "100vh",
-      zIndex: "2147483647",
+      zIndex: String(POPUP_OVERLAY_Z_INDEX),
       backgroundColor: "rgba(0, 0, 0, 0.72)",
       opacity: "0",
       transition: "opacity 0.25s ease",
@@ -7415,6 +7599,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     popup.appendChild(footWrap);
     overlay.appendChild(popup);
     requestAnimationFrame(() => {
+      overlay.style.opacity = "1";
       pricePerfMarkEnd("popupOpen", popupPerfStart, 50);
     });
     const tabButtons = [];
@@ -9373,7 +9558,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     installKonfigTabHelp("config", "mc-konfig-help-config", "Hilfe zum Tab Config", "Hilfe zu Config", configHeader, null, configPanel, configContainer);
     let configDebugUnlockClicks = 0;
     let configDebugUnlockTimer = null;
-    let configDebugUiUnlocked = !!getDebugConfig$1(aktuelleFeatureFlags).enabled;
+    let configDebugUiUnlocked = !!getDebugConfig(aktuelleFeatureFlags).enabled;
     configIntro.addEventListener("click", () => {
       configDebugUnlockClicks++;
       clearTimeout(configDebugUnlockTimer);
@@ -9383,7 +9568,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       if (configDebugUnlockClicks < 5) return;
       configDebugUnlockClicks = 0;
       configDebugUiUnlocked = true;
-      const currentDebug = getDebugConfig$1(aktuelleFeatureFlags);
+      const currentDebug = getDebugConfig(aktuelleFeatureFlags);
       const next = !currentDebug.enabled;
       aktuelleFeatureFlags.debug = { ...currentDebug, enabled: next };
       persistDebugMaster(next);
@@ -10235,7 +10420,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       prSec.appendChild(prCard);
       configContainer.appendChild(prSec);
       function appendPriceDebugSection() {
-        const dbgCfg = getDebugConfig$1(aktuelleFeatureFlags);
+        const dbgCfg = getDebugConfig(aktuelleFeatureFlags);
         if (!dbgCfg.enabled && !configDebugUiUnlocked) return;
         const areAllScopesEnabled = (cfg) => {
           const scopes = cfg && cfg.scopes || {};
@@ -10247,7 +10432,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             mergedScopes[def.key] = scopes[def.key] === true;
           });
           const nextEnabled = enabled !== false && Object.values(mergedScopes).some(Boolean);
-          const prevDbg = getDebugConfig$1(aktuelleFeatureFlags);
+          const prevDbg = getDebugConfig(aktuelleFeatureFlags);
           aktuelleFeatureFlags.debug = {
             enabled: nextEnabled,
             scopes: mergedScopes,
@@ -10279,7 +10464,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           showToast("Debug-Modus deaktiviert", "success");
         });
         const dbgAllOn = mkBtn("dbg-all-on", "Alle Module an", () => {
-          const curr = getDebugConfig$1(aktuelleFeatureFlags);
+          const curr = getDebugConfig(aktuelleFeatureFlags);
           const nextAllOn = !areAllScopesEnabled(curr);
           const scopes = {};
           DEBUG_SCOPE_DEFINITIONS.forEach((def) => {
@@ -10326,12 +10511,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         scopeList.className = "mc-pr-actions";
         scopeList.style.marginTop = "10px";
         DEBUG_SCOPE_DEFINITIONS.forEach((def) => {
-          const scopeOn = getDebugConfig$1(aktuelleFeatureFlags).scopes[def.key] === true;
+          const scopeOn = getDebugConfig(aktuelleFeatureFlags).scopes[def.key] === true;
           const btn = mkBtn(
             "dbg-scope-" + def.key,
             def.label + ": " + (scopeOn ? "an" : "aus"),
             () => {
-              const nowCfg = getDebugConfig$1(aktuelleFeatureFlags);
+              const nowCfg = getDebugConfig(aktuelleFeatureFlags);
               const next = !nowCfg.scopes[def.key];
               persistDebugMaster(true);
               persistDebugScope(def.key, next);
@@ -10440,6 +10625,9 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
       aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
       aktuelleFeatureFlags.priceRating = mergePriceRating(aktuelleFeatureFlags.priceRating);
+      aktuelleFeatureFlags.debug = mergeDebugConfig(aktuelleFeatureFlags.debug, aktuelleFeatureFlags);
+      aktuelleFeatureFlags.priceRatingDebug = aktuelleFeatureFlags.debug.enabled && aktuelleFeatureFlags.debug.scopes.price === true;
+      aktuelleFeatureFlags.priceRatingPerfDebug = aktuelleFeatureFlags.debug.enabled && aktuelleFeatureFlags.debug.scopes.perf === true;
       applySaveOrdering(
         aktuelleAusstattungsKonfig,
         aktuelleTechKonfigurationen,
@@ -10455,6 +10643,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       runtimeState.techDataKonfigurationen = aktuelleTechKonfigurationen;
       runtimeState.mergeGruppenConfig = aktuelleMergeGruppen;
       runtimeState.featureFlags = aktuelleFeatureFlags;
+      refreshMapsLinkBehavior();
       refreshSaveBaseline();
       dirty = false;
       undoStack.length = 0;
@@ -10476,14 +10665,19 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     });
     refreshExportArea();
     refreshPriceStoreExportArea();
-    renderAusstattung();
-    renderTechData();
-    renderMergeConfig();
-    renderConfig();
-    updateTabBadges();
-    refreshValidationUI();
-    syncUndoBtn();
-    syncFooterReset(activeTabIndex);
+    try {
+      renderAusstattung();
+      renderTechData();
+      renderMergeConfig();
+      renderConfig();
+      updateTabBadges();
+      refreshValidationUI();
+      syncUndoBtn();
+      syncFooterReset(activeTabIndex);
+    } catch (popupRenderErr) {
+      console.error("[mobilede] Konfig-Popup: Fehler beim Rendern", popupRenderErr);
+      showToast("Popup teilweise fehlerhaft — siehe Browser-Konsole (F12)", "error");
+    }
     if (runtimeState.pendingAusstattungPrefill && pendingAusstattungPrefill.label) {
       const label = pendingAusstattungPrefill.label.trim();
       const cleaned = cleanText(label);
@@ -10512,8 +10706,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     }
     requestAnimationFrame(() => {
       overlay.style.opacity = "1";
-      popup.style.opacity = "1";
-      tabButtons[0].btn.focus();
+      if (tabButtons[0]) tabButtons[0].btn.focus();
     });
   }
   function erstelleKonfigButton() {
@@ -10525,6 +10718,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     const wrap = document.createElement("div");
     wrap.id = "mobilede-config-btn-wrap";
     Object.assign(wrap.style, {
+      position: "relative",
+      zIndex: String(PAGE_UI_Z_INDEX),
       display: "block",
       width: "100%",
       flex: "1 1 100%",

@@ -1,5 +1,6 @@
 'use strict';
 
+import { PAGE_UI_Z_INDEX } from '../config/constants.js';
 import { oeffneKonfigPopup } from './open.js';
 
 export function erstelleKonfigButton() {
@@ -17,6 +18,8 @@ export function erstelleKonfigButton() {
     const wrap = document.createElement('div');
     wrap.id = 'mobilede-config-btn-wrap';
     Object.assign(wrap.style, {
+        position: 'relative',
+        zIndex: String(PAGE_UI_Z_INDEX),
         display: 'block',
         width: '100%',
         flex: '1 1 100%',

@@ -302,9 +302,12 @@ export function loadModelOptionsForMakeId(makeId) {
 
 export function applyMakeModelIdsToProfile(profile, makeId, modelId, modelGroupId) {
     if (!profile) return profile;
-    if (makeId) profile.makeId = String(makeId);
-    if (modelId) profile.modelId = String(modelId);
-    if (modelGroupId) profile.modelGroupId = String(modelGroupId);
+    const mk = resolveNumericId(makeId);
+    const md = resolveNumericId(modelId);
+    const mg = resolveNumericId(modelGroupId);
+    if (mk) profile.makeId = mk;
+    if (md) profile.modelId = md;
+    if (mg) profile.modelGroupId = mg;
     profile.searchMs = formatMsParam(profile.makeId, profile.modelId, profile.modelGroupId) || profile.searchMs || '';
     return profile;
 }
@@ -755,14 +758,51 @@ export function profileForCohortCacheKey(profile, prCfg) {
 
 export function cohortCacheKey(profile, prCfg) {
     const p = profileForCohortCacheKey(profile, prCfg);
+    const mk = resolveNumericId(p.makeId) || '';
+    const md = resolveNumericId(p.modelId) || '';
     return [
-        p.makeId || p.make,
-        p.modelId || p.model,
+        mk || (p.make || '').toLowerCase(),
+        md,
         p.modelRange,
         p.mileageKm,
         p.firstRegistrationYear,
         p.powerKw || p.powerPs
     ].join('|').toLowerCase();
+}
+
+/** VIP-State nach SPA/Parkplatz-Navigation oft verzögert — kurz warten. */
+export async function waitForVipAdInState(adId, timeoutMs = 3500) {
+    const id = adId || getAdIdFromUrl();
+    if (!id) return null;
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+        const ad = getVipAdFromState(id);
+        if (ad) return ad;
+        await new Promise(r => setTimeout(r, 80));
+    }
+    return getVipAdFromState(id);
+}
+
+export async function ensureVehicleProfileReady(profile) {
+    if (!profile || !profile.id) return profile;
+    let ad = getVipAdFromState(profile.id);
+    if (!ad) {
+        ad = await waitForVipAdInState(profile.id);
+        if (ad) {
+            vehicleProfileMemo = { key: '', ts: 0, profile: null };
+            const rebuilt = buildVehicleProfile(profile.id);
+            if (rebuilt) Object.assign(profile, rebuilt);
+        }
+    }
+    await resolveMakeModelIdsForProfile(profile);
+    if (!resolveNumericId(profile.modelId) && profile.model) {
+        await new Promise(r => setTimeout(r, 350));
+        vehicleProfileMemo = { key: '', ts: 0, profile: null };
+        const rebuilt = buildVehicleProfile(profile.id);
+        if (rebuilt) Object.assign(profile, rebuilt);
+        await resolveMakeModelIdsForProfile(profile);
+    }
+    return profile;
 }
 
 export function cohortHumanLabel(profile, prCfg) {
@@ -1490,6 +1530,40 @@ export function countCohortVipDetailCount(items) {
     return (items || []).filter(c => c && c.equipmentFromVipCache).length;
 }
 
+export function countCohortComparablePrices(items) {
+    return (items || []).filter(c => c && typeof c.priceGross === 'number' && c.priceGross > 0).length;
+}
+
+/** Cache-Key-Kohorte und Store-Scan zusammenführen (verhindert 5 vs. 21 beim Reload). */
+export function mergeCohortSourcesFromCacheAndStore(profile, prCfg) {
+    const cacheKey = cohortCacheKey(profile, prCfg);
+    const cached = readCohortCache(cacheKey) || [];
+    const storeScan = findCohortItemsFromStoreByProfile(profile, prCfg);
+    const byId = new Map();
+    cached.forEach(it => {
+        if (it && it.id) byId.set(String(it.id), it);
+    });
+    storeScan.forEach(it => {
+        if (it && it.id) byId.set(String(it.id), it);
+    });
+    const items = enrichCohortItemsWithVipCache([...byId.values()]);
+    return {
+        cacheKey,
+        items,
+        cachedLen: cached.length,
+        storeScanLen: storeScan.length,
+        shouldWrite: items.length >= 3 && items.length > cached.length
+    };
+}
+
+export function ratingCohortMetaMatches(rating, cohortRes) {
+    if (!rating || !rating.ok) return false;
+    const items = (cohortRes && cohortRes.items) || [];
+    if (countCohortComparablePrices(items) !== (rating.cohortCount || 0)) return false;
+    if (countCohortVipDetailCount(items) !== (rating.cohortVipDetailCount || 0)) return false;
+    return true;
+}
+
 /** VIP-Besuch kann nach SRP-Cache kommen — beim Lesen erneut anreichern. */
 export function enrichCohortItemsWithVipCache(items) {
     if (!Array.isArray(items)) return [];
@@ -1535,32 +1609,28 @@ export function getCohortComparables(profile, prCfg) {
         });
         return memo.value;
     }
-    const cached = readCohortCache(cacheKey);
-    if (cached && cached.length) {
-        const items = enrichCohortItemsWithVipCache(cached);
-        priceRatingDebugLog('Kohorte aus Cache', {
-            cacheKey,
-            count: items.length,
-            vipDetails: countCohortVipDetailCount(items),
-            uniqueModelsInSource: uniqueModelCount(items),
-            storeSource: 'local-cache'
+    const merged = mergeCohortSourcesFromCacheAndStore(profile, prCfg);
+    if (merged.items.length >= 3) {
+        if (merged.shouldWrite) writeCohortCache(merged.cacheKey, merged.items);
+        const storeSource = merged.cachedLen && merged.storeScanLen
+            ? 'cache+store'
+            : (merged.storeScanLen ? 'store-scan' : 'local-cache');
+        priceRatingDebugLog('Kohorte aus Cache/Store (vereinigt)', {
+            cacheKey: merged.cacheKey,
+            count: merged.items.length,
+            comparablePrices: countCohortComparablePrices(merged.items),
+            vipDetails: countCohortVipDetailCount(merged.items),
+            cachedLen: merged.cachedLen,
+            storeScanLen: merged.storeScanLen,
+            uniqueModelsInSource: uniqueModelCount(merged.items),
+            storeSource
         });
-        const out = { items, fromCache: true, cacheKey };
-        cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out });
-        return out;
-    }
-
-    const fromStoreScan = enrichCohortItemsWithVipCache(findCohortItemsFromStoreByProfile(profile, prCfg));
-    if (fromStoreScan.length >= 3) {
-        writeCohortCache(cacheKey, fromStoreScan);
-        priceRatingDebugLog('Kohorte aus Store-Scan (passende Keys)', {
-            cacheKey,
-            count: fromStoreScan.length,
-            vipDetails: countCohortVipDetailCount(fromStoreScan),
-            uniqueModelsInSource: uniqueModelCount(fromStoreScan),
-            storeSource: 'store-scan'
-        });
-        const out = { items: fromStoreScan, fromCache: true, cacheKey, storeScan: true };
+        const out = {
+            items: merged.items,
+            fromCache: true,
+            cacheKey: merged.cacheKey,
+            storeScan: merged.storeScanLen > 0
+        };
         cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out });
         return out;
     }
@@ -1772,7 +1842,10 @@ export function computePriceRating(profile, comparables, options) {
 export function enrichRatingWithCohortMeta(rating, cohortRes) {
     if (!rating) return rating;
     const items = (cohortRes && cohortRes.items) || [];
+    const prCfg = getPriceRating(runtimeState.featureFlags);
+    rating.cohortCount = countCohortComparablePrices(items);
     rating.cohortVipDetailCount = countCohortVipDetailCount(items);
+    rating.insufficientCohort = rating.cohortCount < prCfg.minComparables;
     if (cohortRes && cohortRes.cacheKey) rating.cohortCacheKey = cohortRes.cacheKey;
     return rating;
 }
@@ -1859,6 +1932,7 @@ export let vipRatingUiBootstrapped = false;
 
 export function resetVipRatingUiOnNavigation() {
     vipRatingUiBootstrapped = false;
+    invalidateVipRatingCacheForReload();
 }
 
 export function disconnectSrpPriceRatingObserver() {
@@ -1875,6 +1949,9 @@ export function injectPriceRatingStyles() {
     const st = document.createElement('style');
     st.id = 'mobilede-price-rating-style';
     st.textContent = `
+.mobilede-price-rating,.mobilede-srp-price-badge,.mobilede-srp-debug-card{
+  position:relative;z-index:2147483000;
+}
 .mobilede-price-rating{
   display:flex;flex-direction:column;gap:6px;margin-top:10px;padding-top:10px;
   border-top:1px solid rgba(255,255,255,.08);font-size:13px;line-height:1.35;
@@ -2217,8 +2294,10 @@ export function syncVipEquipmentCache(profile) {
 export function invalidateVipRatingCacheForReload() {
     const id = getAdIdFromUrl();
     if (!id) return;
+    cohortComparablesMemo.clear();
     try {
         sessionStorage.removeItem(PRICE_RATING_CACHE_PREFIX + id);
+        localStorage.removeItem(PRICE_RATING_UI_CACHE_PREFIX + id);
     } catch (e) { /* noop */ }
 }
 
@@ -2228,6 +2307,9 @@ export function getVipRatingRunSignature(profile) {
     return [
         location.pathname,
         profile && profile.id ? String(profile.id) : '',
+        profile && profile.makeId ? String(profile.makeId) : '',
+        profile && profile.modelId ? String(profile.modelId) : '',
+        profile && profile.modelGroupId ? String(profile.modelGroupId) : '',
         pr.enabled !== false ? 1 : 0,
         pr.enabledVip ? 1 : 0,
         pr.mobileFallback ? 1 : 0,
@@ -2276,20 +2358,27 @@ export async function preisBewertungAktualisieren(opts) {
     try {
         const token = ++priceRatingFetchToken;
         priceRatingDebugLog('Preisbewertung Lauf gestartet', { adId: profile.id, token, force: !!options.force });
-        const uiCached = readRatingUiCache(profile.id);
+
         if (!vipRatingUiBootstrapped) {
-            if (uiCached && uiCached.ok) {
-                renderVipPriceRatingWidget(uiCached, false);
-                priceRatingDebugLog('UI-Cache für Preisbewertung genutzt', { adId: profile.id });
-            } else {
-                renderVipPriceRatingWidget(null, true);
-            }
+            renderVipPriceRatingWidget(null, true);
             vipRatingUiBootstrapped = true;
         }
 
+        const cohortKeyBefore = cohortCacheKey(profile, prCfg);
         try {
-            await resolveMakeModelIdsForProfile(profile);
+            await ensureVehicleProfileReady(profile);
         } catch (e) { /* noop */ }
+        const cohortKeyAfter = cohortCacheKey(profile, prCfg);
+        if (cohortKeyBefore !== cohortKeyAfter) {
+            cohortComparablesMemo.delete(cohortKeyBefore);
+            cohortComparablesMemo.delete(cohortKeyAfter);
+            priceRatingDebugLog('Kohorten-Key nach ID-Auflösung geändert', {
+                adId: profile.id,
+                before: cohortKeyBefore,
+                after: cohortKeyAfter
+            });
+        }
+
         if (token !== priceRatingFetchToken) {
             priceRatingDebugLog('Preisbewertung Lauf verworfen: Token gewechselt', { adId: profile.id, token });
             renderVipPriceRatingWidget(readRatingUiCache(profile.id) || null, false);
@@ -2300,11 +2389,21 @@ export async function preisBewertungAktualisieren(opts) {
         persistVipCohortAnchor(profile, prCfg);
         syncVipEquipmentCache(profile);
 
+        const cohortResForUi = getCohortComparables(profile, prCfg);
+        const uiCached = readRatingUiCache(profile.id);
+        const uiCacheValid = uiCached && uiCached.ok && ratingCohortMetaMatches(uiCached, cohortResForUi);
+        if (uiCacheValid) {
+            renderVipPriceRatingWidget(
+                enrichRatingWithCohortMeta({ ...uiCached }, cohortResForUi),
+                false
+            );
+        }
+
         const cached = readRatingCache(profile.id);
-        if (cached && cached.ok && !cached.needsCohortSearch) {
-            const cohortRes = getCohortComparables(profile, prCfg);
+        const cohortRes = cohortResForUi;
+        if (cached && cached.ok && !cached.needsCohortSearch && ratingCohortMetaMatches(cached, cohortRes)) {
             if (cohortRes.items.length || !cached.usedMobileFallback) {
-                const rating = enrichRatingWithCohortMeta(cached, cohortRes);
+                const rating = enrichRatingWithCohortMeta({ ...cached }, cohortRes);
                 renderVipPriceRatingWidget(rating, false);
                 vipRatingLastRunSig = runSig;
                 vipRatingLastRunTs = Date.now();
@@ -2319,6 +2418,14 @@ export async function preisBewertungAktualisieren(opts) {
             priceRatingDebugLog('Session-Cache vorhanden, aber Recompute nötig', {
                 adId: profile.id,
                 usedMobileFallback: cached.usedMobileFallback
+            });
+        } else if (cached && cached.ok) {
+            priceRatingDebugLog('Session-Cache verworfen: Kohorten-Metadaten geändert', {
+                adId: profile.id,
+                cachedCount: cached.cohortCount,
+                freshCount: countCohortComparablePrices(cohortRes.items),
+                cachedVip: cached.cohortVipDetailCount,
+                freshVip: countCohortVipDetailCount(cohortRes.items)
             });
         }
 

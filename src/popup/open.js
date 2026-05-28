@@ -3,6 +3,7 @@
 import {
     SCHEMA_VERSION,
     STORAGE_KEYS,
+    POPUP_OVERLAY_Z_INDEX,
     FEATURE_FLAG_DEFINITIONS,
     LIST_ORDER_DEFAULT,
     SRP_SORT_OPTIONS,
@@ -36,6 +37,7 @@ import {
     getConfigListUi,
     mergeConfigListUi,
     getDebugConfig,
+    mergeDebugConfig,
     debugLog,
     persistDebugConfig,
     persistDebugMaster,
@@ -82,6 +84,7 @@ import {
     appendSrpDebugLog,
 } from '../features/srp-sort/index.js';
 import { isVehicleDetailPage } from '../core/page-context.js';
+import { refreshMapsLinkBehavior } from '../lifecycle/maps-link.js';
 import { KONFIG_TAB_HELP_HTML } from './help/tabs.js';
 
 export function oeffneKonfigPopup() {
@@ -102,6 +105,11 @@ export function oeffneKonfigPopup() {
     aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
     aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
     aktuelleFeatureFlags.priceRating = mergePriceRating(aktuelleFeatureFlags.priceRating);
+    aktuelleFeatureFlags.debug = mergeDebugConfig(aktuelleFeatureFlags.debug, aktuelleFeatureFlags);
+    aktuelleFeatureFlags.priceRatingDebug = aktuelleFeatureFlags.debug.enabled
+        && aktuelleFeatureFlags.debug.scopes.price === true;
+    aktuelleFeatureFlags.priceRatingPerfDebug = aktuelleFeatureFlags.debug.enabled
+        && aktuelleFeatureFlags.debug.scopes.perf === true;
 
     let baselineAus = JSON.parse(JSON.stringify(aktuelleAusstattungsKonfig));
     let baselineTech = JSON.parse(JSON.stringify(aktuelleTechKonfigurationen));
@@ -467,6 +475,7 @@ export function oeffneKonfigPopup() {
         st.id = 'mobilede-config-style';
         st.textContent = `
 #mobilede-config-overlay.mc-overlay-root{
+  position:fixed;inset:0;z-index:${POPUP_OVERLAY_Z_INDEX};
   --mc-bg:#1a1b20;--mc-surface:#25262c;--mc-elevated:#32333a;--mc-border:#4a4b55;
   --mc-text:#f2f3f5;--mc-muted:#aeb0ba;--mc-accent:#2196f3;--mc-danger:#e57373;
   --mc-warn:#ffb74d;--mc-ok:#81c784;--mc-radius:10px;
@@ -2449,7 +2458,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     overlay.className = 'mc-overlay-root';
     Object.assign(overlay.style, {
         position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
-        width: '100vw', height: '100vh', zIndex: '2147483647',
+        width: '100vw', height: '100vh', zIndex: String(POPUP_OVERLAY_Z_INDEX),
         backgroundColor: 'rgba(0, 0, 0, 0.72)', opacity: '0',
         transition: 'opacity 0.25s ease',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -2697,6 +2706,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
 
     overlay.appendChild(popup);
     requestAnimationFrame(() => {
+        overlay.style.opacity = '1';
         pricePerfMarkEnd('popupOpen', popupPerfStart, 50);
     });
 
@@ -5863,6 +5873,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
         aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
         aktuelleFeatureFlags.priceRating = mergePriceRating(aktuelleFeatureFlags.priceRating);
+        aktuelleFeatureFlags.debug = mergeDebugConfig(aktuelleFeatureFlags.debug, aktuelleFeatureFlags);
+        aktuelleFeatureFlags.priceRatingDebug = aktuelleFeatureFlags.debug.enabled
+            && aktuelleFeatureFlags.debug.scopes.price === true;
+        aktuelleFeatureFlags.priceRatingPerfDebug = aktuelleFeatureFlags.debug.enabled
+            && aktuelleFeatureFlags.debug.scopes.perf === true;
         applySaveOrdering(
             aktuelleAusstattungsKonfig,
             aktuelleTechKonfigurationen,
@@ -5880,6 +5895,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         runtimeState.techDataKonfigurationen = aktuelleTechKonfigurationen;
         runtimeState.mergeGruppenConfig = aktuelleMergeGruppen;
         runtimeState.featureFlags = aktuelleFeatureFlags;
+        refreshMapsLinkBehavior();
 
         refreshSaveBaseline();
         dirty = false;
@@ -5903,14 +5919,19 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
 
     refreshExportArea();
     refreshPriceStoreExportArea();
-    renderAusstattung();
-    renderTechData();
-    renderMergeConfig();
-    renderConfig();
-    updateTabBadges();
-    refreshValidationUI();
-    syncUndoBtn();
-    syncFooterReset(activeTabIndex);
+    try {
+        renderAusstattung();
+        renderTechData();
+        renderMergeConfig();
+        renderConfig();
+        updateTabBadges();
+        refreshValidationUI();
+        syncUndoBtn();
+        syncFooterReset(activeTabIndex);
+    } catch (popupRenderErr) {
+        console.error('[mobilede] Konfig-Popup: Fehler beim Rendern', popupRenderErr);
+        showToast('Popup teilweise fehlerhaft — siehe Browser-Konsole (F12)', 'error');
+    }
 
     if (runtimeState.pendingAusstattungPrefill && pendingAusstattungPrefill.label) {
         const label = pendingAusstattungPrefill.label.trim();
@@ -5941,8 +5962,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
 
     requestAnimationFrame(() => {
         overlay.style.opacity = '1';
-        popup.style.opacity = '1';
-        tabButtons[0].btn.focus();
+        if (tabButtons[0]) tabButtons[0].btn.focus();
     });
 }
 

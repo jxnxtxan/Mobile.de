@@ -22,6 +22,7 @@ import { PRICE_COHORT_CACHE_PREFIX } from '../config/constants.js';
 import { ensureConfigButton } from '../core/search/popup-bridge.js';
 import { lastUrl, syncLastUrl } from './navigation-state.js';
 import { startObserver, trigger } from './observer.js';
+import { refreshMapsLinkBehavior } from './maps-link.js';
 import { scheduleTask } from './scheduler.js';
 
 export { lastUrl, syncLastUrl };
@@ -34,7 +35,8 @@ export function onUrlChange() {
     priceRatingFetchTokenIncrement();
     clearPriceRatingUi();
     startObserver();
-    trigger();
+    trigger(true);
+    refreshMapsLinkBehavior();
     if (isSearchResultsPage()) {
         ensureSrpSortBehavior();
         handleSrpUrlChange();
@@ -48,7 +50,7 @@ export function onUrlChange() {
             preisBewertungAktualisieren({ force: true });
         });
     }
-    setTimeout(ensureConfigButton, 1500);
+    setTimeout(ensureConfigButton, 600);
 }
 
 function onStorageCohortUpdate(e) {
@@ -62,6 +64,7 @@ function onStorageCohortUpdate(e) {
 }
 
 export function initApp() {
+    if (isVehicleDetailPage()) invalidateVipRatingCacheForReload();
     window.addEventListener('popstate', onUrlChange);
     window.addEventListener('hashchange', onUrlChange);
     setInterval(onUrlChange, 1000);
@@ -69,7 +72,8 @@ export function initApp() {
     window.addEventListener('pointermove', markSrpInteraction, { passive: true });
     window.addEventListener('storage', onStorageCohortUpdate);
     startObserver();
-    trigger();
+    trigger(true);
+    refreshMapsLinkBehavior();
     scheduleTask('rating:vip-initial-detail', 'rating', () => {
         preisBewertungAktualisieren({ force: true });
     });

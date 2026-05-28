@@ -1,5 +1,11 @@
+article.mobilede-tech-article,article.mobilede-result-article,
+#mobilede-config-btn-wrap{
+  position:relative;
+  z-index:2147483000;
+  box-sizing:border-box;
+}
 article.mobilede-tech-article,article.mobilede-result-article{
-  box-sizing:border-box;margin:0;padding:12px 16px;
+  margin:0;padding:12px 16px;
 }
 .mobilede-tech-article+.mobilede-result-article{margin-top:8px;}
 .mobilede-result-card,.mobilede-tech-card{
