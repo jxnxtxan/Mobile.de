@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.15.12
+// @version      2.15.18
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile.de
@@ -136,6 +136,10 @@
     const PRICE_RATING_CACHE_PREFIX = 'mobilede_price_rating_';
     const PRICE_RATING_UI_CACHE_PREFIX = 'mobilede_price_rating_ui_';
     const PRICE_VIP_EQUIP_CACHE_PREFIX = 'mobilede_price_vip_equip_';
+    const PRICE_DATA_STORE_KEY = 'mobilede_price_data_store_v1';
+    const PRICE_DATA_STORE_VERSION = 1;
+    const PRICE_DATA_STORE_MAX_ADS = 1500;
+    const PRICE_DATA_STORE_MAX_COHORTS = 500;
     const MAKE_MODEL_CACHE_PREFIX = 'mobilede_mkmd_models_';
     const MAKE_MODEL_AD_CACHE_PREFIX = 'mobilede_mkmd_ad_';
     const PRICE_COHORT_CACHE_TTL_MS = 20 * 60 * 1000;
@@ -2799,11 +2803,198 @@ article.mobilede-tech-article,article.mobilede-result-article{
         return parts.join(' | ');
     }
 
+    function createEmptyPriceDataStore() {
+        return {
+            version: PRICE_DATA_STORE_VERSION,
+            updatedTs: Date.now(),
+            adsById: {},
+            cohortsByKey: {}
+        };
+    }
+
+    function readPriceDataStore() {
+        try {
+            const raw = localStorage.getItem(PRICE_DATA_STORE_KEY);
+            if (!raw) return createEmptyPriceDataStore();
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object') return createEmptyPriceDataStore();
+            if (parsed.version !== PRICE_DATA_STORE_VERSION) return createEmptyPriceDataStore();
+            parsed.adsById = parsed.adsById && typeof parsed.adsById === 'object' ? parsed.adsById : {};
+            parsed.cohortsByKey = parsed.cohortsByKey && typeof parsed.cohortsByKey === 'object' ? parsed.cohortsByKey : {};
+            return parsed;
+        } catch (e) {
+            return createEmptyPriceDataStore();
+        }
+    }
+
+    function prunePriceDataStore(store, nowTs) {
+        if (!store || typeof store !== 'object') return createEmptyPriceDataStore();
+        const now = nowTs || Date.now();
+        const maxAge = PRICE_COHORT_CACHE_TTL_MS;
+        const cohorts = Object.entries(store.cohortsByKey || {})
+            .filter(([, c]) => c && typeof c.ts === 'number' && (now - c.ts) <= maxAge && Array.isArray(c.adIds) && c.adIds.length > 0)
+            .sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0));
+        const keptCohorts = cohorts.slice(0, PRICE_DATA_STORE_MAX_COHORTS);
+        store.cohortsByKey = Object.fromEntries(keptCohorts);
+
+        const keepAdIds = new Set();
+        keptCohorts.forEach(([, c]) => {
+            (c.adIds || []).forEach(id => keepAdIds.add(String(id)));
+        });
+        Object.entries(store.adsById || {}).forEach(([id, ad]) => {
+            if (!ad || typeof ad !== 'object') return;
+            if (typeof ad.ts === 'number' && (now - ad.ts) <= maxAge) keepAdIds.add(String(id));
+        });
+
+        const ads = Object.entries(store.adsById || {})
+            .filter(([id, ad]) => keepAdIds.has(String(id)) && ad && typeof ad === 'object')
+            .sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0))
+            .slice(0, PRICE_DATA_STORE_MAX_ADS);
+        store.adsById = Object.fromEntries(ads);
+        store.updatedTs = now;
+        return store;
+    }
+
+    function writePriceDataStore(store) {
+        try {
+            const pruned = prunePriceDataStore(store, Date.now());
+            localStorage.setItem(PRICE_DATA_STORE_KEY, JSON.stringify(pruned));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function normalizeAdForPriceStore(profile, ts) {
+        if (!profile || !profile.id) return null;
+        const id = String(profile.id);
+        const out = {
+            id,
+            ts: ts || Date.now(),
+            make: profile.make || '',
+            model: profile.model || '',
+            makeId: profile.makeId || '',
+            modelId: profile.modelId || '',
+            modelGroupId: profile.modelGroupId || '',
+            modelRange: profile.modelRange || '',
+            title: profile.title || '',
+            priceGross: typeof profile.priceGross === 'number' ? profile.priceGross : null,
+            mileageKm: typeof profile.mileageKm === 'number' ? profile.mileageKm : null,
+            firstRegistrationYear: typeof profile.firstRegistrationYear === 'number' ? profile.firstRegistrationYear : null,
+            powerKw: typeof profile.powerKw === 'number' ? profile.powerKw : null,
+            powerPs: typeof profile.powerPs === 'number' ? profile.powerPs : null,
+            fuel: profile.fuel || '',
+            transmission: profile.transmission || '',
+            equipment: profile.equipment && typeof profile.equipment.score === 'number'
+                ? {
+                    score: profile.equipment.score,
+                    breakdown: Array.isArray(profile.equipment.breakdown) ? profile.equipment.breakdown : []
+                }
+                : null,
+            equipmentFromVipCache: !!profile.equipmentFromVipCache
+        };
+        return out;
+    }
+
+    function upsertPriceDataStoreAds(items, ts) {
+        if (!Array.isArray(items) || !items.length) return;
+        const store = readPriceDataStore();
+        const now = ts || Date.now();
+        items.forEach(item => {
+            const ad = normalizeAdForPriceStore(item, now);
+            if (!ad) return;
+            const prev = store.adsById[ad.id] || {};
+            store.adsById[ad.id] = { ...prev, ...ad, ts: now };
+        });
+        writePriceDataStore(store);
+    }
+
+    function writePriceDataStoreCohort(cacheKey, items, ts) {
+        if (!cacheKey || !Array.isArray(items) || !items.length) return;
+        const now = ts || Date.now();
+        const store = readPriceDataStore();
+        const adIds = [];
+        items.forEach(item => {
+            const ad = normalizeAdForPriceStore(item, now);
+            if (!ad) return;
+            store.adsById[ad.id] = { ...(store.adsById[ad.id] || {}), ...ad, ts: now };
+            adIds.push(ad.id);
+        });
+        if (!adIds.length) return;
+        const uniqueAdIds = [...new Set(adIds)];
+        store.cohortsByKey[cacheKey] = {
+            ts: now,
+            adIds: uniqueAdIds,
+            count: uniqueAdIds.length,
+            vipDetails: items.filter(c => c && c.equipmentFromVipCache).length
+        };
+        writePriceDataStore(store);
+    }
+
+    function readPriceDataStoreCohort(cacheKey) {
+        if (!cacheKey) return null;
+        const store = readPriceDataStore();
+        const cohort = store.cohortsByKey[cacheKey];
+        if (!cohort || typeof cohort.ts !== 'number') return null;
+        if (Date.now() - cohort.ts > PRICE_COHORT_CACHE_TTL_MS) return null;
+        const out = [];
+        (cohort.adIds || []).forEach(id => {
+            const ad = store.adsById[String(id)];
+            if (!ad || typeof ad !== 'object') return;
+            const item = { ...ad };
+            if (item.equipment && typeof item.equipment.score === 'number') {
+                item.equipmentFromVipCache = !!item.equipmentFromVipCache;
+            }
+            out.push(item);
+        });
+        return out.length ? out : null;
+    }
+
+    function mergePriceDataStoreImport(rawStore) {
+        if (!rawStore || typeof rawStore !== 'object') return { mergedAds: 0, mergedCohorts: 0 };
+        const incomingAds = rawStore.adsById && typeof rawStore.adsById === 'object' ? rawStore.adsById : {};
+        const incomingCohorts = rawStore.cohortsByKey && typeof rawStore.cohortsByKey === 'object' ? rawStore.cohortsByKey : {};
+        const store = readPriceDataStore();
+        let mergedAds = 0;
+        let mergedCohorts = 0;
+
+        Object.entries(incomingAds).forEach(([id, ad]) => {
+            if (!ad || typeof ad !== 'object') return;
+            const key = String(id);
+            const prev = store.adsById[key];
+            const inTs = typeof ad.ts === 'number' ? ad.ts : 0;
+            const prevTs = prev && typeof prev.ts === 'number' ? prev.ts : 0;
+            if (!prev || inTs >= prevTs) {
+                store.adsById[key] = { ...prev, ...ad, id: key };
+                mergedAds += 1;
+            }
+        });
+        Object.entries(incomingCohorts).forEach(([key, cohort]) => {
+            if (!cohort || typeof cohort !== 'object' || !Array.isArray(cohort.adIds)) return;
+            const prev = store.cohortsByKey[key];
+            const inTs = typeof cohort.ts === 'number' ? cohort.ts : 0;
+            const prevTs = prev && typeof prev.ts === 'number' ? prev.ts : 0;
+            if (!prev || inTs >= prevTs) {
+                store.cohortsByKey[key] = {
+                    ts: inTs || Date.now(),
+                    adIds: cohort.adIds.map(v => String(v)).filter(Boolean),
+                    count: typeof cohort.count === 'number' ? cohort.count : cohort.adIds.length,
+                    vipDetails: typeof cohort.vipDetails === 'number' ? cohort.vipDetails : 0
+                };
+                mergedCohorts += 1;
+            }
+        });
+        const ok = writePriceDataStore(store);
+        return ok ? { mergedAds, mergedCohorts } : { mergedAds: 0, mergedCohorts: 0 };
+    }
+
     function cohortCacheStorageKey(key) {
         return PRICE_COHORT_CACHE_PREFIX + key;
     }
 
     function readCohortCache(key) {
+        const fromStore = readPriceDataStoreCohort(key);
+        if (fromStore && fromStore.length) return fromStore;
         const storageKey = cohortCacheStorageKey(key);
         try {
             let raw = localStorage.getItem(storageKey);
@@ -2819,7 +3010,9 @@ article.mobilede-tech-article,article.mobilede-result-article{
             if (!raw) return null;
             const parsed = JSON.parse(raw);
             if (!parsed || Date.now() - parsed.ts > PRICE_COHORT_CACHE_TTL_MS) return null;
-            return parsed.items || null;
+            const items = parsed.items || null;
+            if (Array.isArray(items) && items.length) writePriceDataStoreCohort(key, items, parsed.ts || Date.now());
+            return items;
         } catch (e) {
             return null;
         }
@@ -2833,6 +3026,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
 
     function writeCohortCache(key, items) {
         try {
+            writePriceDataStoreCohort(key, items, Date.now());
             localStorage.setItem(cohortCacheStorageKey(key), JSON.stringify({
                 ts: Date.now(),
                 items
@@ -2848,6 +3042,13 @@ article.mobilede-tech-article,article.mobilede-result-article{
     function readVipEquipCache(adId) {
         if (!adId) return null;
         try {
+            const store = readPriceDataStore();
+            const ad = store.adsById[String(adId)];
+            if (ad && ad.equipment && typeof ad.equipment.score === 'number') {
+                return ad.equipment;
+            }
+        } catch (e) { /* noop */ }
+        try {
             const raw = localStorage.getItem(vipEquipCacheStorageKey(adId));
             if (!raw) return null;
             const parsed = JSON.parse(raw);
@@ -2862,6 +3063,20 @@ article.mobilede-tech-article,article.mobilede-result-article{
     function writeVipEquipCache(adId, equipment) {
         if (!adId || !equipment || typeof equipment.score !== 'number') return;
         try {
+            const store = readPriceDataStore();
+            const key = String(adId);
+            const prev = store.adsById[key] || { id: key };
+            store.adsById[key] = {
+                ...prev,
+                id: key,
+                ts: Date.now(),
+                equipment: {
+                    score: equipment.score,
+                    breakdown: Array.isArray(equipment.breakdown) ? equipment.breakdown : []
+                },
+                equipmentFromVipCache: true
+            };
+            writePriceDataStore(store);
             localStorage.setItem(vipEquipCacheStorageKey(adId), JSON.stringify({
                 ts: Date.now(),
                 equipment: {
@@ -2883,6 +3098,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 modelId: '',
                 modelGroupId: '',
                 searchMs: '',
+                searchMsList: [],
+                modelIdList: [],
                 modelRange: '',
                 mileageKm: null,
                 firstRegistrationYear: null,
@@ -2891,14 +3108,18 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 fuel: '',
                 transmission: ''
             };
-            const ms = u.searchParams.get('ms');
-            if (ms) {
-                p.searchMs = ms;
-                const parsed = parseMsParam(ms);
-                if (parsed) {
-                    p.makeId = parsed.makeId;
-                    p.modelId = parsed.modelId || '';
-                    p.modelGroupId = parsed.modelGroupId || '';
+            const msValues = u.searchParams.getAll('ms').filter(Boolean);
+            if (msValues.length) {
+                p.searchMsList = msValues;
+                p.searchMs = msValues[0];
+                const parsedList = msValues
+                    .map(v => parseMsParam(v))
+                    .filter(Boolean);
+                if (parsedList.length) {
+                    p.makeId = parsedList[0].makeId || '';
+                    p.modelId = parsedList[0].modelId || '';
+                    p.modelGroupId = parsedList[0].modelGroupId || '';
+                    p.modelIdList = [...new Set(parsedList.map(x => x.modelId || '').filter(Boolean))];
                 }
             }
             const midRange = param => {
@@ -2942,21 +3163,40 @@ article.mobilede-tech-article,article.mobilede-result-article{
             priceRatingDebugLog('SRP-Cache-Sync übersprungen: zu wenige SRP-Treffer', { count: items.length });
             return;
         }
-        const prof = profileFromSearchPageUrl(location.href);
-        const key = prof && (prof.makeId || prof.make || prof.modelId || prof.model)
-            ? cohortCacheKey(prof)
-            : null;
-        if (key) {
-            writeCohortCache(key, items);
-            priceRatingDebugLog('Kohorte aus SRP gecacht', {
-                cacheKey: key,
-                count: items.length,
-                vipDetails: countCohortVipDetailCount(items)
-            });
-            debugLog('ui', 'SRP-Kohorte in Cache synchronisiert', { cacheKey: key, count: items.length });
-        } else {
-            priceRatingDebugLog('SRP-Cache-Sync übersprungen: kein cacheKey aus URL ableitbar');
+        const prCfg = getPriceRating(featureFlags);
+        const byKey = new Map();
+        items.forEach(item => {
+            if (!item || !(item.makeId || item.make) || !(item.modelId || item.model)) return;
+            const key = cohortCacheKey(item, prCfg);
+            if (!key) return;
+            if (!byKey.has(key)) byKey.set(key, []);
+            byKey.get(key).push(item);
+        });
+        if (!byKey.size) {
+            priceRatingDebugLog('SRP-Cache-Sync übersprungen: keine modellgenauen Cache-Keys aus Treffern ableitbar');
+            return;
         }
+        let written = 0;
+        byKey.forEach((cohortItems, key) => {
+            if (cohortItems.length < 3) return;
+            writeCohortCache(key, cohortItems);
+            written += 1;
+        });
+        if (!written) {
+            priceRatingDebugLog('SRP-Cache-Sync übersprungen: modellgenaue Kohorten zu klein', { groups: byKey.size });
+            return;
+        }
+        const top = [...byKey.entries()]
+            .sort((a, b) => b[1].length - a[1].length)
+            .slice(0, 6)
+            .map(([key, list]) => ({ cacheKey: key, count: list.length }));
+        priceRatingDebugLog('Kohorten aus SRP gecacht', {
+            totalItems: items.length,
+            groups: byKey.size,
+            writtenGroups: written,
+            topGroups: top
+        });
+        debugLog('ui', 'SRP-Kohorten in Cache synchronisiert', { groups: byKey.size, writtenGroups: written });
     }
 
     function findSrpListingsInState(state) {
@@ -3080,6 +3320,15 @@ article.mobilede-tech-article,article.mobilede-result-article{
 
     /** Kohorte nur aus localStorage-Cache oder aktueller Suchseite — kein Hintergrund-fetch. */
     function getCohortComparables(profile, prCfg) {
+        const uniqueModelCount = (list) => {
+            const s = new Set();
+            (list || []).forEach(item => {
+                const mk = (item && (item.makeId || item.make) || '').toLowerCase();
+                const md = (item && (item.modelId || item.model) || '').toLowerCase();
+                if (mk || md) s.add(mk + '|' + md);
+            });
+            return s.size;
+        };
         const now = Date.now();
         pruneCohortComparablesMemo(now);
         const cacheKey = cohortCacheKey(profile, prCfg);
@@ -3097,7 +3346,9 @@ article.mobilede-tech-article,article.mobilede-result-article{
             priceRatingDebugLog('Kohorte aus Cache', {
                 cacheKey,
                 count: items.length,
-                vipDetails: countCohortVipDetailCount(items)
+                vipDetails: countCohortVipDetailCount(items),
+                uniqueModelsInSource: uniqueModelCount(items),
+                storeSource: 'local-cache'
             });
             const out = { items, fromCache: true, cacheKey };
             cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out });
@@ -3108,13 +3359,15 @@ article.mobilede-tech-article,article.mobilede-result-article{
             const state = getPageInitialState();
             const fromPage = enrichCohortItemsWithVipCache(
                 parseCohortItemsFromState(state, profile.id)
-            );
+            ).filter(item => cohortCacheKey(item, prCfg) === cacheKey);
             if (fromPage.length >= 5) {
                 writeCohortCache(cacheKey, fromPage);
                 priceRatingDebugLog('Kohorte von aktueller SRP', {
                     cacheKey,
                     count: fromPage.length,
-                    vipDetails: countCohortVipDetailCount(fromPage)
+                    vipDetails: countCohortVipDetailCount(fromPage),
+                    uniqueModelsInSource: uniqueModelCount(fromPage),
+                    storeSource: 'current-srp'
                 });
                 const out = { items: fromPage, fromCache: false, fromPage: true, cacheKey };
                 cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out });
@@ -4378,8 +4631,19 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const items = parseCohortItemsFromState(state, null);
         const prof = profileFromSearchPageUrl(location.href);
         const prCfg = getPriceRating(featureFlags);
+        const grouped = {};
+        items.forEach(item => {
+            if (!item || !(item.makeId || item.make) || !(item.modelId || item.model)) return;
+            const key = cohortCacheKey(item, prCfg);
+            grouped[key] = (grouped[key] || 0) + 1;
+        });
+        const topGroups = Object.entries(grouped)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 8)
+            .map(([key, count]) => ({ cacheKey: key, count }));
+        const hasMultiModelMs = !!(prof && Array.isArray(prof.searchMsList) && prof.searchMsList.length > 1);
         const cacheKey = prof && (prof.makeId || prof.make || prof.modelId || prof.model)
-            ? cohortCacheKey(prof, prCfg)
+            ? (hasMultiModelMs ? null : cohortCacheKey(prof, prCfg))
             : null;
         const cached = cacheKey ? readCohortCache(cacheKey) : null;
         const payload = {
@@ -4389,10 +4653,13 @@ article.mobilede-tech-article,article.mobilede-result-article{
             cacheKey,
             cohortHuman: prof ? cohortHumanLabel(prof, prCfg) : null,
             cachedCount: Array.isArray(cached) ? cached.length : 0,
+            modelGroupsDetected: topGroups,
             profileFromUrl: prof ? {
                 makeId: prof.makeId || '',
                 modelId: prof.modelId || '',
                 modelGroupId: prof.modelGroupId || '',
+                modelIdList: Array.isArray(prof.modelIdList) ? prof.modelIdList : [],
+                msCount: Array.isArray(prof.searchMsList) ? prof.searchMsList.length : 0,
                 mileageKm: prof.mileageKm,
                 firstRegistrationYear: prof.firstRegistrationYear,
                 powerKw: prof.powerKw
@@ -4464,12 +4731,54 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 cohortCount: typeof ratingCache.cohortCount === 'number' ? ratingCache.cohortCount : null,
                 cohortVipDetailCount: typeof ratingCache.cohortVipDetailCount === 'number' ? ratingCache.cohortVipDetailCount : null,
                 usedMobileFallback: !!ratingCache.usedMobileFallback,
-                insufficientCohort: !!ratingCache.insufficientCohort
+                insufficientCohort: !!ratingCache.insufficientCohort,
+                cohortQuality: ratingCache.insufficientCohort
+                    ? 'small-cohort-fallback'
+                    : 'cohort-ok'
             } : null
         };
         console.info('[mobilede Preis]', 'Manuelle Preisbewertung-UI', payload);
         appendSrpDebugLog('info', 'Manuelle Preisbewertung-UI', payload);
         showToast('Preisbewertung-UI wurde geloggt', 'success');
+    }
+
+    async function runManualPriceDataStoreExport() {
+        const store = readPriceDataStore();
+        const payload = {
+            version: store.version,
+            updatedTs: store.updatedTs || null,
+            adsCount: Object.keys(store.adsById || {}).length,
+            cohortsCount: Object.keys(store.cohortsByKey || {}).length,
+            export: { priceDataStore: store }
+        };
+        console.info('[mobilede Preis]', 'Preisdaten-Store Export', payload);
+        appendSrpDebugLog('info', 'Preisdaten-Store Export', {
+            adsCount: payload.adsCount,
+            cohortsCount: payload.cohortsCount
+        });
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(JSON.stringify(payload.export, null, 2));
+                showToast('Preisdaten-Export in Zwischenablage kopiert', 'success');
+                return;
+            }
+        } catch (e) { /* noop */ }
+        showToast('Export geloggt (Clipboard nicht verfügbar)', 'warn');
+    }
+
+    function runManualPriceDataStoreImportPrompt() {
+        const raw = window.prompt('Preisdatenspeicher importieren: JSON mit { "priceDataStore": { ... } } einfügen');
+        if (!raw) return;
+        try {
+            const parsed = JSON.parse(raw);
+            const source = parsed && parsed.priceDataStore ? parsed.priceDataStore : parsed;
+            const merged = mergePriceDataStoreImport(source);
+            notifyCohortCacheUpdated();
+            appendSrpDebugLog('info', 'Preisdaten-Store Import', merged);
+            showToast('Preisdaten importiert: ' + merged.mergedAds + ' Ads, ' + merged.mergedCohorts + ' Kohorten', 'success');
+        } catch (e) {
+            showToast('Import-JSON ungültig: ' + e, 'error');
+        }
     }
 
     function renderDebugLogIntoCard(cardId) {
@@ -6028,6 +6337,13 @@ article.mobilede-tech-article,article.mobilede-result-article{
 .mc-ie-header{
   display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
   padding:12px 14px;border-radius:10px;border:1px solid var(--mc-border);background:rgba(0,0,0,.12);
+}
+.mc-ie-group{
+  display:flex;flex-direction:column;gap:10px;
+  padding:12px;border-radius:12px;border:1px solid var(--mc-border);background:rgba(0,0,0,.10);
+}
+.mc-ie-group__title{
+  font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mc-muted);padding:0 2px;
 }
 .mc-ie-intro{margin:0;font-size:13px;line-height:1.5;color:var(--mc-muted);flex:1;min-width:0;}
 .mc-ie-intro strong{color:var(--mc-text);font-weight:600;}
@@ -9235,8 +9551,20 @@ article.mobilede-tech-article,article.mobilede-result-article{
             + 'Vor dem Import wird automatisch ein Backup angelegt — per <strong>Rückgängig</strong> im Footer wiederherstellbar. '
             + 'Schema <strong>v' + SCHEMA_VERSION + '</strong>.';
         ieHeader.appendChild(ieIntro);
-        const ieGrid = document.createElement('div');
-        ieGrid.className = 'mc-ie-grid';
+        const ieGridConfig = document.createElement('div');
+        ieGridConfig.className = 'mc-ie-grid';
+        const ieGridPrice = document.createElement('div');
+        ieGridPrice.className = 'mc-ie-grid';
+        const ieGroupConfig = document.createElement('div');
+        ieGroupConfig.className = 'mc-ie-group';
+        const ieGroupConfigTitle = document.createElement('div');
+        ieGroupConfigTitle.className = 'mc-ie-group__title';
+        ieGroupConfigTitle.textContent = 'Konfiguration';
+        const ieGroupPrice = document.createElement('div');
+        ieGroupPrice.className = 'mc-ie-group';
+        const ieGroupPriceTitle = document.createElement('div');
+        ieGroupPriceTitle.className = 'mc-ie-group__title';
+        ieGroupPriceTitle.textContent = 'Preisdaten-Sync';
 
         const cardEx = document.createElement('div');
         cardEx.className = 'mc-ie-card mc-ie-card--export';
@@ -9419,11 +9747,19 @@ article.mobilede-tech-article,article.mobilede-result-article{
                     aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
                     aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
                 }
+                let mergeInfo = '';
+                if (obj.priceDataStore && typeof obj.priceDataStore === 'object') {
+                    const merged = mergePriceDataStoreImport(obj.priceDataStore);
+                    if (merged.mergedAds || merged.mergedCohorts) {
+                        notifyCohortCacheUpdated();
+                    }
+                    mergeInfo = ' · Preisdaten: ' + merged.mergedAds + ' Ads, ' + merged.mergedCohorts + ' Kohorten';
+                }
                 markDirty();
                 onConfigListUiChanged();
                 renderConfig();
                 refreshExportArea();
-                showToast('Import angewendet. Backup-Zeitstempel: ' + ts + '. Bitte Speichern klicken.', 'success');
+                showToast('Import angewendet. Backup-Zeitstempel: ' + ts + mergeInfo + '. Bitte Speichern klicken.', 'success');
             } catch (e2) {
                 showToast('Fehler beim Import: ' + e2, 'error');
             }
@@ -9436,12 +9772,189 @@ article.mobilede-tech-article,article.mobilede-result-article{
         cardIm.appendChild(importArea);
         cardIm.appendChild(imFooter);
 
-        ieGrid.appendChild(cardEx);
-        ieGrid.appendChild(cardIm);
+        const cardStoreEx = document.createElement('div');
+        cardStoreEx.className = 'mc-ie-card mc-ie-card--export';
+        const storeExHead = document.createElement('div');
+        storeExHead.className = 'mc-ie-card__head';
+        const storeExTitle = document.createElement('div');
+        storeExTitle.className = 'mc-ie-card__title';
+        storeExTitle.textContent = 'Preisdaten-Export';
+        const storeExDesc = document.createElement('div');
+        storeExDesc.className = 'mc-ie-card__desc';
+        storeExDesc.textContent = 'Lokalen Preisdaten-Store (Inserate + Kohorten) als JSON exportieren.';
+        storeExHead.appendChild(storeExTitle);
+        storeExHead.appendChild(storeExDesc);
+        const storeExActions = document.createElement('div');
+        storeExActions.className = 'mc-ie-actions';
+        const storeExBtnGroup = document.createElement('div');
+        storeExBtnGroup.className = 'mc-btn-group';
+        const storeExportArea = document.createElement('textarea');
+        storeExportArea.className = 'mc-textarea mc-ie-code';
+        storeExportArea.readOnly = true;
+        storeExportArea.rows = 12;
+        storeExportArea.setAttribute('aria-label', 'Preisdaten Export JSON');
+        const storeExMeta = document.createElement('div');
+        storeExMeta.className = 'mc-ie-meta';
+
+        function buildPriceStoreExportPayload() {
+            return {
+                priceDataStore: readPriceDataStore()
+            };
+        }
+        function refreshPriceStoreExportArea() {
+            const payload = buildPriceStoreExportPayload();
+            const store = payload.priceDataStore || {};
+            const adsCount = Object.keys(store.adsById || {}).length;
+            const cohortsCount = Object.keys(store.cohortsByKey || {}).length;
+            storeExportArea.value = JSON.stringify(payload, null, 2);
+            storeExMeta.textContent = 'Dateiname: mobilede-preisdaten-YYYY-MM-DD.json · '
+                + adsCount + ' Inserate · ' + cohortsCount + ' Kohorten';
+        }
+        const btnStoreGenerateExport = mkBtn('ghost', 'Aktualisieren', () => {
+            refreshPriceStoreExportArea();
+            showToast('Preisdaten-Export aktualisiert', 'success');
+        });
+        const btnStoreCopyExport = mkBtn('ghost', 'Kopieren', async () => {
+            refreshPriceStoreExportArea();
+            const text = storeExportArea.value || '';
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+                else { storeExportArea.select(); document.execCommand('copy'); }
+                showToast('Preisdaten in Zwischenablage kopiert', 'success');
+            } catch (_e) {
+                storeExportArea.select();
+                try { document.execCommand('copy'); showToast('Kopiert (Fallback)', 'success'); }
+                catch (_e2) { showToast('Konnte nicht kopieren', 'error'); }
+            }
+        });
+        const btnStoreDownloadExport = mkBtn('primary', 'Download', () => {
+            refreshPriceStoreExportArea();
+            const blob = new Blob([storeExportArea.value], { type: 'application/json' });
+            const a = document.createElement('a');
+            const y = new Date();
+            const dateStr = y.getFullYear() + '-' + String(y.getMonth() + 1).padStart(2, '0') + '-' + String(y.getDate()).padStart(2, '0');
+            a.download = 'mobilede-preisdaten-' + dateStr + '.json';
+            a.href = URL.createObjectURL(blob);
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 2500);
+            showToast('Preisdaten-Datei gestartet', 'success');
+        });
+        storeExBtnGroup.appendChild(btnStoreGenerateExport);
+        storeExBtnGroup.appendChild(btnStoreCopyExport);
+        storeExActions.appendChild(storeExBtnGroup);
+        storeExActions.appendChild(btnStoreDownloadExport);
+        cardStoreEx.appendChild(storeExHead);
+        cardStoreEx.appendChild(storeExActions);
+        cardStoreEx.appendChild(storeExportArea);
+        cardStoreEx.appendChild(storeExMeta);
+
+        const cardStoreIm = document.createElement('div');
+        cardStoreIm.className = 'mc-ie-card mc-ie-card--import';
+        const storeImHead = document.createElement('div');
+        storeImHead.className = 'mc-ie-card__head';
+        const storeImTitle = document.createElement('div');
+        storeImTitle.className = 'mc-ie-card__title';
+        storeImTitle.textContent = 'Preisdaten-Import';
+        const storeImDesc = document.createElement('div');
+        storeImDesc.className = 'mc-ie-card__desc';
+        storeImDesc.textContent = 'JSON laden/einfügen und mit lokalem Preisdaten-Store zusammenführen (neuester Zeitstempel gewinnt).';
+        storeImHead.appendChild(storeImTitle);
+        storeImHead.appendChild(storeImDesc);
+        const storeDrop = document.createElement('div');
+        storeDrop.className = 'mc-dropzone';
+        storeDrop.setAttribute('role', 'button');
+        storeDrop.setAttribute('tabindex', '0');
+        const storeDropIcon = document.createElement('span');
+        storeDropIcon.className = 'mc-dropzone__icon';
+        storeDropIcon.setAttribute('aria-hidden', 'true');
+        storeDropIcon.textContent = '⬆';
+        const storeDropMain = document.createElement('span');
+        storeDropMain.className = 'mc-dropzone__main';
+        storeDropMain.textContent = 'Preisdaten-JSON hierher ziehen';
+        const storeDropSub = document.createElement('span');
+        storeDropSub.className = 'mc-dropzone__sub';
+        storeDropSub.textContent = 'oder klicken zum Auswählen';
+        storeDrop.appendChild(storeDropIcon);
+        storeDrop.appendChild(storeDropMain);
+        storeDrop.appendChild(storeDropSub);
+        storeDrop.addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); storeFileInp.click(); }
+        });
+        const storeFileInp = document.createElement('input');
+        storeFileInp.type = 'file';
+        storeFileInp.accept = 'application/json,.json';
+        storeFileInp.style.display = 'none';
+        storeDrop.addEventListener('click', () => storeFileInp.click());
+        storeDrop.addEventListener('dragover', e => { e.preventDefault(); storeDrop.classList.add('mc-dropzone--hover'); });
+        storeDrop.addEventListener('dragleave', () => storeDrop.classList.remove('mc-dropzone--hover'));
+        const storeImportArea = document.createElement('textarea');
+        storeImportArea.className = 'mc-textarea mc-ie-code';
+        storeImportArea.rows = 10;
+        storeImportArea.placeholder = 'Preisdaten-JSON einfügen oder aus Datei laden…';
+        storeImportArea.setAttribute('aria-label', 'Preisdaten Import JSON');
+        storeDrop.addEventListener('drop', e => {
+            e.preventDefault();
+            storeDrop.classList.remove('mc-dropzone--hover');
+            const file = e.dataTransfer.files && e.dataTransfer.files[0];
+            if (!file) return;
+            const r = new FileReader();
+            r.onload = () => {
+                storeImportArea.value = String(r.result || '');
+                showToast('Preisdaten-Datei eingeladen', 'success');
+            };
+            r.readAsText(file);
+        });
+        storeFileInp.addEventListener('change', () => {
+            const file = storeFileInp.files && storeFileInp.files[0];
+            if (!file) return;
+            const r = new FileReader();
+            r.onload = () => {
+                storeImportArea.value = String(r.result || '');
+                showToast('Preisdaten-Datei eingeladen', 'success');
+            };
+            r.readAsText(file);
+            storeFileInp.value = '';
+        });
+        const storeImFooter = document.createElement('div');
+        storeImFooter.className = 'mc-ie-import-footer';
+        const btnStoreImport = mkBtn('primary', 'Preisdaten importieren', () => {
+            const text = storeImportArea.value.trim();
+            if (!text) {
+                showToast('Import: Textfeld ist leer', 'warn');
+                return;
+            }
+            try {
+                const obj = JSON.parse(text);
+                const source = obj && obj.priceDataStore ? obj.priceDataStore : obj;
+                const merged = mergePriceDataStoreImport(source);
+                notifyCohortCacheUpdated();
+                appendSrpDebugLog('info', 'Preisdaten-Store Import (Konfig-Tab)', merged);
+                showToast('Preisdaten importiert: ' + merged.mergedAds + ' Ads, ' + merged.mergedCohorts + ' Kohorten', 'success');
+                refreshPriceStoreExportArea();
+            } catch (err) {
+                showToast('Ungültiges Preisdaten-JSON: ' + err, 'error');
+            }
+        });
+        storeImFooter.appendChild(btnStoreImport);
+        cardStoreIm.appendChild(storeImHead);
+        cardStoreIm.appendChild(storeDrop);
+        cardStoreIm.appendChild(storeFileInp);
+        cardStoreIm.appendChild(storeImportArea);
+        cardStoreIm.appendChild(storeImFooter);
+
+        ieGridConfig.appendChild(cardEx);
+        ieGridConfig.appendChild(cardIm);
+        ieGridPrice.appendChild(cardStoreEx);
+        ieGridPrice.appendChild(cardStoreIm);
+        ieGroupConfig.appendChild(ieGroupConfigTitle);
+        ieGroupConfig.appendChild(ieGridConfig);
+        ieGroupPrice.appendChild(ieGroupPriceTitle);
+        ieGroupPrice.appendChild(ieGridPrice);
         iePanel.appendChild(ieHeader);
-        iePanel.appendChild(ieGrid);
+        iePanel.appendChild(ieGroupConfig);
+        iePanel.appendChild(ieGroupPrice);
         panelIE.appendChild(iePanel);
-        installKonfigTabHelp('ie', 'mc-konfig-help-ie', 'Hilfe zum Tab Import / Export', 'Hilfe zu Import und Export', ieHeader, null, iePanel, ieGrid);
+        installKonfigTabHelp('ie', 'mc-konfig-help-ie', 'Hilfe zum Tab Import / Export', 'Hilfe zu Import und Export', ieHeader, null, iePanel, null);
 
         /** --- Config (Feature-Flags) --- */
         const configPanel = document.createElement('div');
@@ -10613,6 +11126,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
         });
 
         refreshExportArea();
+        refreshPriceStoreExportArea();
         renderAusstattung();
         renderTechData();
         renderMergeConfig();
