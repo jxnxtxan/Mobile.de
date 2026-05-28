@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.14.9
+// @version      2.15.8
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile.de
@@ -95,13 +95,20 @@
         enabledVip: true,
         enabledSrp: true,
         mobileFallback: true,
+        useModelRange: true,
+        keyUseMileage: true,
+        keyUseYear: true,
+        keyUsePower: true,
+        keyKmBucket: 5000,
+        keyYearBucket: 1,
+        keyPowerBucket: 10,
         onlyFavoriteWeights: false,
         minComparables: 20,
         punktZuEuro: 800,
         maxAdjustPct: 0.12,
-        kmTolerancePct: 0.25,
+        kmToleranceAbs: 10000,
         yearTolerance: 1,
-        powerTolerancePct: 0.1,
+        powerToleranceKw: 0,
         thresholds: [
             { maxPct: -0.12, level: 0 },
             { maxPct: -0.04, level: 1 },
@@ -133,6 +140,18 @@
     const MAKE_MODEL_AD_CACHE_PREFIX = 'mobilede_mkmd_ad_';
     const PRICE_COHORT_CACHE_TTL_MS = 20 * 60 * 1000;
     const PRICE_RATING_UI_CACHE_TTL_MS = 3 * 60 * 1000;
+    const DEBUG_SCOPE_DEFINITIONS = [
+        { key: 'price', label: 'Preisbewertung', prefix: '[mobilede Preis]' },
+        { key: 'perf', label: 'Performance', prefix: '[mobilede Perf]' },
+        { key: 'ausstattung', label: 'Ausstattungssuche', prefix: '[mobilede Ausstattung]' },
+        { key: 'tech', label: 'Technische Daten', prefix: '[mobilede Tech]' },
+        { key: 'merge', label: 'Merge/Normalisierung', prefix: '[mobilede Merge]' },
+        { key: 'ui', label: 'UI/Config', prefix: '[mobilede UI]' }
+    ];
+    const DEBUG_SCOPE_PREFIX = DEBUG_SCOPE_DEFINITIONS.reduce((acc, def) => {
+        acc[def.key] = def.prefix;
+        return acc;
+    }, {});
 
     function srpSortDefault() {
         return JSON.parse(JSON.stringify(SRP_SORT_DEFAULT));
@@ -168,13 +187,27 @@
             });
         }
         out.enabled = stored.enabled !== false;
+        out.useModelRange = stored.useModelRange !== false;
+        out.keyUseMileage = stored.keyUseMileage !== false;
+        out.keyUseYear = stored.keyUseYear !== false;
+        out.keyUsePower = stored.keyUsePower !== false;
+        out.keyKmBucket = Math.max(500, Math.min(50000, parseInt(out.keyKmBucket, 10) || d.keyKmBucket));
+        out.keyYearBucket = Math.max(1, Math.min(5, parseInt(out.keyYearBucket, 10) || d.keyYearBucket));
+        out.keyPowerBucket = Math.max(1, Math.min(50, parseInt(out.keyPowerBucket, 10) || d.keyPowerBucket));
         out.onlyFavoriteWeights = stored.onlyFavoriteWeights === true;
         out.minComparables = Math.max(5, Math.min(50, parseInt(out.minComparables, 10) || d.minComparables));
         out.punktZuEuro = Math.max(100, parseInt(out.punktZuEuro, 10) || d.punktZuEuro);
         out.maxAdjustPct = Math.max(0.05, Math.min(0.25, Number(out.maxAdjustPct) || d.maxAdjustPct));
-        out.kmTolerancePct = Math.max(0.1, Math.min(0.5, Number(out.kmTolerancePct) || d.kmTolerancePct));
+        out.kmToleranceAbs = Math.max(0, Math.min(200000, parseInt(out.kmToleranceAbs, 10) || d.kmToleranceAbs));
         out.yearTolerance = Math.max(0, Math.min(3, parseInt(out.yearTolerance, 10) || d.yearTolerance));
-        out.powerTolerancePct = Math.max(0.05, Math.min(0.3, Number(out.powerTolerancePct) || d.powerTolerancePct));
+        out.powerToleranceKw = Math.max(0, Math.min(80, parseInt(out.powerToleranceKw, 10) || d.powerToleranceKw));
+        // Backward compatibility for previous %-based settings.
+        if (stored.kmToleranceAbs == null && typeof stored.kmTolerancePct === 'number') {
+            out.kmToleranceAbs = d.kmToleranceAbs;
+        }
+        if (stored.powerToleranceKw == null && typeof stored.powerTolerancePct === 'number') {
+            out.powerToleranceKw = d.powerToleranceKw;
+        }
         return out;
     }
 
@@ -313,6 +346,74 @@
         return { ...defaults, configListUi: v === 'split' ? 'split' : 'classic' };
     }
 
+    function debugConfigDefault() {
+        const scopes = {};
+        DEBUG_SCOPE_DEFINITIONS.forEach(def => { scopes[def.key] = false; });
+        return { enabled: false, showSrpLogCard: false, scopes };
+    }
+
+    function mergeDebugConfig(stored, legacyFlags) {
+        const d = debugConfigDefault();
+        if (stored && typeof stored === 'object') {
+            const scopes = { ...d.scopes, ...(stored.scopes || {}) };
+            return {
+                enabled: stored.enabled === true,
+                showSrpLogCard: stored.showSrpLogCard === true,
+                scopes
+            };
+        }
+        const hasLegacy = legacyFlags && typeof legacyFlags === 'object';
+        if (!hasLegacy) return d;
+        const legacyPrice = legacyFlags.priceRatingDebug === true;
+        const legacyPerf = legacyFlags.priceRatingPerfDebug === true;
+        return {
+            enabled: legacyPrice || legacyPerf,
+            scopes: { ...d.scopes, price: legacyPrice, perf: legacyPerf }
+        };
+    }
+
+    function getDebugConfig(flags) {
+        const merged = mergeDebugConfig(flags && flags.debug, flags || featureFlags);
+        return merged;
+    }
+
+    function isDebugEnabled(scope, flags) {
+        const dbg = getDebugConfig(flags || featureFlags);
+        if (!dbg.enabled) return false;
+        if (!scope) return true;
+        return dbg.scopes[scope] === true;
+    }
+
+    function debugLog(scope, ...args) {
+        if (!isDebugEnabled(scope)) return;
+        const prefix = DEBUG_SCOPE_PREFIX[scope] || '[mobilede Debug]';
+        console.info(prefix, ...args);
+    }
+
+    function persistDebugConfig(nextDebugConfig) {
+        const merged = ladeFeatureFlags();
+        merged.debug = mergeDebugConfig(nextDebugConfig, merged);
+        merged.priceRatingDebug = merged.debug.enabled && merged.debug.scopes.price === true;
+        merged.priceRatingPerfDebug = merged.debug.enabled && merged.debug.scopes.perf === true;
+        speichereConfig(STORAGE_KEYS.featureFlags, merged);
+        featureFlags = merged;
+    }
+
+    function persistDebugMaster(enabled) {
+        const merged = ladeFeatureFlags();
+        const dbg = getDebugConfig(merged);
+        persistDebugConfig({ ...dbg, enabled: !!enabled });
+    }
+
+    function persistDebugScope(scope, enabled) {
+        const merged = ladeFeatureFlags();
+        const dbg = getDebugConfig(merged);
+        persistDebugConfig({
+            ...dbg,
+            scopes: { ...dbg.scopes, [scope]: !!enabled }
+        });
+    }
+
     function featureFlagsDefault() {
         const obj = {};
         FEATURE_FLAG_DEFINITIONS.forEach(d => { obj[d.key] = !!d.default; });
@@ -320,6 +421,7 @@
         obj.srpSort = srpSortDefault();
         obj.priceRating = priceRatingDefault();
         obj.configListUi = 'classic';
+        obj.debug = debugConfigDefault();
         obj.priceRatingDebug = false;
         obj.priceRatingPerfDebug = false;
         return obj;
@@ -332,23 +434,19 @@
         merged.listOrder = mergeListOrder(stored.listOrder);
         merged.srpSort = mergeSrpSort(stored.srpSort);
         merged.priceRating = mergePriceRating(stored.priceRating);
-        merged.priceRatingDebug = stored.priceRatingDebug === true;
-        merged.priceRatingPerfDebug = stored.priceRatingPerfDebug === true;
+        merged.debug = mergeDebugConfig(stored.debug, stored);
+        merged.priceRatingDebug = merged.debug.enabled && merged.debug.scopes.price === true;
+        merged.priceRatingPerfDebug = merged.debug.enabled && merged.debug.scopes.perf === true;
         return merged;
     }
 
     function persistPriceRatingDebug(enabled) {
-        const merged = ladeFeatureFlags();
-        merged.priceRatingDebug = !!enabled;
-        speichereConfig(STORAGE_KEYS.featureFlags, merged);
-        featureFlags = merged;
+        persistDebugMaster(!!enabled);
+        persistDebugScope('price', !!enabled);
     }
 
     function persistPriceRatingPerfDebug(enabled) {
-        const merged = ladeFeatureFlags();
-        merged.priceRatingPerfDebug = !!enabled;
-        speichereConfig(STORAGE_KEYS.featureFlags, merged);
-        featureFlags = merged;
+        persistDebugScope('perf', !!enabled);
     }
 
     // ============================================================
@@ -1127,6 +1225,7 @@
 
     function mergeModifierFromEntry(anzeige, group) {
         const basis = cleanText(group.basis);
+        const original = cleanText(anzeige);
         let m = cleanText(anzeige);
         if (basis && m.includes(basis)) {
             m = m.replace(basis, '').trim();
@@ -1135,7 +1234,11 @@
         } else if (isAussenInnenCombinedSpiegel(anzeige)) {
             m = m.replace(/^(aussen|innen|aussen innen|innen aussen)\s*-?\s*\/?\s*/i, '').trim();
         }
-        return m || cleanText(anzeige);
+        const out = m || original;
+        if (out !== original) {
+            debugLog('merge', 'Merge-Modifier extrahiert', { basis, original, modifier: out });
+        }
+        return out;
     }
 
     /** Zusatz-Modifier aus Roh-Text (z. B. „verstell- und heizbar“ → beheizbar). */
@@ -1581,7 +1684,7 @@
         let unique = collectRawConfigHits();
         if (unique.length === 0) return [];
         unique = finalizeAusstattungResults(unique);
-        console.debug('Gefundene Begriffe:', unique.map(i => `${i.anzeige} [${i.source}]`));
+        debugLog('ausstattung', 'Gefundene Begriffe', unique.map(i => `${i.anzeige} [${i.source}]`));
         return unique;
     }
 
@@ -1752,7 +1855,11 @@ article.mobilede-tech-article,article.mobilede-result-article{
 
     function technischeDatenHinzufuegen(parentElement) {
         const technischeDaten = sucheTechnischeDaten();
-        if (technischeDaten.length === 0) return;
+        if (technischeDaten.length === 0) {
+            debugLog('tech', 'Keine konfigurierten technischen Daten gefunden');
+            return;
+        }
+        debugLog('tech', 'Technische Daten gerendert', { count: technischeDaten.length });
         injectResultStyles();
         const techArticle = document.createElement('article');
         techArticle.className = 'A3G6X lAeeF vTKPY HaBLt ku0Os mobilede-tech-article';
@@ -1920,16 +2027,16 @@ article.mobilede-tech-article,article.mobilede-result-article{
     // 9b) Preisbewertung (Ausstattungs-Korrektur)
     // ============================================================
     function isPriceRatingDebugEnabled() {
-        return !!(featureFlags && featureFlags.priceRatingDebug);
+        return isDebugEnabled('price');
     }
 
     function priceRatingDebugLog(...args) {
         if (!isPriceRatingDebugEnabled()) return;
-        console.info('[mobilede Preis]', ...args);
+        debugLog('price', ...args);
     }
 
     function isPriceRatingPerfDebugEnabled() {
-        return !!(featureFlags && featureFlags.priceRatingPerfDebug);
+        return isDebugEnabled('perf');
     }
 
     function pricePerfMarkStart() {
@@ -1945,7 +2052,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const duration = Math.round((end - startMs) * 10) / 10;
         if (isPriceRatingPerfDebugEnabled()) {
             const level = duration >= (warnMs || 50) ? 'warn' : 'info';
-            console[level]('[mobilede Perf]', label, duration + 'ms');
+            const prefix = DEBUG_SCOPE_PREFIX.perf || '[mobilede Perf]';
+            console[level](prefix, label, duration + 'ms');
         }
         return duration;
     }
@@ -2407,9 +2515,9 @@ article.mobilede-tech-article,article.mobilede-result-article{
             location.pathname,
             id,
             cfg.onlyFavoriteWeights ? 1 : 0,
-            cfg.kmTolerancePct,
+            cfg.kmToleranceAbs,
             cfg.yearTolerance,
-            cfg.powerTolerancePct,
+            cfg.powerToleranceKw,
             desc
         ].join('|');
     }
@@ -2571,14 +2679,17 @@ article.mobilede-tech-article,article.mobilede-result-article{
     }
 
     function buildCohortSearchUrl(profile, prCfg) {
+        const useModelRange = !prCfg || prCfg.useModelRange !== false;
         const u = new URL('https://suchen.mobile.de/fahrzeuge/search.html');
         u.searchParams.set('isSearchRequest', 'true');
         u.searchParams.set('scopeId', 'C');
         u.searchParams.set('vc', 'Car');
         u.searchParams.set('s', 'Car');
         u.searchParams.set('dam', 'false');
-        const ms = profile.searchMs
-            || formatMsParam(profile.makeId, profile.modelId, profile.modelGroupId);
+        const modelGroupId = useModelRange ? profile.modelGroupId : null;
+        const ms = useModelRange
+            ? (profile.searchMs || formatMsParam(profile.makeId, profile.modelId, modelGroupId))
+            : formatMsParam(profile.makeId, profile.modelId, null);
         if (ms) {
             u.searchParams.set('ms', ms);
         } else if (profile.makeId) {
@@ -2590,9 +2701,9 @@ article.mobilede-tech-article,article.mobilede-result-article{
             u.searchParams.set('userInput', profile.make.trim());
         }
         if (profile.mileageKm != null) {
-            const tol = prCfg.kmTolerancePct || 0.25;
-            const min = Math.max(0, Math.floor(profile.mileageKm * (1 - tol)));
-            const max = Math.ceil(profile.mileageKm * (1 + tol));
+            const tolKm = Math.max(0, parseInt(prCfg.kmToleranceAbs, 10) || 0);
+            const min = Math.max(0, Math.floor(profile.mileageKm - tolKm));
+            const max = Math.ceil(profile.mileageKm + tolKm);
             u.searchParams.set('ml', min + ':' + max);
         }
         if (profile.firstRegistrationYear != null) {
@@ -2605,9 +2716,9 @@ article.mobilede-tech-article,article.mobilede-result-article{
             ? profile.powerKw
             : (profile.powerPs != null ? Math.round(profile.powerPs * PS_TO_KW) : null);
         if (powerKw != null) {
-            const pTol = prCfg.powerTolerancePct || 0.1;
-            const pMin = Math.max(1, Math.floor(powerKw * (1 - pTol)));
-            const pMax = Math.ceil(powerKw * (1 + pTol));
+            const pTolKw = Math.max(0, parseInt(prCfg.powerToleranceKw, 10) || 0);
+            const pMin = Math.max(1, Math.floor(powerKw - pTolKw));
+            const pMax = Math.ceil(powerKw + pTolKw);
             u.searchParams.set('pw', pMin + ':' + pMax);
         }
         return u.toString();
@@ -2616,31 +2727,46 @@ article.mobilede-tech-article,article.mobilede-result-article{
     /** Gleiche Filter-Mitten wie in buildCohortSearchUrl / profileFromSearchPageUrl (Cache-Treffer VIP ↔ SRP). */
     function profileForCohortCacheKey(profile, prCfg) {
         const pr = prCfg || getPriceRating(featureFlags);
+        const useModelRange = pr.useModelRange !== false;
+        const useMileage = pr.keyUseMileage !== false;
+        const useYear = pr.keyUseYear !== false;
+        const usePower = pr.keyUsePower !== false;
+        const kmBucket = Math.max(500, parseInt(pr.keyKmBucket, 10) || 5000);
+        const yearBucketRaw = Math.max(1, parseInt(pr.keyYearBucket, 10) || 1);
+        const yearTol = Math.max(0, parseInt(pr.yearTolerance, 10) || 0);
+        // Respect EZ tolerance in cache matching: with ±1 years, 2022 and 2023 should map together.
+        const yearBucket = Math.max(yearBucketRaw, (yearTol * 2) + 1);
+        const powerBucket = Math.max(1, parseInt(pr.keyPowerBucket, 10) || 10);
         const p = {
             makeId: profile.makeId || '',
             modelId: profile.modelId || '',
             make: profile.make || '',
             model: profile.model || '',
-            modelRange: profile.modelRange || '',
-            mileageKm: profile.mileageKm,
-            firstRegistrationYear: profile.firstRegistrationYear,
-            powerKw: profile.powerKw,
-            powerPs: profile.powerPs
+            modelRange: useModelRange ? (profile.modelRange || '') : '',
+            mileageKm: useMileage ? profile.mileageKm : null,
+            firstRegistrationYear: useYear ? profile.firstRegistrationYear : null,
+            powerKw: usePower ? profile.powerKw : null,
+            powerPs: usePower ? profile.powerPs : null
         };
         if (p.mileageKm != null) {
-            const tol = pr.kmTolerancePct || 0.25;
-            const min = Math.max(0, Math.floor(p.mileageKm * (1 - tol)));
-            const max = Math.ceil(p.mileageKm * (1 + tol));
-            p.mileageKm = Math.round((min + max) / 2);
+            const tolKm = Math.max(0, parseInt(pr.kmToleranceAbs, 10) || 0);
+            const min = Math.max(0, Math.floor(p.mileageKm - tolKm));
+            const max = Math.ceil(p.mileageKm + tolKm);
+            const mid = Math.round((min + max) / 2);
+            p.mileageKm = Math.round(mid / kmBucket) * kmBucket;
+        }
+        if (p.firstRegistrationYear != null) {
+            p.firstRegistrationYear = Math.floor(p.firstRegistrationYear / yearBucket) * yearBucket;
         }
         if (p.powerKw == null && p.powerPs != null) {
             p.powerKw = Math.round(p.powerPs * PS_TO_KW);
         }
         if (p.powerKw != null) {
-            const tol = pr.powerTolerancePct || 0.1;
-            const min = Math.max(1, Math.floor(p.powerKw * (1 - tol)));
-            const max = Math.ceil(p.powerKw * (1 + tol));
-            p.powerKw = Math.round((min + max) / 2);
+            const pTolKw = Math.max(0, parseInt(pr.powerToleranceKw, 10) || 0);
+            const min = Math.max(1, Math.floor(p.powerKw - pTolKw));
+            const max = Math.ceil(p.powerKw + pTolKw);
+            const mid = Math.round((min + max) / 2);
+            p.powerKw = Math.round(mid / powerBucket) * powerBucket;
             p.powerPs = null;
         }
         return p;
@@ -2792,9 +2918,15 @@ article.mobilede-tech-article,article.mobilede-result-article{
     function syncCohortCacheFromSearchPage() {
         if (!isSearchResultsPage()) return;
         const state = getPageInitialState();
-        if (!state) return;
+        if (!state) {
+            priceRatingDebugLog('SRP-Cache-Sync übersprungen: kein __INITIAL_STATE__');
+            return;
+        }
         const items = parseCohortItemsFromState(state, null);
-        if (items.length < 5) return;
+        if (items.length < 5) {
+            priceRatingDebugLog('SRP-Cache-Sync übersprungen: zu wenige SRP-Treffer', { count: items.length });
+            return;
+        }
         const prof = profileFromSearchPageUrl(location.href);
         const key = prof && (prof.makeId || prof.make || prof.modelId || prof.model)
             ? cohortCacheKey(prof)
@@ -2806,17 +2938,22 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 count: items.length,
                 vipDetails: countCohortVipDetailCount(items)
             });
+            debugLog('ui', 'SRP-Kohorte in Cache synchronisiert', { cacheKey: key, count: items.length });
+        } else {
+            priceRatingDebugLog('SRP-Cache-Sync übersprungen: kein cacheKey aus URL ableitbar');
         }
     }
 
     function findSrpListingsInState(state) {
-        const srp = state?.search?.srp;
-        if (!srp) return [];
+        if (!state || typeof state !== 'object') return [];
         const tryList = (v) => {
             if (!v) return [];
             if (Array.isArray(v)) return v;
             if (Array.isArray(v.items)) return v.items;
             if (Array.isArray(v.ads)) return v.ads;
+            if (Array.isArray(v.results)) return v.results;
+            if (Array.isArray(v.searchResults)) return v.searchResults;
+            if (Array.isArray(v.listings)) return v.listings;
             if (typeof v === 'object') {
                 const vals = Object.values(v);
                 if (vals.length && vals.every(x => x && (x.id || x.ad || x.data))) {
@@ -2825,19 +2962,61 @@ article.mobilede-tech-article,article.mobilede-result-article{
             }
             return [];
         };
-        const paths = [
-            srp.ads,
-            srp.items,
-            srp.searchResults,
-            srp.results,
-            srp.resultList,
-            srp.listings
+        const explicitPaths = [
+            state?.search?.srp?.ads,
+            state?.search?.srp?.items,
+            state?.search?.srp?.searchResults,
+            state?.search?.srp?.results,
+            state?.search?.srp?.resultList,
+            state?.search?.srp?.listings,
+            state?.search?.results,
+            state?.search?.resultList,
+            state?.search?.listings
         ];
-        for (const p of paths) {
+        for (const p of explicitPaths) {
             const list = tryList(p);
             if (list.length >= 3) return list;
         }
-        return [];
+
+        const isAdLike = (entry) => {
+            if (!entry) return false;
+            const ad = entry?.ad || entry?.data?.ad || entry;
+            if (!ad || typeof ad !== 'object') return false;
+            return !!(ad.id || ad.adId || ad.mobileAdId)
+                && !!(ad.price || ad.prices || ad.make || ad.model || ad.title || ad.vehicleDescription);
+        };
+
+        let best = [];
+        const queue = [state?.search?.srp, state?.search, state].filter(Boolean);
+        const seen = typeof WeakSet !== 'undefined' ? new WeakSet() : null;
+        let visited = 0;
+        const MAX_OBJECTS = 4000;
+        while (queue.length && visited < MAX_OBJECTS) {
+            const cur = queue.shift();
+            if (!cur || typeof cur !== 'object') continue;
+            if (seen) {
+                if (seen.has(cur)) continue;
+                seen.add(cur);
+            }
+            visited += 1;
+            const candidate = tryList(cur);
+            if (candidate.length >= 3) {
+                const adLikeCount = candidate.reduce((acc, x) => acc + (isAdLike(x) ? 1 : 0), 0);
+                if (adLikeCount >= Math.max(3, Math.floor(candidate.length * 0.5))) {
+                    if (adLikeCount > best.length) best = candidate;
+                }
+            }
+            if (Array.isArray(cur)) {
+                cur.forEach(v => {
+                    if (v && typeof v === 'object') queue.push(v);
+                });
+            } else {
+                Object.values(cur).forEach(v => {
+                    if (v && typeof v === 'object') queue.push(v);
+                });
+            }
+        }
+        return best;
     }
 
     function normalizeComparableAd(raw) {
@@ -2873,12 +3052,30 @@ article.mobilede-tech-article,article.mobilede-result-article{
     }
 
     const cohortComparablesMemo = new Map();
+    const COHORT_COMPARABLES_MEMO_TTL_MS = 1500;
+
+    function pruneCohortComparablesMemo(nowTs) {
+        const now = nowTs || Date.now();
+        cohortComparablesMemo.forEach((entry, key) => {
+            if (!entry || typeof entry.ts !== 'number' || (now - entry.ts) >= COHORT_COMPARABLES_MEMO_TTL_MS) {
+                cohortComparablesMemo.delete(key);
+            }
+        });
+    }
 
     /** Kohorte nur aus localStorage-Cache oder aktueller Suchseite — kein Hintergrund-fetch. */
     function getCohortComparables(profile, prCfg) {
+        const now = Date.now();
+        pruneCohortComparablesMemo(now);
         const cacheKey = cohortCacheKey(profile, prCfg);
         const memo = cohortComparablesMemo.get(cacheKey);
-        if (memo && Date.now() - memo.ts < 1500) return memo.value;
+        if (memo && (now - memo.ts) < COHORT_COMPARABLES_MEMO_TTL_MS) {
+            priceRatingDebugLog('Kohorte aus Memo', {
+                cacheKey,
+                count: memo.value && memo.value.items ? memo.value.items.length : 0
+            });
+            return memo.value;
+        }
         const cached = readCohortCache(cacheKey);
         if (cached && cached.length) {
             const items = enrichCohortItemsWithVipCache(cached);
@@ -2967,7 +3164,27 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const ownEquip = options?.equipment || equipmentFingerprintFromProfile(profile);
         const ownScore = ownEquip.score;
         const price = profile.priceGross;
+        priceRatingDebugLog('Preisbewertung Start', {
+            adId: profile && profile.id,
+            price,
+            ownScore,
+            comparables: Array.isArray(comparables) ? comparables.length : 0,
+            minComparables: prCfg.minComparables,
+            punktZuEuro: prCfg.punktZuEuro,
+            maxAdjustPct: prCfg.maxAdjustPct,
+            useModelRange: prCfg.useModelRange !== false,
+            keyUseMileage: prCfg.keyUseMileage !== false,
+            keyUseYear: prCfg.keyUseYear !== false,
+            keyUsePower: prCfg.keyUsePower !== false,
+            keyKmBucket: prCfg.keyKmBucket,
+            keyYearBucket: prCfg.keyYearBucket,
+            keyPowerBucket: prCfg.keyPowerBucket,
+            kmToleranceAbs: prCfg.kmToleranceAbs,
+            yearTolerance: prCfg.yearTolerance,
+            powerToleranceKw: prCfg.powerToleranceKw
+        });
         if (price == null || price <= 0) {
+            priceRatingDebugLog('Preisbewertung Abbruch: kein Preis', { adId: profile && profile.id, price });
             return { ok: false, reason: 'no_price' };
         }
 
@@ -2980,17 +3197,29 @@ article.mobilede-tech-article,article.mobilede-result-article{
         if (prices.length >= prCfg.minComparables) {
             basePrice = median(prices);
             cohortCount = prices.length;
+            priceRatingDebugLog('Baseline aus Kohorte', { cohortCount, basePrice: Math.round(basePrice || 0) });
         } else if (prCfg.mobileFallback && profile.priceRating) {
             basePrice = mobileMarketPriceFromRating(profile.priceRating);
             usedMobileFallback = true;
             cohortCount = prices.length;
+            priceRatingDebugLog('Baseline aus mobile-Fallback', {
+                cohortCount,
+                mobileLabel: profile.priceRating?.ratingLabel || null,
+                basePrice: Math.round(basePrice || 0)
+            });
         } else if (prices.length >= 5) {
             basePrice = median(prices);
             cohortCount = prices.length;
             usedMobileFallback = true;
+            priceRatingDebugLog('Baseline aus kleiner Kohorte (Fallback-Flag)', { cohortCount, basePrice: Math.round(basePrice || 0) });
         }
 
         if (basePrice == null || basePrice <= 0) {
+            priceRatingDebugLog('Preisbewertung Abbruch: keine Baseline', {
+                adId: profile && profile.id,
+                cohortCount: prices.length,
+                mobileFallback: prCfg.mobileFallback
+            });
             return { ok: false, reason: 'no_baseline', cohortCount: prices.length };
         }
 
@@ -3002,6 +3231,18 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const devPct = (price - adjustedExpected) / adjustedExpected;
         const level = deviationToLevel(devPct, prCfg.thresholds);
         const label = (PRICE_RATING_LEVELS[level] && PRICE_RATING_LEVELS[level].label) || 'Fairer Preis';
+        priceRatingDebugLog('Preisbewertung Rechenweg', {
+            basePrice: Math.round(basePrice),
+            ownScore,
+            medianEquip,
+            equipDelta,
+            rawAdjust: Math.round(rawAdjust),
+            adjustEuro: Math.round(adjust),
+            adjustedExpected: Math.round(adjustedExpected),
+            devPct: Math.round(devPct * 10000) / 100,
+            level,
+            label
+        });
 
         const minP = prices.length ? Math.min(...prices) : basePrice * 0.85;
         const maxP = prices.length ? Math.max(...prices) : basePrice * 1.15;
@@ -3107,6 +3348,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
     let vipRatingUiBootstrapped = false;
     const inflightRatingByAdId = new Map();
     let srpPriceRatingIo = null;
+    const SRP_DEBUG_LOG_MAX_ENTRIES = 100;
+    let srpDebugLogEntries = [];
 
     function injectPriceRatingStyles() {
         if (document.getElementById('mobilede-price-rating-style')) return;
@@ -3173,6 +3416,44 @@ article.mobilede-tech-article,article.mobilede-result-article{
 .mobilede-srp-price-badge__bar{width:10px;height:4px;border-radius:1px;background:rgba(255,255,255,.2);}
 .mobilede-srp-price-badge__bar--on{background:#3ddc84;}
 .mobilede-srp-price-badge__text{opacity:.9;font-weight:500;}
+.mobilede-srp-debug-card{
+  margin-top:10px;padding:10px 12px;border:1px solid rgba(255,255,255,.10);border-radius:10px;
+  background:linear-gradient(180deg,rgba(64,68,79,.55),rgba(52,56,66,.45));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);color:#f0f1f3;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  width:100%;box-sizing:border-box;
+}
+.mobilede-srp-debug-card__title{font-size:13px;font-weight:600;line-height:1.25;margin-bottom:8px;opacity:.95;}
+.mobilede-srp-debug-card__actions{display:flex;flex-wrap:wrap;gap:6px;}
+.mobilede-srp-debug-card__btn{
+  appearance:none;cursor:pointer;padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.045);color:#f0f1f3;font-size:12px;line-height:1.2;
+}
+.mobilede-srp-debug-card__btn:hover{background:rgba(255,255,255,.10);}
+.mobilede-srp-debug-card__btn:disabled{
+  opacity:.45;cursor:not-allowed;background:rgba(255,255,255,.02);
+  border-color:rgba(255,255,255,.08);color:rgba(240,241,243,.6);
+}
+.mobilede-srp-debug-card__log{
+  margin-top:8px;max-height:220px;overflow:auto;border-radius:8px;border:1px solid rgba(255,255,255,.09);
+  background:rgba(0,0,0,.22);padding:7px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:11px;line-height:1.4;color:#dfe2e8;white-space:pre-wrap;word-break:break-word;
+}
+.mobilede-srp-debug-card__log-line{margin-bottom:5px;}
+.mobilede-srp-debug-card__log-line:last-child{margin-bottom:0;}
+.mobilede-srp-debug-card__log-line--warn{color:#ffd59e;}
+.mobilede-srp-debug-card__log-line--error{color:#ffb6b6;}
+.mobilede-srp-debug-card--detail{
+  margin-top:8px;margin-bottom:14px;
+  border-color:rgba(255,255,255,.08);
+  background:linear-gradient(180deg,rgba(58,62,73,.35),rgba(46,50,60,.28));
+  box-shadow:none;
+}
+.mobilede-srp-debug-card--detail .mobilede-srp-debug-card__title{
+  font-size:12.5px;margin-bottom:7px;opacity:.9;
+}
+.mobilede-srp-debug-card--detail .mobilede-srp-debug-card__log{
+  max-height:160px;background:rgba(0,0,0,.16);border-color:rgba(255,255,255,.07);
+}
 `;
         document.head.appendChild(st);
     }
@@ -3365,10 +3646,26 @@ article.mobilede-tech-article,article.mobilede-result-article{
 
     function computeAndCacheRatingForProfileAsync(profile) {
         const adId = profile && profile.id ? String(profile.id) : '';
-        if (!adId) return Promise.resolve(computeAndCacheRatingForProfile(profile));
+        if (!adId) {
+            return new Promise((resolve, reject) => {
+                requestIdle(() => {
+                    try {
+                        resolve(computeAndCacheRatingForProfile(profile));
+                    } catch (err) {
+                        reject(err);
+                    }
+                }, 500);
+            });
+        }
         if (inflightRatingByAdId.has(adId)) return inflightRatingByAdId.get(adId);
-        const p = new Promise(resolve => {
-            requestIdle(() => resolve(computeAndCacheRatingForProfile(profile)), 500);
+        const p = new Promise((resolve, reject) => {
+            requestIdle(() => {
+                try {
+                    resolve(computeAndCacheRatingForProfile(profile));
+                } catch (err) {
+                    reject(err);
+                }
+            }, 500);
         }).finally(() => inflightRatingByAdId.delete(adId));
         inflightRatingByAdId.set(adId, p);
         return p;
@@ -3408,13 +3705,14 @@ article.mobilede-tech-article,article.mobilede-result-article{
             pr.enabled !== false ? 1 : 0,
             pr.enabledVip ? 1 : 0,
             pr.mobileFallback ? 1 : 0,
+            pr.useModelRange ? 1 : 0,
             pr.onlyFavoriteWeights ? 1 : 0,
             pr.minComparables,
             pr.punktZuEuro,
             pr.maxAdjustPct,
-            pr.kmTolerancePct,
+            pr.kmToleranceAbs,
             pr.yearTolerance,
-            pr.powerTolerancePct,
+            pr.powerToleranceKw,
             th
         ].join('|');
     }
@@ -3424,23 +3722,39 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const perfStart = pricePerfMarkStart();
         const prCfg = getPriceRating(featureFlags);
         if (!isVehicleDetailPage() || !isPriceRatingEnabled(prCfg) || !prCfg.enabledVip) {
+            priceRatingDebugLog('Preisbewertung übersprungen', {
+                isVehicleDetailPage: isVehicleDetailPage(),
+                enabled: isPriceRatingEnabled(prCfg),
+                enabledVip: prCfg.enabledVip
+            });
             document.querySelectorAll('.mobilede-price-rating').forEach(el => el.remove());
             vipRatingUiBootstrapped = false;
             return;
         }
-        if (!options.force && vipRatingUpdateInFlight) return;
+        if (!options.force && vipRatingUpdateInFlight) {
+            priceRatingDebugLog('Preisbewertung übersprungen: Update läuft bereits');
+            return;
+        }
         const profile = buildVehicleProfile();
-        if (!profile || !profile.id) return;
+        if (!profile || !profile.id) {
+            priceRatingDebugLog('Preisbewertung übersprungen: kein Fahrzeugprofil');
+            return;
+        }
         const runSig = getVipRatingRunSignature(profile);
         const now = Date.now();
-        if (!options.force && runSig === vipRatingLastRunSig && (now - vipRatingLastRunTs) < 2500) return;
+        if (!options.force && runSig === vipRatingLastRunSig && (now - vipRatingLastRunTs) < 2500) {
+            priceRatingDebugLog('Preisbewertung übersprungen: identische Signatur', { adId: profile.id });
+            return;
+        }
         vipRatingUpdateInFlight = true;
         try {
             const token = ++priceRatingFetchToken;
+            priceRatingDebugLog('Preisbewertung Lauf gestartet', { adId: profile.id, token, force: !!options.force });
             const uiCached = readRatingUiCache(profile.id);
             if (!vipRatingUiBootstrapped) {
                 if (uiCached && uiCached.ok) {
                     renderVipPriceRatingWidget(uiCached, false);
+                    priceRatingDebugLog('UI-Cache für Preisbewertung genutzt', { adId: profile.id });
                 } else {
                     renderVipPriceRatingWidget(null, true);
                 }
@@ -3450,7 +3764,10 @@ article.mobilede-tech-article,article.mobilede-result-article{
             try {
                 await resolveMakeModelIdsForProfile(profile);
             } catch (e) { /* noop */ }
-            if (token !== priceRatingFetchToken) return;
+            if (token !== priceRatingFetchToken) {
+                priceRatingDebugLog('Preisbewertung Lauf verworfen: Token gewechselt', { adId: profile.id, token });
+                return;
+            }
 
             syncVipEquipmentCache(profile);
 
@@ -3462,16 +3779,33 @@ article.mobilede-tech-article,article.mobilede-result-article{
                     renderVipPriceRatingWidget(rating, false);
                     vipRatingLastRunSig = runSig;
                     vipRatingLastRunTs = Date.now();
+                    priceRatingDebugLog('Preisbewertung aus Session-Cache gerendert', {
+                        adId: profile.id,
+                        cohortCount: rating.cohortCount,
+                        usedMobileFallback: rating.usedMobileFallback
+                    });
                     pricePerfMarkEnd('preisBewertungAktualisieren_cached', perfStart, 50);
                     return;
                 }
+                priceRatingDebugLog('Session-Cache vorhanden, aber Recompute nötig', {
+                    adId: profile.id,
+                    usedMobileFallback: cached.usedMobileFallback
+                });
             }
 
             const rating = await computeAndCacheRatingForProfileAsync(profile);
-            if (token !== priceRatingFetchToken) return;
+            if (token !== priceRatingFetchToken) {
+                priceRatingDebugLog('Preisbewertung Recompute verworfen: Token gewechselt', { adId: profile.id, token });
+                return;
+            }
             renderVipPriceRatingWidget(rating, false);
             vipRatingLastRunSig = runSig;
             vipRatingLastRunTs = Date.now();
+            priceRatingDebugLog('Preisbewertung neu berechnet und gerendert', {
+                adId: profile.id,
+                ok: rating && rating.ok,
+                reason: rating && rating.reason ? rating.reason : null
+            });
             pricePerfMarkEnd('preisBewertungAktualisieren_recompute', perfStart, 50);
         } finally {
             vipRatingUpdateInFlight = false;
@@ -3721,12 +4055,21 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const items = [...scheduledJobs.entries()]
             .sort((a, b) => (taskPriority[a[1].type] ?? 99) - (taskPriority[b[1].type] ?? 99));
         scheduledJobs.clear();
-        items.forEach(([_, task]) => {
-            if (popupOpen && task.type !== 'ui') return;
+        let deferredCount = 0;
+        items.forEach(([key, task]) => {
+            if (popupOpen && task.type !== 'ui') {
+                scheduledJobs.set(key, task);
+                deferredCount++;
+                return;
+            }
             const t0 = pricePerfMarkStart();
             try { task.job(); } catch (e) { console.error(e); }
             pricePerfMarkEnd('task:' + task.type, t0, 16);
         });
+        if (deferredCount > 0 && !schedulerTickPending) {
+            schedulerTickPending = true;
+            requestIdle(runScheduledTasks, 400);
+        }
     }
 
     function isConfigPopupOpen() {
@@ -3757,6 +4100,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
             scheduleTask('ui:results', 'ui', () => {
                 ergebnisHinzufuegen();
                 verlinkeStandortAufGoogleMaps();
+                ensureSrpDebugLogCard();
+                ensureDetailDebugLogCard();
             });
             scheduleTask('network:cohort-sync', 'network', () => syncCohortCacheFromSearchPage());
             // Detailseite: keine periodischen Observer-Recomputes beim bloßen DOM-Rauschen.
@@ -3889,6 +4234,336 @@ article.mobilede-tech-article,article.mobilede-result-article{
 
     function isSearchResultsPage() {
         return /\/fahrzeuge\/search\.html/.test(location.pathname);
+    }
+
+    function isSrpLogCardEnabled(flags) {
+        const dbg = getDebugConfig(flags || featureFlags);
+        return dbg && dbg.showSrpLogCard === true;
+    }
+
+    function serializeSrpDebugPayload(payload) {
+        if (payload == null) return '';
+        if (typeof payload === 'string') return payload;
+        try {
+            return JSON.stringify(payload, null, 2);
+        } catch (e) {
+            return String(payload);
+        }
+    }
+
+    function appendSrpDebugLog(level, label, payload) {
+        const ts = new Date().toLocaleTimeString('de-DE', { hour12: false });
+        const line = `[${ts}] ${String(level || 'info').toUpperCase()} ${label}${payload == null ? '' : '\n' + serializeSrpDebugPayload(payload)}`;
+        srpDebugLogEntries.push({ level: level || 'info', text: line });
+        if (srpDebugLogEntries.length > SRP_DEBUG_LOG_MAX_ENTRIES) {
+            srpDebugLogEntries = srpDebugLogEntries.slice(-SRP_DEBUG_LOG_MAX_ENTRIES);
+        }
+        renderSrpDebugLogCard();
+    }
+
+    function clearSrpDebugLog() {
+        srpDebugLogEntries = [];
+        renderSrpDebugLogCard();
+    }
+
+    function getSrpDebugLogText() {
+        if (!srpDebugLogEntries.length) return 'Noch keine Logs vorhanden.';
+        return srpDebugLogEntries.map(e => e.text).join('\n\n');
+    }
+
+    async function copySrpDebugLogToClipboard(sourceBtn) {
+        const safeToast = (msg, kind) => {
+            if (typeof showToast === 'function') showToast(msg, kind);
+        };
+        const setButtonFeedback = (tempLabel) => {
+            if (!sourceBtn) return;
+            const base = sourceBtn.dataset.defaultLabel || '⧉ Copy';
+            if (sourceBtn._copyResetTimer) clearTimeout(sourceBtn._copyResetTimer);
+            sourceBtn.textContent = tempLabel;
+            sourceBtn.disabled = true;
+            sourceBtn._copyResetTimer = setTimeout(() => {
+                sourceBtn.textContent = base;
+                sourceBtn.disabled = false;
+                sourceBtn._copyResetTimer = null;
+            }, 1100);
+        };
+        const text = getSrpDebugLogText();
+        try {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                await navigator.clipboard.writeText(text);
+                setButtonFeedback('Kopiert!');
+                safeToast('Debug-Logs kopiert', 'success');
+                return;
+            }
+        } catch (e) { /* fallback below */ }
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', 'readonly');
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            const ok = document.execCommand('copy');
+            ta.remove();
+            if (ok) {
+                setButtonFeedback('Kopiert!');
+                safeToast('Debug-Logs kopiert', 'success');
+            }
+            else safeToast('Kopieren nicht moeglich', 'warn');
+        } catch (e2) {
+            safeToast('Kopieren nicht moeglich', 'warn');
+            setButtonFeedback('Fehler');
+        }
+    }
+
+    function runManualCohortLog() {
+        const prof = buildVehicleProfile();
+        if (!prof || !prof.id) {
+            console.warn('[mobilede Preis]', 'Kein Fahrzeugprofil auf dieser Seite');
+            appendSrpDebugLog('warn', 'Kohorten-Check nicht moeglich', { reason: 'Kein Fahrzeugprofil auf dieser Seite' });
+            showToast('Nur auf einer Fahrzeugdetailseite mit Inserat-ID', 'warn');
+            return;
+        }
+        const prCfg = getPriceRating(featureFlags);
+        const cohortRes = getCohortComparables(prof, prCfg);
+        const payload = {
+            profileId: prof.id,
+            cacheKey: cohortRes.cacheKey,
+            count: cohortRes.items.length,
+            vipDetails: countCohortVipDetailCount(cohortRes.items),
+            needsManualSearch: !!cohortRes.needsManualSearch
+        };
+        console.info('[mobilede Preis]', 'Manueller Kohorten-Check', payload);
+        appendSrpDebugLog('info', 'Manueller Kohorten-Check', payload);
+        showToast('Kohorte wurde geloggt', 'success');
+    }
+
+    function runManualSrpStatusLog() {
+        if (!isSearchResultsPage()) {
+            console.warn('[mobilede Preis]', 'SRP-Status nur auf Suchergebnisseite verfügbar');
+            appendSrpDebugLog('warn', 'SRP-Status nicht verfuegbar', { reason: 'Nicht auf Suchergebnisseite' });
+            showToast('Nur auf einer Suchergebnisseite (SRP)', 'warn');
+            return;
+        }
+        const state = getPageInitialState();
+        if (!state) {
+            console.warn('[mobilede Preis]', 'SRP-Status: kein __INITIAL_STATE__ vorhanden');
+            appendSrpDebugLog('warn', 'SRP-Status ohne __INITIAL_STATE__', null);
+            showToast('Kein __INITIAL_STATE__ auf dieser SRP', 'warn');
+            return;
+        }
+        const rawList = findSrpListingsInState(state);
+        const items = parseCohortItemsFromState(state, null);
+        const prof = profileFromSearchPageUrl(location.href);
+        const prCfg = getPriceRating(featureFlags);
+        const cacheKey = prof && (prof.makeId || prof.make || prof.modelId || prof.model)
+            ? cohortCacheKey(prof, prCfg)
+            : null;
+        const cached = cacheKey ? readCohortCache(cacheKey) : null;
+        const payload = {
+            url: location.href,
+            rawListings: rawList.length,
+            parsedComparables: items.length,
+            cacheKey,
+            cachedCount: Array.isArray(cached) ? cached.length : 0,
+            profileFromUrl: prof ? {
+                makeId: prof.makeId || '',
+                modelId: prof.modelId || '',
+                modelGroupId: prof.modelGroupId || '',
+                mileageKm: prof.mileageKm,
+                firstRegistrationYear: prof.firstRegistrationYear,
+                powerKw: prof.powerKw
+            } : null
+        };
+        console.info('[mobilede Preis]', 'Manueller SRP-Status', payload);
+        appendSrpDebugLog('info', 'Manueller SRP-Status', payload);
+        showToast('SRP-Status wurde geloggt', 'success');
+    }
+
+    function renderDebugLogIntoCard(cardId) {
+        const existing = document.getElementById(cardId);
+        if (!existing) return;
+        const logBox = existing.querySelector('.mobilede-srp-debug-card__log');
+        const copyBtn = existing.querySelector('.mobilede-srp-debug-card__btn[data-copy-log="1"]');
+        if (copyBtn) {
+            const hasLogs = srpDebugLogEntries.length > 0;
+            copyBtn.disabled = !hasLogs;
+            copyBtn.title = hasLogs ? 'Logs in Zwischenablage kopieren' : 'Keine Logs zum Kopieren vorhanden';
+        }
+        if (!logBox) return;
+        logBox.innerHTML = '';
+        if (srpDebugLogEntries.length === 0) {
+            logBox.textContent = 'Noch keine Logs vorhanden.';
+            return;
+        }
+        srpDebugLogEntries.slice().reverse().forEach(entry => {
+            const line = document.createElement('div');
+            line.className = 'mobilede-srp-debug-card__log-line mobilede-srp-debug-card__log-line--' + entry.level;
+            line.textContent = entry.text;
+            logBox.appendChild(line);
+        });
+    }
+
+    function renderSrpDebugLogCard() {
+        renderDebugLogIntoCard('mobilede-srp-debug-card');
+        renderDebugLogIntoCard('mobilede-detail-debug-card');
+        wireDebugCardCopyButtons();
+    }
+
+    function wireDebugCardCopyButtons() {
+        const cards = ['mobilede-srp-debug-card', 'mobilede-detail-debug-card'];
+        cards.forEach(cardId => {
+            const card = document.getElementById(cardId);
+            if (!card) return;
+            const buttons = card.querySelectorAll('.mobilede-srp-debug-card__btn');
+            buttons.forEach(btn => {
+                const txt = (btn.textContent || '').toLowerCase();
+                if (!txt.includes('copy')) return;
+                btn.onclick = () => { copySrpDebugLogToClipboard(btn); };
+            });
+        });
+    }
+
+    function removeSrpDebugLogCard() {
+        const existing = document.getElementById('mobilede-srp-debug-card');
+        if (existing) existing.remove();
+    }
+
+    function removeDetailDebugLogCard() {
+        const existing = document.getElementById('mobilede-detail-debug-card');
+        if (existing) existing.remove();
+    }
+
+    function ensureSrpDebugLogCard() {
+        if (!isSearchResultsPage() || !isSrpLogCardEnabled(featureFlags)) {
+            removeSrpDebugLogCard();
+            return;
+        }
+        injectPriceRatingStyles();
+        const summarySection = document.querySelector(
+            'div.leHcX article.A3G6X.vTKPY section.HaBLt.ku0Os.Ln3aV'
+        );
+        const summaryArticle = summarySection ? summarySection.closest('article.A3G6X.vTKPY') : null;
+        const leftFilterSection = document.querySelector('section[data-testid="search-column-content-section"]');
+        const topBtn = leftFilterSection && leftFilterSection.querySelector('button[data-testid="dsp-button-top"]');
+        const fallbackParent = topBtn ? topBtn.parentElement : (leftFilterSection ? leftFilterSection.querySelector('[data-testid="search-column-content"]') : null);
+        if (!summarySection && !fallbackParent) return;
+
+        let card = document.getElementById('mobilede-srp-debug-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'mobilede-srp-debug-card';
+            card.className = 'mobilede-srp-debug-card';
+
+            const title = document.createElement('div');
+            title.className = 'mobilede-srp-debug-card__title';
+            title.textContent = 'Mobile.de Debug-Logs';
+            card.appendChild(title);
+
+            const actions = document.createElement('div');
+            actions.className = 'mobilede-srp-debug-card__actions';
+            const bSrp = document.createElement('button');
+            bSrp.type = 'button';
+            bSrp.className = 'mobilede-srp-debug-card__btn';
+            bSrp.textContent = 'SRP-Status jetzt loggen';
+            bSrp.addEventListener('click', runManualSrpStatusLog);
+            actions.appendChild(bSrp);
+            const bClear = document.createElement('button');
+            bClear.type = 'button';
+            bClear.className = 'mobilede-srp-debug-card__btn';
+            bClear.textContent = 'Logs leeren';
+            bClear.addEventListener('click', clearSrpDebugLog);
+            actions.appendChild(bClear);
+            const bCopy = document.createElement('button');
+            bCopy.type = 'button';
+            bCopy.className = 'mobilede-srp-debug-card__btn';
+            bCopy.textContent = '⧉ Copy';
+            bCopy.dataset.defaultLabel = bCopy.textContent;
+            bCopy.dataset.copyLog = '1';
+            bCopy.title = 'Logs in Zwischenablage kopieren';
+            bCopy.addEventListener('click', () => { copySrpDebugLogToClipboard(bCopy); });
+            actions.appendChild(bCopy);
+            card.appendChild(actions);
+
+            const logBox = document.createElement('div');
+            logBox.className = 'mobilede-srp-debug-card__log';
+            card.appendChild(logBox);
+        }
+        if (summaryArticle) {
+            const shouldMove = card.parentElement !== summaryArticle.parentElement
+                || card.previousElementSibling !== summaryArticle;
+            if (shouldMove) summaryArticle.insertAdjacentElement('afterend', card);
+        } else if (summarySection) {
+            const shouldMove = card.parentElement !== summarySection.parentElement
+                || card.previousElementSibling !== summarySection;
+            if (shouldMove) summarySection.insertAdjacentElement('afterend', card);
+        } else if (topBtn) {
+            const shouldMove = card.parentElement !== topBtn.parentElement
+                || card.previousElementSibling !== topBtn;
+            if (shouldMove) topBtn.insertAdjacentElement('afterend', card);
+        } else if (fallbackParent && !card.parentElement) {
+            fallbackParent.prepend(card);
+        } else if (fallbackParent) {
+            if (card.parentElement !== fallbackParent) fallbackParent.appendChild(card);
+        }
+        renderSrpDebugLogCard();
+    }
+
+    function ensureDetailDebugLogCard() {
+        if (!isVehicleDetailPage() || !isSrpLogCardEnabled(featureFlags)) {
+            removeDetailDebugLogCard();
+            return;
+        }
+        injectPriceRatingStyles();
+        const galleryArticle = document.querySelector('article[data-testid="gallery-main-focus-container"]');
+        if (!galleryArticle || !galleryArticle.parentElement) return;
+
+        let card = document.getElementById('mobilede-detail-debug-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'mobilede-detail-debug-card';
+            card.className = 'mobilede-srp-debug-card mobilede-srp-debug-card--detail';
+
+            const title = document.createElement('div');
+            title.className = 'mobilede-srp-debug-card__title';
+            title.textContent = 'Mobile.de Debug-Logs (Detailseite)';
+            card.appendChild(title);
+
+            const actions = document.createElement('div');
+            actions.className = 'mobilede-srp-debug-card__actions';
+            const bCohort = document.createElement('button');
+            bCohort.type = 'button';
+            bCohort.className = 'mobilede-srp-debug-card__btn';
+            bCohort.textContent = 'Kohorte jetzt loggen';
+            bCohort.addEventListener('click', runManualCohortLog);
+            actions.appendChild(bCohort);
+            const bClear = document.createElement('button');
+            bClear.type = 'button';
+            bClear.className = 'mobilede-srp-debug-card__btn';
+            bClear.textContent = 'Logs leeren';
+            bClear.addEventListener('click', clearSrpDebugLog);
+            actions.appendChild(bClear);
+            const bCopy = document.createElement('button');
+            bCopy.type = 'button';
+            bCopy.className = 'mobilede-srp-debug-card__btn';
+            bCopy.textContent = '⧉ Copy';
+            bCopy.dataset.defaultLabel = bCopy.textContent;
+            bCopy.dataset.copyLog = '1';
+            bCopy.title = 'Logs in Zwischenablage kopieren';
+            bCopy.addEventListener('click', () => { copySrpDebugLogToClipboard(bCopy); });
+            actions.appendChild(bCopy);
+            card.appendChild(actions);
+
+            const logBox = document.createElement('div');
+            logBox.className = 'mobilede-srp-debug-card__log';
+            card.appendChild(logBox);
+        }
+
+        const shouldMove = card.parentElement !== galleryArticle.parentElement
+            || card.previousElementSibling !== galleryArticle;
+        if (shouldMove) galleryArticle.insertAdjacentElement('afterend', card);
+        renderSrpDebugLogCard();
     }
 
     function getSrpSearchFingerprint() {
@@ -4097,12 +4772,16 @@ article.mobilede-tech-article,article.mobilede-result-article{
             ensureSrpSortBehavior();
             handleSrpUrlChange();
             ensureSrpPriceRatingObserver();
+            ensureSrpDebugLogCard();
+            removeDetailDebugLogCard();
         } else {
             destroySrpSortBehavior();
             if (srpPriceRatingIo) {
                 srpPriceRatingIo.disconnect();
                 srpPriceRatingIo = null;
             }
+            removeSrpDebugLogCard();
+            ensureDetailDebugLogCard();
         }
         setTimeout(() => {
             if (!document.querySelector('#mobilede-config-btn')) erstelleKonfigButton();
@@ -4128,6 +4807,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
     scheduleTask('rating:vip-initial-detail', 'rating', () => { preisBewertungAktualisieren({ force: true }); });
     initSrpSortBehavior();
     scheduleTask('rating:srp-observer-init', 'rating', () => ensureSrpPriceRatingObserver());
+    scheduleTask('ui:srp-debug-card-init', 'ui', () => ensureSrpDebugLogCard());
+    scheduleTask('ui:detail-debug-card-init', 'ui', () => ensureDetailDebugLogCard());
 
     // Hilfe-Texte für Konfig-Popup (Tabs). Statisches HTML, nur innerHTML aus diesem Map.
     const KONFIG_TAB_HELP_HTML = new Map([
@@ -4531,6 +5212,27 @@ article.mobilede-tech-article,article.mobilede-result-article{
             if (!!b.mobileFallback !== !!c.mobileFallback) {
                 lines.push('Preisbewertung mobile-Fallback: ' + (c.mobileFallback ? 'an' : 'aus'));
             }
+            if (!!b.useModelRange !== !!c.useModelRange) {
+                lines.push('Preisbewertung Baureihe-Filter: ' + (c.useModelRange ? 'an' : 'aus'));
+            }
+            if (!!b.keyUseMileage !== !!c.keyUseMileage) {
+                lines.push('Preisbewertung Cache-Key km: ' + (c.keyUseMileage ? 'an' : 'aus'));
+            }
+            if (!!b.keyUseYear !== !!c.keyUseYear) {
+                lines.push('Preisbewertung Cache-Key EZ: ' + (c.keyUseYear ? 'an' : 'aus'));
+            }
+            if (!!b.keyUsePower !== !!c.keyUsePower) {
+                lines.push('Preisbewertung Cache-Key Leistung: ' + (c.keyUsePower ? 'an' : 'aus'));
+            }
+            if (b.keyKmBucket !== c.keyKmBucket) {
+                lines.push('Preisbewertung Cache-Key km-Schritt: ' + b.keyKmBucket + ' → ' + c.keyKmBucket);
+            }
+            if (b.keyYearBucket !== c.keyYearBucket) {
+                lines.push('Preisbewertung Cache-Key EZ-Schritt: ' + b.keyYearBucket + ' → ' + c.keyYearBucket);
+            }
+            if (b.keyPowerBucket !== c.keyPowerBucket) {
+                lines.push('Preisbewertung Cache-Key kW-Schritt: ' + b.keyPowerBucket + ' → ' + c.keyPowerBucket);
+            }
             if (b.minComparables !== c.minComparables) {
                 lines.push('Preisbewertung min. Vergleiche: ' + b.minComparables + ' → ' + c.minComparables);
             }
@@ -4540,6 +5242,15 @@ article.mobilede-tech-article,article.mobilede-result-article{
             if (b.maxAdjustPct !== c.maxAdjustPct) {
                 lines.push('Preisbewertung max. Korrektur: ' + Math.round(b.maxAdjustPct * 100) + '% → '
                     + Math.round(c.maxAdjustPct * 100) + '%');
+            }
+            if (b.kmToleranceAbs !== c.kmToleranceAbs) {
+                lines.push('Preisbewertung km-Toleranz (± km): ' + b.kmToleranceAbs + ' → ' + c.kmToleranceAbs);
+            }
+            if (b.yearTolerance !== c.yearTolerance) {
+                lines.push('Preisbewertung EZ-Toleranz (± Jahre): ' + b.yearTolerance + ' → ' + c.yearTolerance);
+            }
+            if (b.powerToleranceKw !== c.powerToleranceKw) {
+                lines.push('Preisbewertung Leistung-Toleranz (± kW): ' + b.powerToleranceKw + ' → ' + c.powerToleranceKw);
             }
             if (!!b.onlyFavoriteWeights !== !!c.onlyFavoriteWeights) {
                 lines.push('Preisbewertung nur Favoriten-Gewichte: ' + (c.onlyFavoriteWeights ? 'an' : 'aus'));
@@ -4785,6 +5496,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
 .mc-btn--primary{background:#1976d2;border-color:#1976d2;color:#fff;}
 .mc-btn--ghost{background:transparent;border-color:var(--mc-border);}
 .mc-btn--danger{background:rgba(229,115,115,.15);border-color:#c62828;color:#ffcdd2;}
+.mc-btn--toggle-active{background:rgba(25,118,210,.2);border-color:#1976d2;color:#d3e7ff;}
 .mc-btn--action-dup:hover:not(:disabled){
   filter:none;background:rgba(33,150,243,.2);border-color:#2196f3;color:#90caf9;
 }
@@ -8653,22 +9365,26 @@ article.mobilede-tech-article,article.mobilede-result-article{
 
         let configDebugUnlockClicks = 0;
         let configDebugUnlockTimer = null;
+        let configDebugUiUnlocked = !!getDebugConfig(aktuelleFeatureFlags).enabled;
         configIntro.addEventListener('click', () => {
             configDebugUnlockClicks++;
             clearTimeout(configDebugUnlockTimer);
             configDebugUnlockTimer = setTimeout(() => { configDebugUnlockClicks = 0; }, 1500);
             if (configDebugUnlockClicks < 5) return;
             configDebugUnlockClicks = 0;
-            const next = !aktuelleFeatureFlags.priceRatingDebug;
-            aktuelleFeatureFlags.priceRatingDebug = next;
-            persistPriceRatingDebug(next);
+            configDebugUiUnlocked = true;
+            const currentDebug = getDebugConfig(aktuelleFeatureFlags);
+            const next = !currentDebug.enabled;
+            aktuelleFeatureFlags.debug = { ...currentDebug, enabled: next };
+            persistDebugMaster(next);
             renderConfig();
             showToast(
-                aktuelleFeatureFlags.priceRatingDebug
-                    ? 'Preis-Debug aktiv — Ausgaben in der Browser-Konsole (F12)'
-                    : 'Preis-Debug deaktiviert',
+                next
+                    ? 'Debug-Modus aktiv — Ausgaben in der Browser-Konsole (F12)'
+                    : 'Debug-Modus deaktiviert',
                 'success'
             );
+            debugLog('ui', 'Debug-Mode über Hidden-Unlock umgeschaltet', { enabled: next });
         });
         footerResetHandlers[4] = async () => {
             const ok = await confirmAsync('Alle Feature-Flags auf Standard zurücksetzen?');
@@ -9244,6 +9960,30 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 'Ohne Fallback zeigt die Bewertung bei zu wenig Vergleichsfahrzeugen ggf. gar nichts an.'
             ));
             prBody.appendChild(mkPrToggleRow(
+                'Baureihe in Vergleichssuche',
+                () => pr.useModelRange !== false,
+                v => { pr.useModelRange = v; },
+                'Wenn aus: ignoriert Baureihe/Modelgruppe im Vergleich (hilfreich, wenn Baureihe oft fehlt).'
+            ));
+            prBody.appendChild(mkPrToggleRow(
+                'Cache-Key: km berücksichtigen',
+                () => pr.keyUseMileage !== false,
+                v => { pr.keyUseMileage = v; },
+                'Wenn aus: Kilometerstand wird beim Cache-Matching ignoriert.'
+            ));
+            prBody.appendChild(mkPrToggleRow(
+                'Cache-Key: EZ berücksichtigen',
+                () => pr.keyUseYear !== false,
+                v => { pr.keyUseYear = v; },
+                'Wenn aus: Erstzulassungsjahr wird beim Cache-Matching ignoriert.'
+            ));
+            prBody.appendChild(mkPrToggleRow(
+                'Cache-Key: Leistung berücksichtigen',
+                () => pr.keyUsePower !== false,
+                v => { pr.keyUsePower = v; },
+                'Wenn aus: Leistung (kW/PS) wird beim Cache-Matching ignoriert.'
+            ));
+            prBody.appendChild(mkPrToggleRow(
                 'Nur Favoriten-Gewichte',
                 () => !!pr.onlyFavoriteWeights,
                 v => { pr.onlyFavoriteWeights = v; },
@@ -9267,23 +10007,39 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 parse: v => Math.max(0.05, Math.min(0.25, parseInt(v, 10) / 100 || pr.maxAdjustPct)),
                 warn: 'Deckelt, wie stark die Ausstattung den erwarteten Preis nach oben/unten schieben darf.'
             }));
-            prGrid.appendChild(mkPrNumberField('km-Toleranz Suche (%)', 'kmTolerancePct', 10, 50, {
+            prGrid.appendChild(mkPrNumberField('km-Toleranz Suche (± km)', 'kmToleranceAbs', 0, 200000, {
                 impact: true,
-                step: 1,
-                display: v => Math.round(v * 100),
-                parse: v => Math.max(0.1, Math.min(0.5, parseInt(v, 10) / 100 || pr.kmTolerancePct)),
-                warn: 'Breitere km-Spanne = mehr Vergleichsfahrzeuge, aber weniger ähnlicher Kilometerstand.'
+                step: 500,
+                parse: v => Math.max(0, Math.min(200000, parseInt(v, 10) || pr.kmToleranceAbs)),
+                warn: 'Abweichung in Kilometer (±) für die Vergleichssuche.'
             }));
             prGrid.appendChild(mkPrNumberField('EZ-Toleranz (± Jahre)', 'yearTolerance', 0, 3, {
                 impact: true,
                 warn: 'Größere EZ-Spanne in der Vergleichssuche.'
             }));
-            prGrid.appendChild(mkPrNumberField('Leistung-Toleranz (%)', 'powerTolerancePct', 5, 30, {
+            prGrid.appendChild(mkPrNumberField('Leistung-Toleranz (± kW)', 'powerToleranceKw', 0, 80, {
                 impact: true,
                 step: 1,
-                display: v => Math.round(v * 100),
-                parse: v => Math.max(0.05, Math.min(0.3, parseInt(v, 10) / 100 || pr.powerTolerancePct)),
-                warn: 'Breitere PS-Spanne in der Vergleichssuche.'
+                parse: v => Math.max(0, Math.min(80, parseInt(v, 10) || pr.powerToleranceKw)),
+                warn: 'Abweichung in kW (±) für die Vergleichssuche.'
+            }));
+            prGrid.appendChild(mkPrNumberField('Cache-Key km-Schritt', 'keyKmBucket', 500, 50000, {
+                impact: true,
+                step: 500,
+                parse: v => Math.max(500, Math.min(50000, parseInt(v, 10) || pr.keyKmBucket)),
+                warn: 'Rundet km im Cache-Key auf diesen Schritt (größer = tolerantere Cache-Treffer).'
+            }));
+            prGrid.appendChild(mkPrNumberField('Cache-Key EZ-Schritt (Jahre)', 'keyYearBucket', 1, 5, {
+                impact: true,
+                step: 1,
+                parse: v => Math.max(1, Math.min(5, parseInt(v, 10) || pr.keyYearBucket)),
+                warn: 'Rundet Erstzulassung im Cache-Key auf diesen Schritt.'
+            }));
+            prGrid.appendChild(mkPrNumberField('Cache-Key kW-Schritt', 'keyPowerBucket', 1, 50, {
+                impact: true,
+                step: 1,
+                parse: v => Math.max(1, Math.min(50, parseInt(v, 10) || pr.keyPowerBucket)),
+                warn: 'Rundet Leistung im Cache-Key auf diesen Schritt (größer = toleranter).'
             }));
             prBody.appendChild(prGrid);
 
@@ -9513,58 +10269,105 @@ article.mobilede-tech-article,article.mobilede-result-article{
             configContainer.appendChild(prSec);
 
             function appendPriceDebugSection() {
-                if (!aktuelleFeatureFlags.priceRatingDebug) return;
+                const dbgCfg = getDebugConfig(aktuelleFeatureFlags);
+                if (!dbgCfg.enabled && !configDebugUiUnlocked) return;
+                const areAllScopesEnabled = (cfg) => {
+                    const scopes = (cfg && cfg.scopes) || {};
+                    return DEBUG_SCOPE_DEFINITIONS.every(def => scopes[def.key] === true);
+                };
+                const applyScopesFromPreset = (scopes, enabled) => {
+                    const mergedScopes = {};
+                    DEBUG_SCOPE_DEFINITIONS.forEach(def => {
+                        mergedScopes[def.key] = scopes[def.key] === true;
+                    });
+                    const nextEnabled = enabled !== false && Object.values(mergedScopes).some(Boolean);
+                    aktuelleFeatureFlags.debug = { enabled: nextEnabled, scopes: mergedScopes };
+                    persistDebugConfig(aktuelleFeatureFlags.debug);
+                    aktuelleFeatureFlags = ladeFeatureFlags();
+                    renderConfig();
+                };
                 const dbgSec = document.createElement('div');
                 dbgSec.className = 'mc-config-section';
                 const dbgTitle = document.createElement('div');
                 dbgTitle.className = 'mc-config-section-title';
-                dbgTitle.textContent = 'Preis-Debug (Entwickler)';
+                dbgTitle.textContent = 'Debug (Entwickler)';
                 dbgSec.appendChild(dbgTitle);
                 const dbgCard = document.createElement('div');
                 dbgCard.className = 'mc-card mc-list-order-card';
                 const dbgDesc = document.createElement('div');
                 dbgDesc.className = 'mc-feature-desc';
-                dbgDesc.textContent = 'Schreibt Kohorten- und Bewertungs-Infos in die Browser-Konsole (Präfix [mobilede Preis]). '
+                dbgDesc.textContent = 'Schreibt modulare Debug-Infos in die Browser-Konsole. '
                     + '5× auf den Einleitungstext oben klicken zum Ein-/Ausschalten.';
                 dbgCard.appendChild(dbgDesc);
                 const dbgRow = document.createElement('div');
                 dbgRow.className = 'mc-pr-actions';
                 dbgRow.style.marginTop = '10px';
                 const dbgOff = mkBtn('dbg-off', 'Debug ausschalten', () => {
-                    aktuelleFeatureFlags.priceRatingDebug = false;
-                    persistPriceRatingDebug(false);
+                    persistDebugMaster(false);
+                    aktuelleFeatureFlags = ladeFeatureFlags();
                     renderConfig();
-                    showToast('Preis-Debug deaktiviert', 'success');
+                    showToast('Debug-Modus deaktiviert', 'success');
+                });
+                const dbgAllOn = mkBtn('dbg-all-on', 'Alle Module an', () => {
+                    const curr = getDebugConfig(aktuelleFeatureFlags);
+                    const nextAllOn = !areAllScopesEnabled(curr);
+                    const scopes = {};
+                    DEBUG_SCOPE_DEFINITIONS.forEach(def => { scopes[def.key] = nextAllOn; });
+                    applyScopesFromPreset(scopes, nextAllOn);
+                    showToast(nextAllOn ? 'Alle Debug-Module aktiviert' : 'Alle Debug-Module deaktiviert', 'success');
                 });
                 const dbgLog = mkBtn('dbg-log', 'Kohorte jetzt loggen', () => {
-                    const prof = buildVehicleProfile();
-                    if (!prof || !prof.id) {
-                        priceRatingDebugLog('Kein Fahrzeugprofil auf dieser Seite');
-                        showToast('Nur auf einer Fahrzeugdetailseite mit Inserat-ID', 'warn');
-                        return;
+                    runManualCohortLog();
+                });
+                const dbgSrpLog = mkBtn('dbg-srp-log', 'SRP-Status jetzt loggen', () => {
+                    runManualSrpStatusLog();
+                });
+                const dbgSrpCard = mkBtn(
+                    'dbg-srp-card',
+                    'Debug-Log-Cards: ' + (dbgCfg.showSrpLogCard ? 'an' : 'aus'),
+                    () => {
+                        const now = getDebugConfig(aktuelleFeatureFlags);
+                        persistDebugConfig({ ...now, showSrpLogCard: !now.showSrpLogCard });
+                        aktuelleFeatureFlags = ladeFeatureFlags();
+                        ensureSrpDebugLogCard();
+                        renderConfig();
+                        showToast('Debug-Log-Cards ' + (isSrpLogCardEnabled(aktuelleFeatureFlags) ? 'aktiviert' : 'deaktiviert'), 'success');
                     }
-                    const prCfg = getPriceRating(aktuelleFeatureFlags);
-                    const cohortRes = getCohortComparables(prof, prCfg);
-                    priceRatingDebugLog('Manueller Kohorten-Check', {
-                        profileId: prof.id,
-                        cacheKey: cohortRes.cacheKey,
-                        count: cohortRes.items.length,
-                        vipDetails: countCohortVipDetailCount(cohortRes.items),
-                        needsManualSearch: !!cohortRes.needsManualSearch
-                    });
-                    showToast('Kohorte in Konsole geloggt (F12)', 'success');
-                });
-                const perfToggle = mkBtn('dbg-perf', aktuelleFeatureFlags.priceRatingPerfDebug ? 'Perf-Logs aus' : 'Perf-Logs an', () => {
-                    const next = !aktuelleFeatureFlags.priceRatingPerfDebug;
-                    aktuelleFeatureFlags.priceRatingPerfDebug = next;
-                    persistPriceRatingPerfDebug(next);
-                    perfToggle.textContent = next ? 'Perf-Logs aus' : 'Perf-Logs an';
-                    showToast(next ? 'Preis-Perf-Logs aktiviert' : 'Preis-Perf-Logs deaktiviert', 'success');
-                });
+                );
+                dbgAllOn.classList.toggle('mc-btn--toggle-active', areAllScopesEnabled(dbgCfg));
+                dbgAllOn.setAttribute('aria-pressed', areAllScopesEnabled(dbgCfg) ? 'true' : 'false');
+                dbgSrpCard.classList.toggle('mc-btn--toggle-active', dbgCfg.showSrpLogCard === true);
+                dbgSrpCard.setAttribute('aria-pressed', dbgCfg.showSrpLogCard === true ? 'true' : 'false');
                 dbgRow.appendChild(dbgOff);
+                dbgRow.appendChild(dbgAllOn);
                 dbgRow.appendChild(dbgLog);
-                dbgRow.appendChild(perfToggle);
+                dbgRow.appendChild(dbgSrpLog);
+                dbgRow.appendChild(dbgSrpCard);
                 dbgCard.appendChild(dbgRow);
+
+                const scopeList = document.createElement('div');
+                scopeList.className = 'mc-pr-actions';
+                scopeList.style.marginTop = '10px';
+                DEBUG_SCOPE_DEFINITIONS.forEach(def => {
+                    const scopeOn = getDebugConfig(aktuelleFeatureFlags).scopes[def.key] === true;
+                    const btn = mkBtn(
+                        'dbg-scope-' + def.key,
+                        def.label + ': ' + (scopeOn ? 'an' : 'aus'),
+                        () => {
+                            const nowCfg = getDebugConfig(aktuelleFeatureFlags);
+                            const next = !nowCfg.scopes[def.key];
+                            persistDebugMaster(true);
+                            persistDebugScope(def.key, next);
+                            aktuelleFeatureFlags = ladeFeatureFlags();
+                            renderConfig();
+                            showToast((def.label + (next ? ' Debug aktiv' : ' Debug aus')), 'success');
+                        }
+                    );
+                    btn.classList.toggle('mc-btn--toggle-active', scopeOn);
+                    btn.setAttribute('aria-pressed', scopeOn ? 'true' : 'false');
+                    scopeList.appendChild(btn);
+                });
+                dbgCard.appendChild(scopeList);
                 dbgSec.appendChild(dbgCard);
                 configContainer.appendChild(dbgSec);
             }
