@@ -33,6 +33,14 @@ export { isSearchResultsPage };
 
 const SRP_DEBUG_LOG_MAX_ENTRIES = 100;
 
+export let srpDebugLogEntries = [];
+
+function notifyUser(msg, kind) {
+    if (typeof window.__mobiledeShowToast === 'function') {
+        window.__mobiledeShowToast(msg, kind);
+    }
+}
+
 // 10b) Suchergebnisse: Standard-Sortierung aus Config
 // ============================================================
 export let srpSortUserOverrideFp = null;
@@ -79,9 +87,7 @@ export function getSrpDebugLogText() {
 }
 
 async function copySrpDebugLogToClipboard(sourceBtn) {
-    const safeToast = (msg, kind) => {
-        if (typeof showToast === 'function') showToast(msg, kind);
-    };
+    const safeToast = notifyUser;
     const setButtonFeedback = (tempLabel) => {
         if (!sourceBtn) return;
         const base = sourceBtn.dataset.defaultLabel || '⧉ Copy';
@@ -129,7 +135,7 @@ export function runManualCohortLog() {
     if (!prof || !prof.id) {
         console.warn('[mobilede Preis]', 'Kein Fahrzeugprofil auf dieser Seite');
         appendSrpDebugLog('warn', 'Kohorten-Check nicht moeglich', { reason: 'Kein Fahrzeugprofil auf dieser Seite' });
-        showToast('Nur auf einer Fahrzeugdetailseite mit Inserat-ID', 'warn');
+        notifyUser('Nur auf einer Fahrzeugdetailseite mit Inserat-ID', 'warn');
         return;
     }
     const prCfg = getPriceRating(runtimeState.featureFlags);
@@ -144,21 +150,21 @@ export function runManualCohortLog() {
     };
     console.info('[mobilede Preis]', 'Manueller Kohorten-Check', payload);
     appendSrpDebugLog('info', 'Manueller Kohorten-Check', payload);
-    showToast('Kohorte wurde geloggt', 'success');
+    notifyUser('Kohorte wurde geloggt', 'success');
 }
 
 export function runManualSrpStatusLog() {
     if (!isSearchResultsPage()) {
         console.warn('[mobilede Preis]', 'SRP-Status nur auf Suchergebnisseite verfügbar');
         appendSrpDebugLog('warn', 'SRP-Status nicht verfuegbar', { reason: 'Nicht auf Suchergebnisseite' });
-        showToast('Nur auf einer Suchergebnisseite (SRP)', 'warn');
+        notifyUser('Nur auf einer Suchergebnisseite (SRP)', 'warn');
         return;
     }
     const state = getPageInitialState();
     if (!state) {
         console.warn('[mobilede Preis]', 'SRP-Status: kein __INITIAL_STATE__ vorhanden');
         appendSrpDebugLog('warn', 'SRP-Status ohne __INITIAL_STATE__', null);
-        showToast('Kein __INITIAL_STATE__ auf dieser SRP', 'warn');
+        notifyUser('Kein __INITIAL_STATE__ auf dieser SRP', 'warn');
         return;
     }
     const rawList = findSrpListingsInState(state);
@@ -206,13 +212,13 @@ export function runManualSrpStatusLog() {
     };
     console.info('[mobilede Preis]', 'Manueller SRP-Status', payload);
     appendSrpDebugLog('info', 'Manueller SRP-Status', payload);
-    showToast('SRP-Status wurde geloggt', 'success');
+    notifyUser('SRP-Status wurde geloggt', 'success');
 }
 
 export function runManualPriceRatingUiLog() {
     if (!isVehicleDetailPage()) {
         appendSrpDebugLog('warn', 'Preisbewertung-UI nicht verfuegbar', { reason: 'Nicht auf Detailseite' });
-        showToast('Nur auf einer Fahrzeugdetailseite', 'warn');
+        notifyUser('Nur auf einer Fahrzeugdetailseite', 'warn');
         return;
     }
     const profile = buildVehicleProfile();
@@ -278,7 +284,7 @@ export function runManualPriceRatingUiLog() {
     };
     console.info('[mobilede Preis]', 'Manuelle Preisbewertung-UI', payload);
     appendSrpDebugLog('info', 'Manuelle Preisbewertung-UI', payload);
-    showToast('Preisbewertung-UI wurde geloggt', 'success');
+    notifyUser('Preisbewertung-UI wurde geloggt', 'success');
 }
 
 async function runManualPriceDataStoreExport() {
@@ -298,11 +304,11 @@ async function runManualPriceDataStoreExport() {
     try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             await navigator.clipboard.writeText(JSON.stringify(payload.export, null, 2));
-            showToast('Preisdaten-Export in Zwischenablage kopiert', 'success');
+            notifyUser('Preisdaten-Export in Zwischenablage kopiert', 'success');
             return;
         }
     } catch (e) { /* noop */ }
-    showToast('Export geloggt (Clipboard nicht verfügbar)', 'warn');
+    notifyUser('Export geloggt (Clipboard nicht verfügbar)', 'warn');
 }
 
 export function runManualPriceDataStoreImportPrompt() {
@@ -314,9 +320,9 @@ export function runManualPriceDataStoreImportPrompt() {
         const merged = mergePriceDataStoreImport(source);
         notifyCohortCacheUpdated();
         appendSrpDebugLog('info', 'Preisdaten-Store Import', merged);
-        showToast('Preisdaten importiert: ' + merged.mergedAds + ' Ads, ' + merged.mergedCohorts + ' Kohorten', 'success');
+        notifyUser('Preisdaten importiert: ' + merged.mergedAds + ' Ads, ' + merged.mergedCohorts + ' Kohorten', 'success');
     } catch (e) {
-        showToast('Import-JSON ungültig: ' + e, 'error');
+        notifyUser('Import-JSON ungültig: ' + e, 'error');
     }
 }
 
@@ -372,6 +378,18 @@ export function removeSrpDebugLogCard() {
 export function removeDetailDebugLogCard() {
     const existing = document.getElementById('mobilede-detail-debug-card');
     if (existing) existing.remove();
+}
+
+export function syncDebugLogCardsOnPage() {
+    if (!isSrpLogCardEnabled(runtimeState.featureFlags)) {
+        removeSrpDebugLogCard();
+        removeDetailDebugLogCard();
+        return;
+    }
+    if (isSearchResultsPage()) ensureSrpDebugLogCard();
+    else removeSrpDebugLogCard();
+    if (isVehicleDetailPage()) ensureDetailDebugLogCard();
+    else removeDetailDebugLogCard();
 }
 
 export function ensureSrpDebugLogCard() {
@@ -447,6 +465,7 @@ export function ensureSrpDebugLogCard() {
         if (card.parentElement !== fallbackParent) fallbackParent.appendChild(card);
     }
     renderSrpDebugLogCard();
+    wireDebugCardCopyButtons();
 }
 
 export function ensureDetailDebugLogCard() {
@@ -509,6 +528,7 @@ export function ensureDetailDebugLogCard() {
         || card.previousElementSibling !== galleryArticle;
     if (shouldMove) galleryArticle.insertAdjacentElement('afterend', card);
     renderSrpDebugLogCard();
+    wireDebugCardCopyButtons();
 }
 
 export function getSrpSearchFingerprint() {

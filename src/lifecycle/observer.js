@@ -4,13 +4,8 @@ import {
     scanSrpPriceBadges,
     syncCohortCacheFromSearchPage,
 } from '../features/price-rating/index.js';
-import {
-    ensureSrpDebugLogCard,
-    ensureDetailDebugLogCard,
-    removeSrpDebugLogCard,
-    removeDetailDebugLogCard,
-} from '../features/srp-sort/index.js';
-import { isSearchResultsPage, isVehicleDetailPage } from '../core/page-context.js';
+import { syncDebugLogCardsOnPage } from '../features/srp-sort/index.js';
+import { isVehicleDetailPage } from '../core/page-context.js';
 import { scheduleTask } from './scheduler.js';
 import { verlinkeStandortAufGoogleMaps } from './maps-link.js';
 
@@ -30,10 +25,7 @@ export function trigger() {
         scheduleTask('ui:results', 'ui', () => {
             ergebnisHinzufuegen();
             verlinkeStandortAufGoogleMaps();
-            if (isSearchResultsPage()) ensureSrpDebugLogCard();
-            else removeSrpDebugLogCard();
-            if (isVehicleDetailPage()) ensureDetailDebugLogCard();
-            else removeDetailDebugLogCard();
+            syncDebugLogCardsOnPage();
         });
         scheduleTask('network:cohort-sync', 'network', () => syncCohortCacheFromSearchPage());
         if (!isVehicleDetailPage()) {

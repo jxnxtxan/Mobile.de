@@ -226,8 +226,15 @@ export function mergeDebugConfig(stored, legacyFlags) {
     const legacyPerf = legacyFlags.priceRatingPerfDebug === true;
     return {
         enabled: legacyPrice || legacyPerf,
+        showSrpLogCard: stored && stored.showSrpLogCard === true,
         scopes: { ...d.scopes, price: legacyPrice, perf: legacyPerf }
     };
+}
+
+export function persistShowSrpLogCard(enabled) {
+    const merged = ladeFeatureFlags();
+    const dbg = getDebugConfig(merged);
+    persistDebugConfig({ ...dbg, showSrpLogCard: !!enabled });
 }
 
 export function getDebugConfig(flags) {

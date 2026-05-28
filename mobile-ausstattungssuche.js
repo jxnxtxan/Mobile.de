@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.7
+// @version      2.16.8
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -469,8 +469,14 @@
     const legacyPerf = legacyFlags.priceRatingPerfDebug === true;
     return {
       enabled: legacyPrice || legacyPerf,
+      showSrpLogCard: stored && stored.showSrpLogCard === true,
       scopes: { ...d.scopes, price: legacyPrice, perf: legacyPerf }
     };
+  }
+  function persistShowSrpLogCard(enabled) {
+    const merged = ladeFeatureFlags();
+    const dbg = getDebugConfig(merged);
+    persistDebugConfig({ ...dbg, showSrpLogCard: !!enabled });
   }
   function getDebugConfig(flags) {
     const merged = mergeDebugConfig(flags && flags.debug, flags || runtimeState.featureFlags);
@@ -4025,6 +4031,12 @@ Kontext: …${item.snippet}…` : "";
     srpRatingQueue.length = 0;
   }
   const SRP_DEBUG_LOG_MAX_ENTRIES = 100;
+  let srpDebugLogEntries = [];
+  function notifyUser(msg, kind) {
+    if (typeof window.__mobiledeShowToast === "function") {
+      window.__mobiledeShowToast(msg, kind);
+    }
+  }
   let applyingDefaultSrpSort = false;
   let lastSrpFingerprint = null;
   let lastPolledSrpSort = null;
@@ -4044,7 +4056,7 @@ Kontext: …${item.snippet}…` : "";
       return String(payload);
     }
   }
-  function appendSrpDebugLog$1(level, label, payload) {
+  function appendSrpDebugLog(level, label, payload) {
     const ts = ( new Date()).toLocaleTimeString("de-DE", { hour12: false });
     const line = `[${ts}] ${String(level || "info").toUpperCase()} ${label}${payload == null ? "" : "\n" + serializeSrpDebugPayload(payload)}`;
     srpDebugLogEntries.push({ level: level || "info", text: line });
@@ -4062,9 +4074,7 @@ Kontext: …${item.snippet}…` : "";
     return srpDebugLogEntries.map((e) => e.text).join("\n\n");
   }
   async function copySrpDebugLogToClipboard(sourceBtn) {
-    const safeToast = (msg, kind) => {
-      if (typeof showToast === "function") showToast(msg, kind);
-    };
+    const safeToast = notifyUser;
     const setButtonFeedback = (tempLabel) => {
       if (!sourceBtn) return;
       const base = sourceBtn.dataset.defaultLabel || "⧉ Copy";
@@ -4110,8 +4120,8 @@ Kontext: …${item.snippet}…` : "";
     const prof = buildVehicleProfile();
     if (!prof || !prof.id) {
       console.warn("[mobilede Preis]", "Kein Fahrzeugprofil auf dieser Seite");
-      appendSrpDebugLog$1("warn", "Kohorten-Check nicht moeglich", { reason: "Kein Fahrzeugprofil auf dieser Seite" });
-      showToast("Nur auf einer Fahrzeugdetailseite mit Inserat-ID", "warn");
+      appendSrpDebugLog("warn", "Kohorten-Check nicht moeglich", { reason: "Kein Fahrzeugprofil auf dieser Seite" });
+      notifyUser("Nur auf einer Fahrzeugdetailseite mit Inserat-ID", "warn");
       return;
     }
     const prCfg = getPriceRating(runtimeState.featureFlags);
@@ -4125,21 +4135,21 @@ Kontext: …${item.snippet}…` : "";
       needsManualSearch: !!cohortRes.needsManualSearch
     };
     console.info("[mobilede Preis]", "Manueller Kohorten-Check", payload);
-    appendSrpDebugLog$1("info", "Manueller Kohorten-Check", payload);
-    showToast("Kohorte wurde geloggt", "success");
+    appendSrpDebugLog("info", "Manueller Kohorten-Check", payload);
+    notifyUser("Kohorte wurde geloggt", "success");
   }
   function runManualSrpStatusLog() {
     if (!isSearchResultsPage()) {
       console.warn("[mobilede Preis]", "SRP-Status nur auf Suchergebnisseite verfügbar");
-      appendSrpDebugLog$1("warn", "SRP-Status nicht verfuegbar", { reason: "Nicht auf Suchergebnisseite" });
-      showToast("Nur auf einer Suchergebnisseite (SRP)", "warn");
+      appendSrpDebugLog("warn", "SRP-Status nicht verfuegbar", { reason: "Nicht auf Suchergebnisseite" });
+      notifyUser("Nur auf einer Suchergebnisseite (SRP)", "warn");
       return;
     }
     const state = getPageInitialState();
     if (!state) {
       console.warn("[mobilede Preis]", "SRP-Status: kein __INITIAL_STATE__ vorhanden");
-      appendSrpDebugLog$1("warn", "SRP-Status ohne __INITIAL_STATE__", null);
-      showToast("Kein __INITIAL_STATE__ auf dieser SRP", "warn");
+      appendSrpDebugLog("warn", "SRP-Status ohne __INITIAL_STATE__", null);
+      notifyUser("Kein __INITIAL_STATE__ auf dieser SRP", "warn");
       return;
     }
     const rawList = findSrpListingsInState(state);
@@ -4179,13 +4189,13 @@ Kontext: …${item.snippet}…` : "";
       } : null
     };
     console.info("[mobilede Preis]", "Manueller SRP-Status", payload);
-    appendSrpDebugLog$1("info", "Manueller SRP-Status", payload);
-    showToast("SRP-Status wurde geloggt", "success");
+    appendSrpDebugLog("info", "Manueller SRP-Status", payload);
+    notifyUser("SRP-Status wurde geloggt", "success");
   }
   function runManualPriceRatingUiLog() {
     if (!isVehicleDetailPage()) {
-      appendSrpDebugLog$1("warn", "Preisbewertung-UI nicht verfuegbar", { reason: "Nicht auf Detailseite" });
-      showToast("Nur auf einer Fahrzeugdetailseite", "warn");
+      appendSrpDebugLog("warn", "Preisbewertung-UI nicht verfuegbar", { reason: "Nicht auf Detailseite" });
+      notifyUser("Nur auf einer Fahrzeugdetailseite", "warn");
       return;
     }
     const profile = buildVehicleProfile();
@@ -4246,8 +4256,8 @@ Kontext: …${item.snippet}…` : "";
       } : null
     };
     console.info("[mobilede Preis]", "Manuelle Preisbewertung-UI", payload);
-    appendSrpDebugLog$1("info", "Manuelle Preisbewertung-UI", payload);
-    showToast("Preisbewertung-UI wurde geloggt", "success");
+    appendSrpDebugLog("info", "Manuelle Preisbewertung-UI", payload);
+    notifyUser("Preisbewertung-UI wurde geloggt", "success");
   }
   function renderDebugLogIntoCard(cardId) {
     const existing = document.getElementById(cardId);
@@ -4299,6 +4309,17 @@ Kontext: …${item.snippet}…` : "";
   function removeDetailDebugLogCard() {
     const existing = document.getElementById("mobilede-detail-debug-card");
     if (existing) existing.remove();
+  }
+  function syncDebugLogCardsOnPage() {
+    if (!isSrpLogCardEnabled(runtimeState.featureFlags)) {
+      removeSrpDebugLogCard();
+      removeDetailDebugLogCard();
+      return;
+    }
+    if (isSearchResultsPage()) ensureSrpDebugLogCard();
+    else removeSrpDebugLogCard();
+    if (isVehicleDetailPage()) ensureDetailDebugLogCard();
+    else removeDetailDebugLogCard();
   }
   function ensureSrpDebugLogCard() {
     if (!isSearchResultsPage() || !isSrpLogCardEnabled(runtimeState.featureFlags)) {
@@ -4368,6 +4389,7 @@ Kontext: …${item.snippet}…` : "";
       if (card.parentElement !== fallbackParent) fallbackParent.appendChild(card);
     }
     renderSrpDebugLogCard();
+    wireDebugCardCopyButtons();
   }
   function ensureDetailDebugLogCard() {
     if (!isVehicleDetailPage() || !isSrpLogCardEnabled(runtimeState.featureFlags)) {
@@ -4425,6 +4447,7 @@ Kontext: …${item.snippet}…` : "";
     const shouldMove = card.parentElement !== galleryArticle.parentElement || card.previousElementSibling !== galleryArticle;
     if (shouldMove) galleryArticle.insertAdjacentElement("afterend", card);
     renderSrpDebugLogCard();
+    wireDebugCardCopyButtons();
   }
   function getSrpSearchFingerprint$1() {
     const u = new URL(location.href);
@@ -4734,10 +4757,7 @@ Kontext: …${item.snippet}…` : "";
       scheduleTask("ui:results", "ui", () => {
         ergebnisHinzufuegen();
         verlinkeStandortAufGoogleMaps();
-        if (isSearchResultsPage()) ensureSrpDebugLogCard();
-        else removeSrpDebugLogCard();
-        if (isVehicleDetailPage()) ensureDetailDebugLogCard();
-        else removeDetailDebugLogCard();
+        syncDebugLogCardsOnPage();
       });
       scheduleTask("network:cohort-sync", "network", () => syncCohortCacheFromSearchPage());
       if (!isVehicleDetailPage()) {
@@ -4777,13 +4797,11 @@ Kontext: …${item.snippet}…` : "";
       ensureSrpSortBehavior();
       handleSrpUrlChange();
       ensureSrpPriceRatingObserver();
-      ensureSrpDebugLogCard();
-      removeDetailDebugLogCard();
+      syncDebugLogCardsOnPage();
     } else {
       destroySrpSortBehavior();
       disconnectSrpPriceRatingObserver();
-      removeSrpDebugLogCard();
-      ensureDetailDebugLogCard();
+      syncDebugLogCardsOnPage();
       scheduleTask("rating:vip-after-nav", "rating", () => {
         preisBewertungAktualisieren({ force: true });
       });
@@ -4813,8 +4831,7 @@ Kontext: …${item.snippet}…` : "";
     });
     initSrpSortBehavior();
     scheduleTask("rating:srp-observer-init", "rating", () => ensureSrpPriceRatingObserver());
-    scheduleTask("ui:srp-debug-card-init", "ui", () => ensureSrpDebugLogCard());
-    scheduleTask("ui:detail-debug-card-init", "ui", () => ensureDetailDebugLogCard());
+    scheduleTask("ui:debug-log-cards-init", "ui", () => syncDebugLogCardsOnPage());
   }
   const KONFIG_TAB_HELP_HTML = new Map([
     ["aus", `
@@ -7151,7 +7168,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     const toastHost = document.createElement("div");
     toastHost.className = "mc-toast-host";
     overlay.appendChild(toastHost);
-    function showToast2(msg, kind) {
+    function showToast(msg, kind) {
       const t = document.createElement("div");
       t.className = "mc-toast mc-toast--" + (kind === "success" ? "success" : kind === "warn" ? "warn" : "error");
       t.textContent = msg;
@@ -7162,6 +7179,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         setTimeout(() => t.remove(), 400);
       }, 3200);
     }
+    window.__mobiledeShowToast = showToast;
     function confirmAsync(msg) {
       return new Promise((resolve) => {
         const back = document.createElement("div");
@@ -7237,11 +7255,16 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       } catch (_e) {
         pageWindow.__mobiledeDragDiag = void 0;
       }
+      try {
+        delete window.__mobiledeShowToast;
+      } catch (_e) {
+        window.__mobiledeShowToast = void 0;
+      }
       overlay.remove();
     }
     function tryCloseFromUser() {
       if (dirty) {
-        showToast2("Ungespeicherte Änderungen – bitte Speichern oder Abbrechen.", "warn");
+        showToast("Ungespeicherte Änderungen – bitte Speichern oder Abbrechen.", "warn");
         return;
       }
       removeOverlay();
@@ -7283,7 +7306,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       refreshExportArea();
       refreshValidationUI();
       updateTabBadges();
-      showToast2("Letzte Änderung rückgängig gemacht", "success");
+      showToast("Letzte Änderung rückgängig gemacht", "success");
       syncUndoBtn();
       recomputeDirty();
     }
@@ -7456,7 +7479,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         expandedAusstattungIndex = useConfigSplitView() ? null : 0;
         markDirty();
         renderAusstattung();
-        showToast2("Neuer Ausstattungseintrag", "success");
+        showToast("Neuer Ausstattungseintrag", "success");
       }
     });
     const ausToolbar = ausTb.toolbar;
@@ -7499,7 +7522,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       aktuelleAusstattungsKonfig = JSON.parse(JSON.stringify(suchKonfigurationenDefault));
       markDirty();
       renderAusstattung();
-      showToast2("Ausstattung auf Standard zurückgesetzt (Backup angelegt)", "success");
+      showToast("Ausstattung auf Standard zurückgesetzt (Backup angelegt)", "success");
     };
     const ausstattungContainer = document.createElement("div");
     ausstattungContainer.className = "mc-aus-list-scroll mc-config-classic-root";
@@ -7568,7 +7591,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       expandedAusstattungIndex = useConfigSplitView() ? null : selectedAusIndex;
       markDirty();
       renderAusstattung();
-      showToast2("Eintrag dupliziert", "success");
+      showToast("Eintrag dupliziert", "success");
     }
     function sanitizeSelectedAusIndex() {
       if (selectedAusIndex === null) return;
@@ -7700,7 +7723,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         else if (selectedAusIndex !== null && selectedAusIndex > idx) selectedAusIndex--;
         markDirty();
         renderAusstattung();
-        showToast2("Eintrag entfernt", "success");
+        showToast("Eintrag entfernt", "success");
       }));
       footer.appendChild(actions);
       editor.appendChild(footer);
@@ -7724,7 +7747,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       });
       markDirty();
       renderAusstattung();
-      showToast2(flag ? "Alle Einträge aktiviert" : "Alle Einträge deaktiviert", "success");
+      showToast(flag ? "Alle Einträge aktiviert" : "Alle Einträge deaktiviert", "success");
     }
     function cardIssuesAus(idx, item) {
       const errs = [];
@@ -7950,7 +7973,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         }
         markDirty();
         renderAusstattung();
-        showToast2("Eintrag entfernt", "success");
+        showToast("Eintrag entfernt", "success");
       });
       btnLoeschen.style.alignSelf = "flex-end";
       adv.appendChild(lb1);
@@ -8226,7 +8249,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       aktuelleTechKonfigurationen = JSON.parse(JSON.stringify(techDataKonfigurationenDefault));
       markDirty();
       renderTechData();
-      showToast2("Tech-Daten auf Standard zurückgesetzt", "success");
+      showToast("Tech-Daten auf Standard zurückgesetzt", "success");
     };
     const techContainer = document.createElement("div");
     techContainer.className = "mc-tech-list-scroll mc-config-classic-root";
@@ -8279,7 +8302,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       });
       markDirty();
       renderTechData();
-      showToast2("Alle Tech-Zeilen " + (flag ? "aktiviert" : "deaktiviert"), "success");
+      showToast("Alle Tech-Zeilen " + (flag ? "aktiviert" : "deaktiviert"), "success");
     }
     function cardIssuesTech(item) {
       const errs = [];
@@ -8598,7 +8621,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       aktuelleMergeGruppen = JSON.parse(JSON.stringify(mergeGruppenConfigDefault));
       markDirty();
       renderMergeConfig();
-      showToast2("Merge-Gruppen auf Standard zurückgesetzt", "success");
+      showToast("Merge-Gruppen auf Standard zurückgesetzt", "success");
     };
     const mergeContainer = document.createElement("div");
     mergeContainer.className = "mc-merge-list-scroll mc-config-classic-root";
@@ -8656,7 +8679,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       });
       markDirty();
       renderMergeConfig();
-      showToast2("Alle Merge-Gruppen " + (flag ? "aktiviert" : "deaktiviert"), "success");
+      showToast("Alle Merge-Gruppen " + (flag ? "aktiviert" : "deaktiviert"), "success");
     }
     function cardIssuesMerge(g) {
       const errs = [];
@@ -8739,7 +8762,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         else if (selectedMergeIndex !== null && selectedMergeIndex > idx) selectedMergeIndex--;
         markDirty();
         renderMergeConfig();
-        showToast2("Merge-Gruppe entfernt", "success");
+        showToast("Merge-Gruppe entfernt", "success");
       }));
       footer.appendChild(actions);
       editor.appendChild(footer);
@@ -8890,7 +8913,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           aktuelleMergeGruppen.splice(index, 1);
           markDirty();
           renderMergeConfig();
-          showToast2("Merge-Gruppe entfernt", "success");
+          showToast("Merge-Gruppe entfernt", "success");
         });
         rowTop.appendChild(btnDel);
         card.appendChild(rowTop);
@@ -8965,7 +8988,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     }
     const btnGenerateExport = mkBtn("ghost", "Aktualisieren", () => {
       refreshExportArea();
-      showToast2("Export-Vorschau aktualisiert", "success");
+      showToast("Export-Vorschau aktualisiert", "success");
     });
     const btnCopyExport = mkBtn("ghost", "Kopieren", async () => {
       refreshExportArea();
@@ -8976,14 +8999,14 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           exportArea.select();
           document.execCommand("copy");
         }
-        showToast2("In Zwischenablage kopiert", "success");
+        showToast("In Zwischenablage kopiert", "success");
       } catch (_e) {
         exportArea.select();
         try {
           document.execCommand("copy");
-          showToast2("Kopiert (Fallback)", "success");
+          showToast("Kopiert (Fallback)", "success");
         } catch (_e2) {
-          showToast2("Konnte nicht kopieren", "error");
+          showToast("Konnte nicht kopieren", "error");
         }
       }
     });
@@ -8997,7 +9020,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       a.href = URL.createObjectURL(blob);
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 2500);
-      showToast2("Datei gestartet", "success");
+      showToast("Datei gestartet", "success");
     });
     exBtnGroup.appendChild(btnGenerateExport);
     exBtnGroup.appendChild(btnCopyExport);
@@ -9060,7 +9083,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const r = new FileReader();
       r.onload = () => {
         importArea.value = String(r.result || "");
-        showToast2("Datei eingeladen – bitte prüfen", "success");
+        showToast("Datei eingeladen – bitte prüfen", "success");
       };
       r.readAsText(file);
     });
@@ -9070,7 +9093,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const r = new FileReader();
       r.onload = () => {
         importArea.value = String(r.result || "");
-        showToast2("Datei eingeladen", "success");
+        showToast("Datei eingeladen", "success");
       };
       r.readAsText(file);
       fileInp.value = "";
@@ -9085,13 +9108,13 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     const btnImport = mkBtn("primary", "Import durchführen", async () => {
       const text = importArea.value.trim();
       if (!text) {
-        showToast2("Import: Textfeld ist leer", "warn");
+        showToast("Import: Textfeld ist leer", "warn");
         return;
       }
       try {
         JSON.parse(text);
       } catch (err) {
-        showToast2("Ungültiges JSON: " + err, "error");
+        showToast("Ungültiges JSON: " + err, "error");
         return;
       }
       const ok = await confirmAsync("Import ersetzt die geladenen Konfig-Daten im Popup (vorher automatisches Backup in GM-Speicher). Fortfahren?");
@@ -9126,9 +9149,9 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         onConfigListUiChanged();
         renderConfig();
         refreshExportArea();
-        showToast2("Import angewendet. Backup-Zeitstempel: " + ts + mergeInfo + ". Bitte Speichern klicken.", "success");
+        showToast("Import angewendet. Backup-Zeitstempel: " + ts + mergeInfo + ". Bitte Speichern klicken.", "success");
       } catch (e2) {
-        showToast2("Fehler beim Import: " + e2, "error");
+        showToast("Fehler beim Import: " + e2, "error");
       }
     });
     imFooter.appendChild(btnImport);
@@ -9175,7 +9198,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     }
     const btnStoreGenerateExport = mkBtn("ghost", "Aktualisieren", () => {
       refreshPriceStoreExportArea();
-      showToast2("Preisdaten-Export aktualisiert", "success");
+      showToast("Preisdaten-Export aktualisiert", "success");
     });
     const btnStoreCopyExport = mkBtn("ghost", "Kopieren", async () => {
       refreshPriceStoreExportArea();
@@ -9186,14 +9209,14 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           storeExportArea.select();
           document.execCommand("copy");
         }
-        showToast2("Preisdaten in Zwischenablage kopiert", "success");
+        showToast("Preisdaten in Zwischenablage kopiert", "success");
       } catch (_e) {
         storeExportArea.select();
         try {
           document.execCommand("copy");
-          showToast2("Kopiert (Fallback)", "success");
+          showToast("Kopiert (Fallback)", "success");
         } catch (_e2) {
-          showToast2("Konnte nicht kopieren", "error");
+          showToast("Konnte nicht kopieren", "error");
         }
       }
     });
@@ -9207,7 +9230,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       a.href = URL.createObjectURL(blob);
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 2500);
-      showToast2("Preisdaten-Datei gestartet", "success");
+      showToast("Preisdaten-Datei gestartet", "success");
     });
     storeExBtnGroup.appendChild(btnStoreGenerateExport);
     storeExBtnGroup.appendChild(btnStoreCopyExport);
@@ -9275,7 +9298,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const r = new FileReader();
       r.onload = () => {
         storeImportArea.value = String(r.result || "");
-        showToast2("Preisdaten-Datei eingeladen", "success");
+        showToast("Preisdaten-Datei eingeladen", "success");
       };
       r.readAsText(file);
     });
@@ -9285,7 +9308,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const r = new FileReader();
       r.onload = () => {
         storeImportArea.value = String(r.result || "");
-        showToast2("Preisdaten-Datei eingeladen", "success");
+        showToast("Preisdaten-Datei eingeladen", "success");
       };
       r.readAsText(file);
       storeFileInp.value = "";
@@ -9295,7 +9318,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     const btnStoreImport = mkBtn("primary", "Preisdaten importieren", () => {
       const text = storeImportArea.value.trim();
       if (!text) {
-        showToast2("Import: Textfeld ist leer", "warn");
+        showToast("Import: Textfeld ist leer", "warn");
         return;
       }
       try {
@@ -9304,10 +9327,10 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const merged = mergePriceDataStoreImport(source);
         notifyCohortCacheUpdated();
         appendSrpDebugLog("info", "Preisdaten-Store Import (Konfig-Tab)", merged);
-        showToast2("Preisdaten importiert: " + merged.mergedAds + " Ads, " + merged.mergedCohorts + " Kohorten", "success");
+        showToast("Preisdaten importiert: " + merged.mergedAds + " Ads, " + merged.mergedCohorts + " Kohorten", "success");
         refreshPriceStoreExportArea();
       } catch (err) {
-        showToast2("Ungültiges Preisdaten-JSON: " + err, "error");
+        showToast("Ungültiges Preisdaten-JSON: " + err, "error");
       }
     });
     storeImFooter.appendChild(btnStoreImport);
@@ -9360,7 +9383,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       aktuelleFeatureFlags.debug = { ...currentDebug, enabled: next };
       persistDebugMaster(next);
       renderConfig();
-      showToast2(
+      showToast(
         next ? "Debug-Modus aktiv — Ausgaben in der Browser-Konsole (F12)" : "Debug-Modus deaktiviert",
         "success"
       );
@@ -9373,7 +9396,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       markDirty();
       onConfigListUiChanged();
       renderConfig();
-      showToast2("Feature-Flags zurückgesetzt", "success");
+      showToast("Feature-Flags zurückgesetzt", "success");
     };
     function onListOrderChanged() {
       aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
@@ -10183,7 +10206,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         aktuelleAusstattungsKonfig = applyPreisGewichtDefaults(aktuelleAusstattungsKonfig);
         markDirty();
         renderWeightRows();
-        showToast2("Premium-Gewichte übernommen", "success");
+        showToast("Premium-Gewichte übernommen", "success");
       }));
       wtBulk.appendChild(mkBtn("clearw", "Alle Gewichte auf 0", async () => {
         const ok = await confirmPrImpact(
@@ -10194,7 +10217,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         aktuelleAusstattungsKonfig = clearAllPreisGewichte(aktuelleAusstattungsKonfig);
         markDirty();
         renderWeightRows();
-        showToast2("Alle Gewichte zurückgesetzt", "success");
+        showToast("Alle Gewichte zurückgesetzt", "success");
       }));
       prBody.appendChild(wtBulk);
       prCard.appendChild(prBody);
@@ -10248,7 +10271,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           persistDebugMaster(false);
           aktuelleFeatureFlags = ladeFeatureFlags();
           renderConfig();
-          showToast2("Debug-Modus deaktiviert", "success");
+          showToast("Debug-Modus deaktiviert", "success");
         });
         const dbgAllOn = mkBtn("dbg-all-on", "Alle Module an", () => {
           const curr = getDebugConfig(aktuelleFeatureFlags);
@@ -10258,7 +10281,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             scopes[def.key] = nextAllOn;
           });
           applyScopesFromPreset(scopes, nextAllOn);
-          showToast2(nextAllOn ? "Alle Debug-Module aktiviert" : "Alle Debug-Module deaktiviert", "success");
+          showToast(nextAllOn ? "Alle Debug-Module aktiviert" : "Alle Debug-Module deaktiviert", "success");
         });
         const dbgLog = mkBtn("dbg-log", "Kohorte jetzt loggen", () => {
           runManualCohortLog();
@@ -10271,18 +10294,17 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           "toggle",
           "Debug-Log-Cards: " + (srpLogCardsOn ? "an" : "aus"),
           () => {
-            const now = getDebugConfig(aktuelleFeatureFlags);
-            persistDebugConfig({ ...now, showSrpLogCard: !now.showSrpLogCard });
+            const nextOn = !isSrpLogCardEnabled(aktuelleFeatureFlags);
+            persistShowSrpLogCard(nextOn);
             aktuelleFeatureFlags = ladeFeatureFlags();
-            if (isSrpLogCardEnabled(aktuelleFeatureFlags)) {
-              ensureSrpDebugLogCard();
-              ensureDetailDebugLogCard();
-            } else {
-              removeSrpDebugLogCard();
-              removeDetailDebugLogCard();
+            syncDebugLogCardsOnPage();
+            if (nextOn) {
+              appendSrpDebugLog("info", "Debug-Log-Cards aktiviert", {
+                page: isSearchResultsPage() ? "srp" : isVehicleDetailPage() ? "detail" : "other"
+              });
             }
             renderConfig();
-            showToast2("Debug-Log-Cards " + (isSrpLogCardEnabled(aktuelleFeatureFlags) ? "aktiviert" : "deaktiviert"), "success");
+            showToast("Debug-Log-Cards " + (nextOn ? "aktiviert" : "deaktiviert"), "success");
           }
         );
         dbgAllOn.classList.toggle("mc-btn--toggle-active", areAllScopesEnabled(dbgCfg));
@@ -10310,7 +10332,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
               persistDebugScope(def.key, next);
               aktuelleFeatureFlags = ladeFeatureFlags();
               renderConfig();
-              showToast2(def.label + (next ? " Debug aktiv" : " Debug aus"), "success");
+              showToast(def.label + (next ? " Debug aktiv" : " Debug aus"), "success");
             }
           );
           btn.classList.toggle("mc-btn--toggle-active", scopeOn);
@@ -10435,7 +10457,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       syncSaveBtn();
       saveBtn.disabled = true;
       saveBtn.textContent = "✔ Gespeichert";
-      showToast2("Konfiguration gespeichert — Popup bleibt offen.", "success");
+      showToast("Konfiguration gespeichert — Popup bleibt offen.", "success");
       if (isSearchResultsPage()) resetSrpSortOverrideAndApply();
       clearResults();
       clearPriceRatingUi();

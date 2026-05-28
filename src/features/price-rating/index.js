@@ -1869,8 +1869,6 @@ export function disconnectSrpPriceRatingObserver() {
 }
 export const inflightRatingByAdId = new Map();
 export let srpPriceRatingIo = null;
-export const SRP_DEBUG_LOG_MAX_ENTRIES = 100;
-export let srpDebugLogEntries = [];
 
 export function injectPriceRatingStyles() {
     if (document.getElementById('mobilede-price-rating-style')) return;

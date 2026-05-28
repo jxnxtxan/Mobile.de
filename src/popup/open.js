@@ -40,6 +40,7 @@ import {
     persistDebugConfig,
     persistDebugMaster,
     persistDebugScope,
+    persistShowSrpLogCard,
     featureFlagsDefault,
     ladeFeatureFlags,
     persistPriceRatingPerfDebug,
@@ -77,8 +78,10 @@ import {
     ensureSrpDebugLogCard,
     removeSrpDebugLogCard,
     removeDetailDebugLogCard,
-    ensureDetailDebugLogCard,
+    syncDebugLogCardsOnPage,
+    appendSrpDebugLog,
 } from '../features/srp-sort/index.js';
+import { isVehicleDetailPage } from '../core/page-context.js';
 import { KONFIG_TAB_HELP_HTML } from './help/tabs.js';
 
 export function oeffneKonfigPopup() {
@@ -2469,6 +2472,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             setTimeout(() => t.remove(), 400);
         }, 3200);
     }
+    window.__mobiledeShowToast = showToast;
 
     function confirmAsync(msg) {
         return new Promise(resolve => {
@@ -2532,6 +2536,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         document.removeEventListener('keydown', escListener);
         document.body.style.overflow = prevBodyOverflow;
         try { delete pageWindow.__mobiledeDragDiag; } catch (_e) { pageWindow.__mobiledeDragDiag = undefined; }
+        try { delete window.__mobiledeShowToast; } catch (_e) { window.__mobiledeShowToast = undefined; }
         overlay.remove();
     }
 
@@ -5703,18 +5708,17 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                 'toggle',
                 'Debug-Log-Cards: ' + (srpLogCardsOn ? 'an' : 'aus'),
                 () => {
-                    const now = getDebugConfig(aktuelleFeatureFlags);
-                    persistDebugConfig({ ...now, showSrpLogCard: !now.showSrpLogCard });
+                    const nextOn = !isSrpLogCardEnabled(aktuelleFeatureFlags);
+                    persistShowSrpLogCard(nextOn);
                     aktuelleFeatureFlags = ladeFeatureFlags();
-                    if (isSrpLogCardEnabled(aktuelleFeatureFlags)) {
-                        ensureSrpDebugLogCard();
-                        ensureDetailDebugLogCard();
-                    } else {
-                        removeSrpDebugLogCard();
-                        removeDetailDebugLogCard();
+                    syncDebugLogCardsOnPage();
+                    if (nextOn) {
+                        appendSrpDebugLog('info', 'Debug-Log-Cards aktiviert', {
+                            page: isSearchResultsPage() ? 'srp' : (isVehicleDetailPage() ? 'detail' : 'other'),
+                        });
                     }
                     renderConfig();
-                    showToast('Debug-Log-Cards ' + (isSrpLogCardEnabled(aktuelleFeatureFlags) ? 'aktiviert' : 'deaktiviert'), 'success');
+                    showToast('Debug-Log-Cards ' + (nextOn ? 'aktiviert' : 'deaktiviert'), 'success');
                 }
             );
             dbgAllOn.classList.toggle('mc-btn--toggle-active', areAllScopesEnabled(dbgCfg));

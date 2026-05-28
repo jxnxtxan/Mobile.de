@@ -16,10 +16,7 @@ import {
     handleSrpUrlChange,
     destroySrpSortBehavior,
     isSearchResultsPage,
-    ensureSrpDebugLogCard,
-    removeSrpDebugLogCard,
-    ensureDetailDebugLogCard,
-    removeDetailDebugLogCard,
+    syncDebugLogCardsOnPage,
 } from '../features/srp-sort/index.js';
 import { PRICE_COHORT_CACHE_PREFIX } from '../config/constants.js';
 import { ensureConfigButton } from '../core/search/popup-bridge.js';
@@ -41,13 +38,11 @@ export function onUrlChange() {
         ensureSrpSortBehavior();
         handleSrpUrlChange();
         ensureSrpPriceRatingObserver();
-        ensureSrpDebugLogCard();
-        removeDetailDebugLogCard();
+        syncDebugLogCardsOnPage();
     } else {
         destroySrpSortBehavior();
         disconnectSrpPriceRatingObserver();
-        removeSrpDebugLogCard();
-        ensureDetailDebugLogCard();
+        syncDebugLogCardsOnPage();
         scheduleTask('rating:vip-after-nav', 'rating', () => {
             preisBewertungAktualisieren({ force: true });
         });
@@ -79,6 +74,5 @@ export function initApp() {
     });
     initSrpSortBehavior();
     scheduleTask('rating:srp-observer-init', 'rating', () => ensureSrpPriceRatingObserver());
-    scheduleTask('ui:srp-debug-card-init', 'ui', () => ensureSrpDebugLogCard());
-    scheduleTask('ui:detail-debug-card-init', 'ui', () => ensureDetailDebugLogCard());
+    scheduleTask('ui:debug-log-cards-init', 'ui', () => syncDebugLogCardsOnPage());
 }
