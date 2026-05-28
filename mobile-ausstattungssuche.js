@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.15.8
+// @version      2.15.12
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile.de
@@ -2784,6 +2784,21 @@ article.mobilede-tech-article,article.mobilede-result-article{
         ].join('|').toLowerCase();
     }
 
+    function cohortHumanLabel(profile, prCfg) {
+        if (!profile) return null;
+        const p = profileForCohortCacheKey(profile, prCfg);
+        const model = [p.make || p.makeId || '', p.model || p.modelId || '']
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+        const parts = [];
+        if (model) parts.push(model);
+        if (typeof p.firstRegistrationYear === 'number') parts.push('EZ-Bucket ' + p.firstRegistrationYear);
+        if (typeof p.mileageKm === 'number') parts.push('km-Bucket ' + p.mileageKm.toLocaleString('de-DE'));
+        if (typeof p.powerKw === 'number') parts.push('kW-Bucket ' + p.powerKw);
+        return parts.join(' | ');
+    }
+
     function cohortCacheStorageKey(key) {
         return PRICE_COHORT_CACHE_PREFIX + key;
     }
@@ -3382,10 +3397,15 @@ article.mobilede-tech-article,article.mobilede-result-article{
   background:rgba(255,255,255,.08);color:var(--mdr-muted,#aeb0ba);
 }
 .mobilede-price-rating__info{
-  cursor:pointer;border:0;background:transparent;color:var(--mdr-muted,#aeb0ba);
-  font-size:14px;padding:2px 6px;border-radius:4px;line-height:1;
+  cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
+  width:18px;height:18px;border-radius:50%;
+  border:1px solid rgba(174,176,186,.65);background:transparent;color:var(--mdr-muted,#aeb0ba);
+  font-size:12px;font-weight:700;line-height:1;padding:0;
+  font-family:"Segoe UI",Tahoma,Arial,sans-serif;
 }
-.mobilede-price-rating__info:hover{background:rgba(255,255,255,.08);color:#fff;}
+.mobilede-price-rating__info:hover{
+  border-color:rgba(255,255,255,.9);background:rgba(255,255,255,.08);color:#fff;
+}
 .mobilede-price-rating--loading .mobilede-price-rating__bars{opacity:.4;}
 .mobilede-price-rating-modal{
   position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;
@@ -3579,7 +3599,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 info.type = 'button';
                 info.className = 'mobilede-price-rating__info';
                 info.setAttribute('aria-label', 'Vergleichssuche manuell öffnen');
-                info.textContent = 'ⓘ';
+                info.textContent = '?';
                 const prof = buildVehicleProfile();
                 info.addEventListener('click', e => {
                     e.preventDefault();
@@ -3604,7 +3624,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
         info.type = 'button';
         info.className = 'mobilede-price-rating__info';
         info.setAttribute('aria-label', 'Details zur Preisbewertung');
-        info.textContent = 'ⓘ';
+        info.textContent = '?';
         info.addEventListener('click', e => {
             e.preventDefault();
             e.stopPropagation();
@@ -4330,6 +4350,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const payload = {
             profileId: prof.id,
             cacheKey: cohortRes.cacheKey,
+            cohortHuman: cohortHumanLabel(prof, prCfg),
             count: cohortRes.items.length,
             vipDetails: countCohortVipDetailCount(cohortRes.items),
             needsManualSearch: !!cohortRes.needsManualSearch
@@ -4366,6 +4387,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             rawListings: rawList.length,
             parsedComparables: items.length,
             cacheKey,
+            cohortHuman: prof ? cohortHumanLabel(prof, prCfg) : null,
             cachedCount: Array.isArray(cached) ? cached.length : 0,
             profileFromUrl: prof ? {
                 makeId: prof.makeId || '',
@@ -4379,6 +4401,75 @@ article.mobilede-tech-article,article.mobilede-result-article{
         console.info('[mobilede Preis]', 'Manueller SRP-Status', payload);
         appendSrpDebugLog('info', 'Manueller SRP-Status', payload);
         showToast('SRP-Status wurde geloggt', 'success');
+    }
+
+    function runManualPriceRatingUiLog() {
+        if (!isVehicleDetailPage()) {
+            appendSrpDebugLog('warn', 'Preisbewertung-UI nicht verfuegbar', { reason: 'Nicht auf Detailseite' });
+            showToast('Nur auf einer Fahrzeugdetailseite', 'warn');
+            return;
+        }
+        const profile = buildVehicleProfile();
+        const adId = profile && profile.id ? String(profile.id) : null;
+        const wrap = document.querySelector('.mobilede-price-rating');
+        const row = wrap ? wrap.querySelector('.mobilede-price-rating__row') : null;
+        const bars = wrap ? wrap.querySelectorAll('.mobilede-price-rating__bar') : [];
+        const barsOn = wrap ? wrap.querySelectorAll('.mobilede-price-rating__bar--on') : [];
+        const labelEl = wrap ? wrap.querySelector('.mobilede-price-rating__label') : null;
+        const tagEl = wrap ? wrap.querySelector('.mobilede-price-rating__tag') : null;
+        const subEl = wrap ? wrap.querySelector('.mobilede-price-rating__sub') : null;
+        const infoEl = wrap ? wrap.querySelector('.mobilede-price-rating__info') : null;
+        const csInfo = infoEl ? getComputedStyle(infoEl) : null;
+        const csTag = tagEl ? getComputedStyle(tagEl) : null;
+        const ratingCache = adId ? (readRatingUiCache(adId) || readRatingCache(adId)) : null;
+        const payload = {
+            profileId: adId,
+            cohortHuman: profile ? cohortHumanLabel(profile, getPriceRating(featureFlags)) : null,
+            hasWidget: !!wrap,
+            widgetClass: wrap ? wrap.className : null,
+            hasRow: !!row,
+            barsTotal: bars ? bars.length : 0,
+            barsOn: barsOn ? barsOn.length : 0,
+            labelText: labelEl ? labelEl.textContent.trim() : '',
+            tagText: tagEl ? tagEl.textContent.trim() : '',
+            subText: subEl ? subEl.textContent.trim() : '',
+            infoButtonText: infoEl ? infoEl.textContent.trim() : '',
+            infoButtonStyle: csInfo ? {
+                width: csInfo.width,
+                height: csInfo.height,
+                lineHeight: csInfo.lineHeight,
+                fontSize: csInfo.fontSize,
+                fontWeight: csInfo.fontWeight,
+                fontFamily: csInfo.fontFamily,
+                borderRadius: csInfo.borderRadius,
+                borderTop: csInfo.borderTopWidth + ' ' + csInfo.borderTopStyle + ' ' + csInfo.borderTopColor
+            } : null,
+            tagStyle: csTag ? {
+                fontSize: csTag.fontSize,
+                lineHeight: csTag.lineHeight,
+                padding: csTag.padding
+            } : null,
+            ratingCache: ratingCache ? {
+                ok: !!ratingCache.ok,
+                label: ratingCache.label || null,
+                level: typeof ratingCache.level === 'number' ? ratingCache.level : null,
+                price: typeof ratingCache.price === 'number' ? ratingCache.price : null,
+                adjustedExpected: typeof ratingCache.adjustedExpected === 'number' ? ratingCache.adjustedExpected : null,
+                basePrice: typeof ratingCache.basePrice === 'number' ? ratingCache.basePrice : null,
+                devEuro: typeof ratingCache.devEuro === 'number' ? ratingCache.devEuro : null,
+                devPct: typeof ratingCache.devPct === 'number'
+                    ? Math.round(ratingCache.devPct * 10000) / 100
+                    : null,
+                mobileLabel: ratingCache.mobileLabel || null,
+                cohortCount: typeof ratingCache.cohortCount === 'number' ? ratingCache.cohortCount : null,
+                cohortVipDetailCount: typeof ratingCache.cohortVipDetailCount === 'number' ? ratingCache.cohortVipDetailCount : null,
+                usedMobileFallback: !!ratingCache.usedMobileFallback,
+                insufficientCohort: !!ratingCache.insufficientCohort
+            } : null
+        };
+        console.info('[mobilede Preis]', 'Manuelle Preisbewertung-UI', payload);
+        appendSrpDebugLog('info', 'Manuelle Preisbewertung-UI', payload);
+        showToast('Preisbewertung-UI wurde geloggt', 'success');
     }
 
     function renderDebugLogIntoCard(cardId) {
@@ -4538,6 +4629,12 @@ article.mobilede-tech-article,article.mobilede-result-article{
             bCohort.textContent = 'Kohorte jetzt loggen';
             bCohort.addEventListener('click', runManualCohortLog);
             actions.appendChild(bCohort);
+            const bRatingUi = document.createElement('button');
+            bRatingUi.type = 'button';
+            bRatingUi.className = 'mobilede-srp-debug-card__btn';
+            bRatingUi.textContent = 'Preisbewertung-UI loggen';
+            bRatingUi.addEventListener('click', runManualPriceRatingUiLog);
+            actions.appendChild(bRatingUi);
             const bClear = document.createElement('button');
             bClear.type = 'button';
             bClear.className = 'mobilede-srp-debug-card__btn';
