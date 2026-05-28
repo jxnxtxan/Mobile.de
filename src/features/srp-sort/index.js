@@ -1,12 +1,35 @@
 import { SRP_SORT_OPTIONS } from '../../config/constants.js';
 import { runtimeState } from '../../config/runtime-state.js';
+import { isSearchResultsPage, isVehicleDetailPage } from '../../core/page-context.js';
 import {
     getDebugConfig, getSrpSort, findSrpSortOption, hasSrpSortUserOverride,
     markSrpSortUserOverride, clearSrpSortUserOverride, clearSrpSortSessionState,
     getStoredSrpUserChoice, setStoredSrpUserChoice, clearStoredSrpUserChoice,
     getStoredSrpSortApplied, markSrpSortApplied, clearStoredSrpSortApplied,
-    srpSortParamsEqual,
+    srpSortParamsEqual, getPriceRating,
 } from '../../config/feature-flags/index.js';
+import {
+    injectPriceRatingStyles,
+    buildVehicleProfile,
+    getCohortComparables,
+    cohortHumanLabel,
+    countCohortVipDetailCount,
+    getPageInitialState,
+    findSrpListingsInState,
+    parseCohortItemsFromState,
+    profileFromSearchPageUrl,
+    enrichCohortItemFromSearchContext,
+    cohortCacheKey,
+    readCohortCache,
+    readVipCohortAnchors,
+    readRatingUiCache,
+    readRatingCache,
+    readPriceDataStore,
+    mergePriceDataStoreImport,
+    notifyCohortCacheUpdated,
+} from '../price-rating/index.js';
+
+export { isSearchResultsPage };
 
 const SRP_DEBUG_LOG_MAX_ENTRIES = 100;
 
@@ -19,10 +42,6 @@ export let lastPolledSrpSort = null;
 export let srpSortMo = null;
 export let srpSortPollTimerId = null;
 export let srpSortOnPageshow = null;
-
-export function isSearchResultsPage() {
-    return /\/fahrzeuge\/search\.html/.test(location.pathname);
-}
 
 export function isSrpLogCardEnabled(flags) {
     const dbg = getDebugConfig(flags || runtimeState.featureFlags);

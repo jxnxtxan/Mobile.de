@@ -48,6 +48,9 @@ export function onUrlChange() {
         disconnectSrpPriceRatingObserver();
         removeSrpDebugLogCard();
         ensureDetailDebugLogCard();
+        scheduleTask('rating:vip-after-nav', 'rating', () => {
+            preisBewertungAktualisieren({ force: true });
+        });
     }
     setTimeout(ensureConfigButton, 1500);
 }

@@ -14,7 +14,10 @@ import { getDescriptionEl } from '../../core/dom/selectors.js';
 import { runtimeState } from '../../config/runtime-state.js';
 import { debugLog, getDebugConfig, isDebugEnabled, getPriceRating, isPriceRatingEnabled, getSrpSort, mergePriceRating } from '../../config/feature-flags/index.js';
 import { getFavoriteAnzeigeKeys } from '../../config/list-helpers.js';
-import { isSearchResultsPage } from '../srp-sort/index.js';
+import { isSearchResultsPage, isVehicleDetailPage } from '../../core/page-context.js';
+import { requestIdle } from '../../core/util/request-idle.js';
+
+export { isVehicleDetailPage };
 
 export function isPriceRatingDebugEnabled() {
     return isDebugEnabled('price');
@@ -46,11 +49,6 @@ export function pricePerfMarkEnd(label, startMs, warnMs) {
         console[level](prefix, label, duration + 'ms');
     }
     return duration;
-}
-
-export function isVehicleDetailPage() {
-    return /\/fahrzeuge\/details\.html/.test(location.pathname)
-        || /\/auto-inserat\//.test(location.pathname);
 }
 
 export function getAdIdFromUrl(href) {
@@ -1839,6 +1837,20 @@ export let priceRatingFetchToken = 0;
 
 export function priceRatingFetchTokenIncrement() { priceRatingFetchToken++; }
 
+function scheduleStaleRatingRetry(profile) {
+    const adId = profile && profile.id ? String(profile.id) : '';
+    if (!adId) {
+        renderVipPriceRatingWidget(null, false);
+        return;
+    }
+    setTimeout(() => {
+        if (!isVehicleDetailPage()) return;
+        const current = buildVehicleProfile();
+        if (!current || String(current.id) !== adId) return;
+        preisBewertungAktualisieren({ force: true });
+    }, 80);
+}
+
 export let vipRatingUpdateInFlight = false;
 export let vipRatingLastRunSig = '';
 export let vipRatingLastRunTs = 0;
@@ -2281,6 +2293,7 @@ export async function preisBewertungAktualisieren(opts) {
         } catch (e) { /* noop */ }
         if (token !== priceRatingFetchToken) {
             priceRatingDebugLog('Preisbewertung Lauf verworfen: Token gewechselt', { adId: profile.id, token });
+            scheduleStaleRatingRetry(profile);
             return;
         }
 
@@ -2309,9 +2322,17 @@ export async function preisBewertungAktualisieren(opts) {
             });
         }
 
-        const rating = await computeAndCacheRatingForProfileAsync(profile);
+        let rating;
+        try {
+            rating = await computeAndCacheRatingForProfileAsync(profile);
+        } catch (err) {
+            console.error('[mobilede Preis]', err);
+            renderVipPriceRatingWidget({ ok: false, reason: 'error' }, false);
+            return;
+        }
         if (token !== priceRatingFetchToken) {
             priceRatingDebugLog('Preisbewertung Recompute verworfen: Token gewechselt', { adId: profile.id, token });
+            scheduleStaleRatingRetry(profile);
             return;
         }
         renderVipPriceRatingWidget(rating, false);

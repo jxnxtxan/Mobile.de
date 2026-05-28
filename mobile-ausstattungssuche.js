@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.5
+// @version      2.16.6
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -328,11 +328,11 @@
     }
     return out;
   }
-  function getPriceRating$1(flags) {
+  function getPriceRating(flags) {
     return mergePriceRating(flags && flags.priceRating);
   }
   function isPriceRatingEnabled(prCfg) {
-    const pr = prCfg || getPriceRating$1(runtimeState.featureFlags);
+    const pr = prCfg || getPriceRating(runtimeState.featureFlags);
     return pr.enabled !== false;
   }
   function getSrpSort(flags) {
@@ -1703,570 +1703,17 @@ Kontext: …${item.snippet}…` : "";
       return window;
     }
   }
-  const SRP_DEBUG_LOG_MAX_ENTRIES = 100;
-  let applyingDefaultSrpSort = false;
-  let lastSrpFingerprint = null;
-  let lastPolledSrpSort = null;
-  let srpSortMo = null;
-  let srpSortPollTimerId = null;
-  let srpSortOnPageshow = null;
   function isSearchResultsPage() {
     return /\/fahrzeuge\/search\.html/.test(location.pathname);
   }
-  function isSrpLogCardEnabled$1(flags) {
-    const dbg = getDebugConfig(flags || runtimeState.featureFlags);
-    return dbg && dbg.showSrpLogCard === true;
+  function isVehicleDetailPage() {
+    return /\/fahrzeuge\/details\.html/.test(location.pathname) || /\/auto-inserat\//.test(location.pathname);
   }
-  function serializeSrpDebugPayload(payload) {
-    if (payload == null) return "";
-    if (typeof payload === "string") return payload;
-    try {
-      return JSON.stringify(payload, null, 2);
-    } catch (e) {
-      return String(payload);
+  function requestIdle(fn, timeoutMs) {
+    if (typeof requestIdleCallback === "function") {
+      return requestIdleCallback(fn, { timeout: timeoutMs || 350 });
     }
-  }
-  function appendSrpDebugLog$1(level, label, payload) {
-    const ts = ( new Date()).toLocaleTimeString("de-DE", { hour12: false });
-    const line = `[${ts}] ${String(level || "info").toUpperCase()} ${label}${payload == null ? "" : "\n" + serializeSrpDebugPayload(payload)}`;
-    srpDebugLogEntries.push({ level: level || "info", text: line });
-    if (srpDebugLogEntries.length > SRP_DEBUG_LOG_MAX_ENTRIES) {
-      srpDebugLogEntries = srpDebugLogEntries.slice(-SRP_DEBUG_LOG_MAX_ENTRIES);
-    }
-    renderSrpDebugLogCard();
-  }
-  function clearSrpDebugLog() {
-    srpDebugLogEntries = [];
-    renderSrpDebugLogCard();
-  }
-  function getSrpDebugLogText() {
-    if (!srpDebugLogEntries.length) return "Noch keine Logs vorhanden.";
-    return srpDebugLogEntries.map((e) => e.text).join("\n\n");
-  }
-  async function copySrpDebugLogToClipboard(sourceBtn) {
-    const safeToast = (msg, kind) => {
-      if (typeof showToast === "function") showToast(msg, kind);
-    };
-    const setButtonFeedback = (tempLabel) => {
-      if (!sourceBtn) return;
-      const base = sourceBtn.dataset.defaultLabel || "⧉ Copy";
-      if (sourceBtn._copyResetTimer) clearTimeout(sourceBtn._copyResetTimer);
-      sourceBtn.textContent = tempLabel;
-      sourceBtn.disabled = true;
-      sourceBtn._copyResetTimer = setTimeout(() => {
-        sourceBtn.textContent = base;
-        sourceBtn.disabled = false;
-        sourceBtn._copyResetTimer = null;
-      }, 1100);
-    };
-    const text = getSrpDebugLogText();
-    try {
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-        await navigator.clipboard.writeText(text);
-        setButtonFeedback("Kopiert!");
-        safeToast("Debug-Logs kopiert", "success");
-        return;
-      }
-    } catch (e) {
-    }
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.setAttribute("readonly", "readonly");
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand("copy");
-      ta.remove();
-      if (ok) {
-        setButtonFeedback("Kopiert!");
-        safeToast("Debug-Logs kopiert", "success");
-      } else safeToast("Kopieren nicht moeglich", "warn");
-    } catch (e2) {
-      safeToast("Kopieren nicht moeglich", "warn");
-      setButtonFeedback("Fehler");
-    }
-  }
-  function runManualCohortLog() {
-    const prof = buildVehicleProfile();
-    if (!prof || !prof.id) {
-      console.warn("[mobilede Preis]", "Kein Fahrzeugprofil auf dieser Seite");
-      appendSrpDebugLog$1("warn", "Kohorten-Check nicht moeglich", { reason: "Kein Fahrzeugprofil auf dieser Seite" });
-      showToast("Nur auf einer Fahrzeugdetailseite mit Inserat-ID", "warn");
-      return;
-    }
-    const prCfg = getPriceRating(runtimeState.featureFlags);
-    const cohortRes = getCohortComparables(prof, prCfg);
-    const payload = {
-      profileId: prof.id,
-      cacheKey: cohortRes.cacheKey,
-      cohortHuman: cohortHumanLabel(prof, prCfg),
-      count: cohortRes.items.length,
-      vipDetails: countCohortVipDetailCount(cohortRes.items),
-      needsManualSearch: !!cohortRes.needsManualSearch
-    };
-    console.info("[mobilede Preis]", "Manueller Kohorten-Check", payload);
-    appendSrpDebugLog$1("info", "Manueller Kohorten-Check", payload);
-    showToast("Kohorte wurde geloggt", "success");
-  }
-  function runManualSrpStatusLog() {
-    if (!isSearchResultsPage()) {
-      console.warn("[mobilede Preis]", "SRP-Status nur auf Suchergebnisseite verfügbar");
-      appendSrpDebugLog$1("warn", "SRP-Status nicht verfuegbar", { reason: "Nicht auf Suchergebnisseite" });
-      showToast("Nur auf einer Suchergebnisseite (SRP)", "warn");
-      return;
-    }
-    const state = getPageInitialState();
-    if (!state) {
-      console.warn("[mobilede Preis]", "SRP-Status: kein __INITIAL_STATE__ vorhanden");
-      appendSrpDebugLog$1("warn", "SRP-Status ohne __INITIAL_STATE__", null);
-      showToast("Kein __INITIAL_STATE__ auf dieser SRP", "warn");
-      return;
-    }
-    const rawList = findSrpListingsInState(state);
-    const items = parseCohortItemsFromState(state, null);
-    const prof = profileFromSearchPageUrl(location.href);
-    const prCfg = getPriceRating(runtimeState.featureFlags);
-    const enrichedForLog = prof ? items.map((it) => enrichCohortItemFromSearchContext(it, prof)) : items;
-    const grouped = {};
-    enrichedForLog.forEach((item) => {
-      if (!item || !(item.makeId || item.make) || !(item.modelId || item.model)) return;
-      const key = cohortCacheKey(item, prCfg);
-      grouped[key] = (grouped[key] || 0) + 1;
-    });
-    const topGroups = Object.entries(grouped).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([key, count]) => ({ cacheKey: key, count }));
-    const hasMultiModelMs = !!(prof && Array.isArray(prof.searchMsList) && prof.searchMsList.length > 1);
-    const cacheKey = prof && (prof.makeId || prof.make || prof.modelId || prof.model) ? hasMultiModelMs ? null : cohortCacheKey(prof, prCfg) : null;
-    const cached = cacheKey ? readCohortCache(cacheKey) : null;
-    const anchorCount = readVipCohortAnchors().length;
-    const payload = {
-      url: location.href,
-      rawListings: rawList.length,
-      parsedComparables: items.length,
-      cacheKey,
-      cohortHuman: prof ? cohortHumanLabel(prof, prCfg) : null,
-      cachedCount: Array.isArray(cached) ? cached.length : 0,
-      vipAnchors: anchorCount,
-      modelGroupsDetected: topGroups,
-      profileFromUrl: prof ? {
-        makeId: prof.makeId || "",
-        modelId: prof.modelId || "",
-        modelGroupId: prof.modelGroupId || "",
-        modelIdList: Array.isArray(prof.modelIdList) ? prof.modelIdList : [],
-        msCount: Array.isArray(prof.searchMsList) ? prof.searchMsList.length : 0,
-        mileageKm: prof.mileageKm,
-        firstRegistrationYear: prof.firstRegistrationYear,
-        powerKw: prof.powerKw
-      } : null
-    };
-    console.info("[mobilede Preis]", "Manueller SRP-Status", payload);
-    appendSrpDebugLog$1("info", "Manueller SRP-Status", payload);
-    showToast("SRP-Status wurde geloggt", "success");
-  }
-  function runManualPriceRatingUiLog() {
-    if (!isVehicleDetailPage()) {
-      appendSrpDebugLog$1("warn", "Preisbewertung-UI nicht verfuegbar", { reason: "Nicht auf Detailseite" });
-      showToast("Nur auf einer Fahrzeugdetailseite", "warn");
-      return;
-    }
-    const profile = buildVehicleProfile();
-    const adId = profile && profile.id ? String(profile.id) : null;
-    const wrap = document.querySelector(".mobilede-price-rating");
-    const row = wrap ? wrap.querySelector(".mobilede-price-rating__row") : null;
-    const bars = wrap ? wrap.querySelectorAll(".mobilede-price-rating__bar") : [];
-    const barsOn = wrap ? wrap.querySelectorAll(".mobilede-price-rating__bar--on") : [];
-    const labelEl = wrap ? wrap.querySelector(".mobilede-price-rating__label") : null;
-    const tagEl = wrap ? wrap.querySelector(".mobilede-price-rating__tag") : null;
-    const subEl = wrap ? wrap.querySelector(".mobilede-price-rating__sub") : null;
-    const infoEl = wrap ? wrap.querySelector(".mobilede-price-rating__info") : null;
-    const csInfo = infoEl ? getComputedStyle(infoEl) : null;
-    const csTag = tagEl ? getComputedStyle(tagEl) : null;
-    const ratingCache = adId ? readRatingUiCache(adId) || readRatingCache(adId) : null;
-    const payload = {
-      profileId: adId,
-      cohortHuman: profile ? cohortHumanLabel(profile, getPriceRating(runtimeState.featureFlags)) : null,
-      hasWidget: !!wrap,
-      widgetClass: wrap ? wrap.className : null,
-      hasRow: !!row,
-      barsTotal: bars ? bars.length : 0,
-      barsOn: barsOn ? barsOn.length : 0,
-      labelText: labelEl ? labelEl.textContent.trim() : "",
-      tagText: tagEl ? tagEl.textContent.trim() : "",
-      subText: subEl ? subEl.textContent.trim() : "",
-      infoButtonText: infoEl ? infoEl.textContent.trim() : "",
-      infoButtonStyle: csInfo ? {
-        width: csInfo.width,
-        height: csInfo.height,
-        lineHeight: csInfo.lineHeight,
-        fontSize: csInfo.fontSize,
-        fontWeight: csInfo.fontWeight,
-        fontFamily: csInfo.fontFamily,
-        borderRadius: csInfo.borderRadius,
-        borderTop: csInfo.borderTopWidth + " " + csInfo.borderTopStyle + " " + csInfo.borderTopColor
-      } : null,
-      tagStyle: csTag ? {
-        fontSize: csTag.fontSize,
-        lineHeight: csTag.lineHeight,
-        padding: csTag.padding
-      } : null,
-      ratingCache: ratingCache ? {
-        ok: !!ratingCache.ok,
-        label: ratingCache.label || null,
-        level: typeof ratingCache.level === "number" ? ratingCache.level : null,
-        price: typeof ratingCache.price === "number" ? ratingCache.price : null,
-        adjustedExpected: typeof ratingCache.adjustedExpected === "number" ? ratingCache.adjustedExpected : null,
-        basePrice: typeof ratingCache.basePrice === "number" ? ratingCache.basePrice : null,
-        devEuro: typeof ratingCache.devEuro === "number" ? ratingCache.devEuro : null,
-        devPct: typeof ratingCache.devPct === "number" ? Math.round(ratingCache.devPct * 1e4) / 100 : null,
-        mobileLabel: ratingCache.mobileLabel || null,
-        cohortCount: typeof ratingCache.cohortCount === "number" ? ratingCache.cohortCount : null,
-        cohortVipDetailCount: typeof ratingCache.cohortVipDetailCount === "number" ? ratingCache.cohortVipDetailCount : null,
-        usedMobileFallback: !!ratingCache.usedMobileFallback,
-        insufficientCohort: !!ratingCache.insufficientCohort,
-        cohortQuality: ratingCache.insufficientCohort ? "small-cohort-fallback" : "cohort-ok"
-      } : null
-    };
-    console.info("[mobilede Preis]", "Manuelle Preisbewertung-UI", payload);
-    appendSrpDebugLog$1("info", "Manuelle Preisbewertung-UI", payload);
-    showToast("Preisbewertung-UI wurde geloggt", "success");
-  }
-  function renderDebugLogIntoCard(cardId) {
-    const existing = document.getElementById(cardId);
-    if (!existing) return;
-    const logBox = existing.querySelector(".mobilede-srp-debug-card__log");
-    const copyBtn = existing.querySelector('.mobilede-srp-debug-card__btn[data-copy-log="1"]');
-    if (copyBtn) {
-      const hasLogs = srpDebugLogEntries.length > 0;
-      copyBtn.disabled = !hasLogs;
-      copyBtn.title = hasLogs ? "Logs in Zwischenablage kopieren" : "Keine Logs zum Kopieren vorhanden";
-    }
-    if (!logBox) return;
-    logBox.innerHTML = "";
-    if (srpDebugLogEntries.length === 0) {
-      logBox.textContent = "Noch keine Logs vorhanden.";
-      return;
-    }
-    srpDebugLogEntries.slice().reverse().forEach((entry) => {
-      const line = document.createElement("div");
-      line.className = "mobilede-srp-debug-card__log-line mobilede-srp-debug-card__log-line--" + entry.level;
-      line.textContent = entry.text;
-      logBox.appendChild(line);
-    });
-  }
-  function renderSrpDebugLogCard() {
-    renderDebugLogIntoCard("mobilede-srp-debug-card");
-    renderDebugLogIntoCard("mobilede-detail-debug-card");
-    wireDebugCardCopyButtons();
-  }
-  function wireDebugCardCopyButtons() {
-    const cards = ["mobilede-srp-debug-card", "mobilede-detail-debug-card"];
-    cards.forEach((cardId) => {
-      const card = document.getElementById(cardId);
-      if (!card) return;
-      const buttons = card.querySelectorAll(".mobilede-srp-debug-card__btn");
-      buttons.forEach((btn) => {
-        const txt = (btn.textContent || "").toLowerCase();
-        if (!txt.includes("copy")) return;
-        btn.onclick = () => {
-          copySrpDebugLogToClipboard(btn);
-        };
-      });
-    });
-  }
-  function removeSrpDebugLogCard() {
-    const existing = document.getElementById("mobilede-srp-debug-card");
-    if (existing) existing.remove();
-  }
-  function removeDetailDebugLogCard() {
-    const existing = document.getElementById("mobilede-detail-debug-card");
-    if (existing) existing.remove();
-  }
-  function ensureSrpDebugLogCard$1() {
-    if (!isSearchResultsPage() || !isSrpLogCardEnabled$1(runtimeState.featureFlags)) {
-      removeSrpDebugLogCard();
-      return;
-    }
-    injectPriceRatingStyles();
-    const summarySection = document.querySelector(
-      "div.leHcX article.A3G6X.vTKPY section.HaBLt.ku0Os.Ln3aV"
-    );
-    const summaryArticle = summarySection ? summarySection.closest("article.A3G6X.vTKPY") : null;
-    const leftFilterSection = document.querySelector('section[data-testid="search-column-content-section"]');
-    const topBtn = leftFilterSection && leftFilterSection.querySelector('button[data-testid="dsp-button-top"]');
-    const fallbackParent = topBtn ? topBtn.parentElement : leftFilterSection ? leftFilterSection.querySelector('[data-testid="search-column-content"]') : null;
-    if (!summarySection && !fallbackParent) return;
-    let card = document.getElementById("mobilede-srp-debug-card");
-    if (!card) {
-      card = document.createElement("div");
-      card.id = "mobilede-srp-debug-card";
-      card.className = "mobilede-srp-debug-card";
-      const title = document.createElement("div");
-      title.className = "mobilede-srp-debug-card__title";
-      title.textContent = "Mobile.de Debug-Logs";
-      card.appendChild(title);
-      const actions = document.createElement("div");
-      actions.className = "mobilede-srp-debug-card__actions";
-      const bSrp = document.createElement("button");
-      bSrp.type = "button";
-      bSrp.className = "mobilede-srp-debug-card__btn";
-      bSrp.textContent = "SRP-Status jetzt loggen";
-      bSrp.addEventListener("click", runManualSrpStatusLog);
-      actions.appendChild(bSrp);
-      const bClear = document.createElement("button");
-      bClear.type = "button";
-      bClear.className = "mobilede-srp-debug-card__btn";
-      bClear.textContent = "Logs leeren";
-      bClear.addEventListener("click", clearSrpDebugLog);
-      actions.appendChild(bClear);
-      const bCopy = document.createElement("button");
-      bCopy.type = "button";
-      bCopy.className = "mobilede-srp-debug-card__btn";
-      bCopy.textContent = "⧉ Copy";
-      bCopy.dataset.defaultLabel = bCopy.textContent;
-      bCopy.dataset.copyLog = "1";
-      bCopy.title = "Logs in Zwischenablage kopieren";
-      bCopy.addEventListener("click", () => {
-        copySrpDebugLogToClipboard(bCopy);
-      });
-      actions.appendChild(bCopy);
-      card.appendChild(actions);
-      const logBox = document.createElement("div");
-      logBox.className = "mobilede-srp-debug-card__log";
-      card.appendChild(logBox);
-    }
-    if (summaryArticle) {
-      const shouldMove = card.parentElement !== summaryArticle.parentElement || card.previousElementSibling !== summaryArticle;
-      if (shouldMove) summaryArticle.insertAdjacentElement("afterend", card);
-    } else if (summarySection) {
-      const shouldMove = card.parentElement !== summarySection.parentElement || card.previousElementSibling !== summarySection;
-      if (shouldMove) summarySection.insertAdjacentElement("afterend", card);
-    } else if (topBtn) {
-      const shouldMove = card.parentElement !== topBtn.parentElement || card.previousElementSibling !== topBtn;
-      if (shouldMove) topBtn.insertAdjacentElement("afterend", card);
-    } else if (fallbackParent && !card.parentElement) {
-      fallbackParent.prepend(card);
-    } else if (fallbackParent) {
-      if (card.parentElement !== fallbackParent) fallbackParent.appendChild(card);
-    }
-    renderSrpDebugLogCard();
-  }
-  function ensureDetailDebugLogCard() {
-    if (!isVehicleDetailPage() || !isSrpLogCardEnabled$1(runtimeState.featureFlags)) {
-      removeDetailDebugLogCard();
-      return;
-    }
-    injectPriceRatingStyles();
-    const galleryArticle = document.querySelector('article[data-testid="gallery-main-focus-container"]');
-    if (!galleryArticle || !galleryArticle.parentElement) return;
-    let card = document.getElementById("mobilede-detail-debug-card");
-    if (!card) {
-      card = document.createElement("div");
-      card.id = "mobilede-detail-debug-card";
-      card.className = "mobilede-srp-debug-card mobilede-srp-debug-card--detail";
-      const title = document.createElement("div");
-      title.className = "mobilede-srp-debug-card__title";
-      title.textContent = "Mobile.de Debug-Logs (Detailseite)";
-      card.appendChild(title);
-      const actions = document.createElement("div");
-      actions.className = "mobilede-srp-debug-card__actions";
-      const bCohort = document.createElement("button");
-      bCohort.type = "button";
-      bCohort.className = "mobilede-srp-debug-card__btn";
-      bCohort.textContent = "Kohorte jetzt loggen";
-      bCohort.addEventListener("click", runManualCohortLog);
-      actions.appendChild(bCohort);
-      const bRatingUi = document.createElement("button");
-      bRatingUi.type = "button";
-      bRatingUi.className = "mobilede-srp-debug-card__btn";
-      bRatingUi.textContent = "Preisbewertung-UI loggen";
-      bRatingUi.addEventListener("click", runManualPriceRatingUiLog);
-      actions.appendChild(bRatingUi);
-      const bClear = document.createElement("button");
-      bClear.type = "button";
-      bClear.className = "mobilede-srp-debug-card__btn";
-      bClear.textContent = "Logs leeren";
-      bClear.addEventListener("click", clearSrpDebugLog);
-      actions.appendChild(bClear);
-      const bCopy = document.createElement("button");
-      bCopy.type = "button";
-      bCopy.className = "mobilede-srp-debug-card__btn";
-      bCopy.textContent = "⧉ Copy";
-      bCopy.dataset.defaultLabel = bCopy.textContent;
-      bCopy.dataset.copyLog = "1";
-      bCopy.title = "Logs in Zwischenablage kopieren";
-      bCopy.addEventListener("click", () => {
-        copySrpDebugLogToClipboard(bCopy);
-      });
-      actions.appendChild(bCopy);
-      card.appendChild(actions);
-      const logBox = document.createElement("div");
-      logBox.className = "mobilede-srp-debug-card__log";
-      card.appendChild(logBox);
-    }
-    const shouldMove = card.parentElement !== galleryArticle.parentElement || card.previousElementSibling !== galleryArticle;
-    if (shouldMove) galleryArticle.insertAdjacentElement("afterend", card);
-    renderSrpDebugLogCard();
-  }
-  function getSrpSearchFingerprint$1() {
-    const u = new URL(location.href);
-    const parts = [];
-    for (const [k, v] of u.searchParams.entries()) {
-      if (SRP_FINGERPRINT_EXCLUDE.has(k)) continue;
-      parts.push(k + "=" + v);
-    }
-    parts.sort((a, b) => a.localeCompare(b));
-    return u.pathname + (parts.length ? "?" + parts.join("&") : "");
-  }
-  function getSrpConfigSort() {
-    const opt = findSrpSortOption(getSrpSort(runtimeState.featureFlags).sortId);
-    return { sb: opt.sb, od: opt.od };
-  }
-  function urlSortMatchesUserChoice(fp) {
-    const choice = getStoredSrpUserChoice();
-    if (!choice || choice.fp !== fp) return false;
-    return srpSortParamsEqual(parseSortFromUrl$1(), choice);
-  }
-  function parseSortFromUrl$1(href) {
-    const u = new URL(location.href);
-    return { sb: u.searchParams.get("sb"), od: u.searchParams.get("od") || "up" };
-  }
-  function detectUserSortAfterReload(fp) {
-    const srp = getSrpSort(runtimeState.featureFlags);
-    if (!srp.enabled) return false;
-    if (urlSortMatchesUserChoice(fp)) {
-      return true;
-    }
-    const current = parseSortFromUrl$1();
-    const configSort = getSrpConfigSort();
-    if (srpSortParamsEqual(current, configSort)) return false;
-    const applied = getStoredSrpSortApplied();
-    if (applied && applied.fp === fp && !srpSortParamsEqual(current, applied)) {
-      markSrpSortUserOverride(current);
-      return true;
-    }
-    return false;
-  }
-  function applySrpDefaultSort(force) {
-    if (!isSearchResultsPage()) return;
-    const srp = getSrpSort(runtimeState.featureFlags);
-    if (!srp.enabled) return;
-    const fp = getSrpSearchFingerprint$1();
-    if (!force && (hasSrpSortUserOverride(fp) || urlSortMatchesUserChoice(fp))) return;
-    const configSort = getSrpConfigSort();
-    const current = parseSortFromUrl$1();
-    if (srpSortParamsEqual(current, configSort)) {
-      markSrpSortApplied(fp, configSort.sb, configSort.od);
-      return;
-    }
-    applyingDefaultSrpSort = true;
-    try {
-      const u = new URL(location.href);
-      u.searchParams.set("sb", configSort.sb);
-      u.searchParams.set("od", configSort.od);
-      const newUrl = u.toString();
-      markSrpSortApplied(fp, configSort.sb, configSort.od);
-      lastUrl = newUrl;
-      location.replace(newUrl);
-    } finally {
-      applyingDefaultSrpSort = false;
-    }
-  }
-  function resetSrpSortOverrideAndApply() {
-    clearSrpSortSessionState();
-    applySrpDefaultSort(true);
-  }
-  function bindSrpSortDropdown() {
-    if (!isSearchResultsPage()) return;
-    const sel = document.getElementById("sorting-menu-dropdown");
-    if (!sel || sel.dataset.mobiledeSrpBound === "1") return;
-    sel.dataset.mobiledeSrpBound = "1";
-    const onUserSort = () => {
-      if (applyingDefaultSrpSort) return;
-      markSrpSortUserOverride(parseSortFromUrl$1());
-    };
-    sel.addEventListener("change", onUserSort, true);
-    sel.addEventListener("input", onUserSort, true);
-    sel.addEventListener("pointerdown", () => {
-      sel.dataset.mobiledeSortTouched = "1";
-    }, true);
-  }
-  function pollSrpSortFromUrl() {
-    if (!isSearchResultsPage() || applyingDefaultSrpSort) return;
-    const srp = getSrpSort(runtimeState.featureFlags);
-    if (!srp.enabled) return;
-    const fp = getSrpSearchFingerprint$1();
-    const current = parseSortFromUrl$1();
-    const configSort = getSrpConfigSort();
-    const key = fp + "|" + (current.sb || "") + "|" + current.od;
-    if (lastPolledSrpSort === key) return;
-    const prev = lastPolledSrpSort;
-    lastPolledSrpSort = key;
-    if (prev === null) return;
-    if (!srpSortParamsEqual(current, configSort)) {
-      markSrpSortUserOverride(current);
-    }
-  }
-  function destroySrpSortBehavior() {
-    if (srpSortMo) {
-      srpSortMo.disconnect();
-      srpSortMo = null;
-    }
-    if (srpSortPollTimerId != null) {
-      clearInterval(srpSortPollTimerId);
-      srpSortPollTimerId = null;
-    }
-    if (srpSortOnPageshow) {
-      window.removeEventListener("pageshow", srpSortOnPageshow);
-      srpSortOnPageshow = null;
-    }
-  }
-  function syncSrpPolledSortKey(fp) {
-    const cur = parseSortFromUrl$1();
-    lastPolledSrpSort = fp + "|" + (cur.sb || "") + "|" + cur.od;
-  }
-  function handleSrpUrlChange() {
-    if (!isSearchResultsPage()) return;
-    bindSrpSortDropdown();
-    const fp = getSrpSearchFingerprint$1();
-    if (fp !== lastSrpFingerprint) {
-      lastSrpFingerprint = fp;
-      lastPolledSrpSort = null;
-      clearSrpSortSessionState();
-      applySrpDefaultSort(false);
-      return;
-    }
-    pollSrpSortFromUrl();
-  }
-  function ensureSrpSortBehavior() {
-    if (!isSearchResultsPage()) {
-      destroySrpSortBehavior();
-      return;
-    }
-    if (srpSortPollTimerId != null) return;
-    const fp = getSrpSearchFingerprint$1();
-    lastSrpFingerprint = fp;
-    lastPolledSrpSort = null;
-    const choice = getStoredSrpUserChoice();
-    if (choice && choice.fp === fp) ;
-    bindSrpSortDropdown();
-    if (!detectUserSortAfterReload(fp)) {
-      applySrpDefaultSort(false);
-    }
-    syncSrpPolledSortKey(fp);
-    srpSortMo = new MutationObserver(() => bindSrpSortDropdown());
-    srpSortMo.observe(document.body, { childList: true, subtree: true });
-    srpSortOnPageshow = () => {
-      if (!isSearchResultsPage()) return;
-      const fpNow = getSrpSearchFingerprint$1();
-      if (detectUserSortAfterReload(fpNow)) syncSrpPolledSortKey(fpNow);
-    };
-    window.addEventListener("pageshow", srpSortOnPageshow);
-    srpSortPollTimerId = setInterval(pollSrpSortFromUrl, 400);
-  }
-  function initSrpSortBehavior() {
-    destroySrpSortBehavior();
-    ensureSrpSortBehavior();
+    return setTimeout(fn, Math.min(timeoutMs || 350, 220));
   }
   function isPriceRatingDebugEnabled() {
     return isDebugEnabled("price");
@@ -2291,9 +1738,6 @@ Kontext: …${item.snippet}…` : "";
     }
     return duration;
   }
-  function isVehicleDetailPage$1() {
-    return /\/fahrzeuge\/details\.html/.test(location.pathname) || /\/auto-inserat\//.test(location.pathname);
-  }
   function getAdIdFromUrl(href) {
     const u = new URL(location.href);
     const id = u.searchParams.get("id");
@@ -2301,7 +1745,7 @@ Kontext: …${item.snippet}…` : "";
     const m = u.pathname.match(/\/auto-inserat\/([^/]+)/);
     return m ? m[1] : null;
   }
-  function getPageInitialState$1() {
+  function getPageInitialState() {
     try {
       const st = getUnsafeWindow().__INITIAL_STATE__;
       return st && typeof st === "object" ? st : null;
@@ -2313,7 +1757,7 @@ Kontext: …${item.snippet}…` : "";
     var _a, _b, _c, _d, _e;
     const id = adId || getAdIdFromUrl();
     if (!id) return null;
-    const state = getPageInitialState$1();
+    const state = getPageInitialState();
     const ad = (_e = (_d = (_c = (_b = (_a = state == null ? void 0 : state.search) == null ? void 0 : _a.vip) == null ? void 0 : _b.ads) == null ? void 0 : _c[id]) == null ? void 0 : _d.data) == null ? void 0 : _e.ad;
     return ad || null;
   }
@@ -2686,8 +2130,8 @@ Kontext: …${item.snippet}…` : "";
   let vehicleProfileMemo = { key: "", ts: 0, profile: null };
   function getVehicleProfileMemoKey(adId) {
     const id = getAdIdFromUrl() || "";
-    const cfg = getPriceRating$1(runtimeState.featureFlags);
-    const desc = isVehicleDetailPage$1() && getDescriptionEl() ? (getDescriptionEl().textContent || "").length : 0;
+    const cfg = getPriceRating(runtimeState.featureFlags);
+    const desc = isVehicleDetailPage() && getDescriptionEl() ? (getDescriptionEl().textContent || "").length : 0;
     return [
       location.pathname,
       id,
@@ -2698,7 +2142,7 @@ Kontext: …${item.snippet}…` : "";
       desc
     ].join("|");
   }
-  function buildVehicleProfile$1(adId) {
+  function buildVehicleProfile(adId) {
     const memoKey = getVehicleProfileMemoKey();
     const now = Date.now();
     if (vehicleProfileMemo.key === memoKey && now - vehicleProfileMemo.ts < 1200) {
@@ -2708,14 +2152,14 @@ Kontext: …${item.snippet}…` : "";
     const ad = getVipAdFromState(id);
     let profile = null;
     if (ad) profile = buildVehicleProfileFromAd(ad, id);
-    else if (isVehicleDetailPage$1()) profile = buildVehicleProfileDomFallback();
+    else if (isVehicleDetailPage()) profile = buildVehicleProfileDomFallback();
     const enriched = enrichProfileWithSearchMs(profile, id);
     vehicleProfileMemo = { key: memoKey, ts: now, profile: enriched ? { ...enriched } : null };
     return enriched;
   }
   function getPreisGewichtForConfig(cfg, prCfg) {
     if (!cfg) return 0;
-    const pr = getPriceRating$1(runtimeState.featureFlags);
+    const pr = getPriceRating(runtimeState.featureFlags);
     if (pr.onlyFavoriteWeights && cfg.favorit !== true) return 0;
     const w = cfg.preisGewicht;
     if (typeof w === "number" && w > 0) return w;
@@ -2809,7 +2253,7 @@ Kontext: …${item.snippet}…` : "";
   }
   function equipmentFingerprintFromProfile(profile) {
     const configs = runtimeState.suchKonfigurationen;
-    if (isVehicleDetailPage$1() && document.querySelector('[data-testid="vip-features-list"]')) {
+    if (isVehicleDetailPage() && document.querySelector('[data-testid="vip-features-list"]')) {
       const rawItems = extractRawEquipmentItems();
       const keys = new Set();
       const breakdown = [];
@@ -2838,7 +2282,7 @@ Kontext: …${item.snippet}…` : "";
       return { keys, score, breakdown };
     }
     const featuresText = (profile.features || []).join(" | ");
-    const descEl = isVehicleDetailPage$1() ? getDescriptionEl() : null;
+    const descEl = isVehicleDetailPage() ? getDescriptionEl() : null;
     const descriptionText = descEl ? descEl.textContent.replace(/\s+/g, " ").trim() : "";
     return equipmentFingerprintForTexts({
       titleBlob: [profile.title, profile.subTitle].filter(Boolean).join(" "),
@@ -2888,7 +2332,7 @@ Kontext: …${item.snippet}…` : "";
     return u.toString();
   }
   function profileForCohortCacheKey(profile, prCfg) {
-    const pr = prCfg || getPriceRating$1(runtimeState.featureFlags);
+    const pr = prCfg || getPriceRating(runtimeState.featureFlags);
     const useModelRange = pr.useModelRange !== false;
     const useMileage = pr.keyUseMileage !== false;
     const useYear = pr.keyUseYear !== false;
@@ -2932,7 +2376,7 @@ Kontext: …${item.snippet}…` : "";
     }
     return p;
   }
-  function cohortCacheKey$1(profile, prCfg) {
+  function cohortCacheKey(profile, prCfg) {
     const p = profileForCohortCacheKey(profile, prCfg);
     return [
       p.makeId || p.make,
@@ -2943,7 +2387,7 @@ Kontext: …${item.snippet}…` : "";
       p.powerKw || p.powerPs
     ].join("|").toLowerCase();
   }
-  function cohortHumanLabel$1(profile, prCfg) {
+  function cohortHumanLabel(profile, prCfg) {
     if (!profile) return null;
     const p = profileForCohortCacheKey(profile, prCfg);
     const model = [p.make || p.makeId || "", p.model || p.modelId || ""].filter(Boolean).join(" ").trim();
@@ -3149,16 +2593,16 @@ Kontext: …${item.snippet}…` : "";
       powerPs: null
     };
   }
-  function readVipCohortAnchors$1() {
+  function readVipCohortAnchors() {
     const store = readPriceDataStore();
     const now = Date.now();
     return Object.entries(store.anchorsByAdId || {}).filter(([, a]) => a && typeof a.ts === "number" && now - a.ts <= PRICE_COHORT_CACHE_TTL_MS).map(([adId, anchor]) => ({ adId, anchor }));
   }
   function persistVipCohortAnchor(profile, prCfg) {
     if (!profile || !profile.id) return;
-    const pr = prCfg || getPriceRating$1(runtimeState.featureFlags);
+    const pr = prCfg || getPriceRating(runtimeState.featureFlags);
     if (!(profile.makeId || profile.make) || !(profile.modelId || profile.model)) return;
-    const cacheKey = cohortCacheKey$1(profile, pr);
+    const cacheKey = cohortCacheKey(profile, pr);
     if (!cacheKey) return;
     const bucketed = profileForCohortCacheKey(profile, pr);
     const anchor = {
@@ -3182,7 +2626,7 @@ Kontext: …${item.snippet}…` : "";
   function cohortCacheStorageKey(key) {
     return PRICE_COHORT_CACHE_PREFIX + key;
   }
-  function readCohortCache$1(key) {
+  function readCohortCache(key) {
     const fromStore = readPriceDataStoreCohort(key);
     if (fromStore && fromStore.length) return fromStore;
     const storageKey = cohortCacheStorageKey(key);
@@ -3227,7 +2671,7 @@ Kontext: …${item.snippet}…` : "";
   }
   function mergeCohortCache(key, newItems) {
     if (!key || !Array.isArray(newItems) || !newItems.length) return 0;
-    const existing = readCohortCache$1(key) || [];
+    const existing = readCohortCache(key) || [];
     const byId = new Map();
     existing.forEach((it) => {
       if (it && it.id) byId.set(String(it.id), it);
@@ -3242,7 +2686,7 @@ Kontext: …${item.snippet}…` : "";
   }
   function findCohortItemsFromStoreByProfile(profile, prCfg) {
     if (!profile) return [];
-    const pr = prCfg || getPriceRating$1(runtimeState.featureFlags);
+    const pr = prCfg || getPriceRating(runtimeState.featureFlags);
     const store = readPriceDataStore();
     const now = Date.now();
     const byId = new Map();
@@ -3312,7 +2756,7 @@ Kontext: …${item.snippet}…` : "";
     } catch (e) {
     }
   }
-  function profileFromSearchPageUrl$1(href) {
+  function profileFromSearchPageUrl(href) {
     try {
       const u = new URL(href, location.origin);
       if (!/\/fahrzeuge\/search\.html/.test(u.pathname)) return null;
@@ -3361,11 +2805,11 @@ Kontext: …${item.snippet}…` : "";
       return null;
     }
   }
-  function parseCohortItemsFromState$1(state, excludeId) {
-    const rawList = findSrpListingsInState$1(state);
+  function parseCohortItemsFromState(state, excludeId) {
+    const rawList = findSrpListingsInState(state);
     return rawList.map(normalizeComparableAd).filter(Boolean).filter((c) => !excludeId || String(c.id) !== String(excludeId));
   }
-  function enrichCohortItemFromSearchContext$1(item, searchProfile) {
+  function enrichCohortItemFromSearchContext(item, searchProfile) {
     if (!item || !searchProfile) return item;
     const out = { ...item };
     if (!out.makeId && searchProfile.makeId) out.makeId = String(searchProfile.makeId);
@@ -3383,7 +2827,7 @@ Kontext: …${item.snippet}…` : "";
   function itemMatchesCohortProfile(item, profile, prCfg) {
     if (!item || !profile) return false;
     if (!sameMakeModelForCohort(item, profile)) return false;
-    const pr = prCfg || getPriceRating$1(runtimeState.featureFlags);
+    const pr = prCfg || getPriceRating(runtimeState.featureFlags);
     if (pr.keyUseMileage !== false && profile.mileageKm != null && item.mileageKm != null) {
       const tol = Math.max(0, parseInt(pr.kmToleranceAbs, 10) || 0);
       if (Math.abs(item.mileageKm - profile.mileageKm) > tol) return false;
@@ -3404,28 +2848,28 @@ Kontext: …${item.snippet}…` : "";
   }
   function cohortItemsForSearchProfile(items, searchProfile, prCfg) {
     if (!searchProfile || !(searchProfile.makeId || searchProfile.make)) return [];
-    const pr = prCfg || getPriceRating$1(runtimeState.featureFlags);
-    return (items || []).map((it) => enrichCohortItemFromSearchContext$1(it, searchProfile)).filter((it) => itemMatchesCohortProfile(it, searchProfile, pr));
+    const pr = prCfg || getPriceRating(runtimeState.featureFlags);
+    return (items || []).map((it) => enrichCohortItemFromSearchContext(it, searchProfile)).filter((it) => itemMatchesCohortProfile(it, searchProfile, pr));
   }
   function syncCohortCacheFromSearchPage() {
     if (!isSearchResultsPage()) return;
-    const state = getPageInitialState$1();
+    const state = getPageInitialState();
     if (!state) {
       priceRatingDebugLog("SRP-Cache-Sync übersprungen: kein __INITIAL_STATE__");
       return;
     }
-    const items = parseCohortItemsFromState$1(state, null);
+    const items = parseCohortItemsFromState(state, null);
     if (items.length < 3) {
       priceRatingDebugLog("SRP-Cache-Sync übersprungen: zu wenige SRP-Treffer", { count: items.length });
       return;
     }
-    const prCfg = getPriceRating$1(runtimeState.featureFlags);
-    const urlProf = profileFromSearchPageUrl$1(location.href);
-    const enriched = urlProf ? items.map((it) => enrichCohortItemFromSearchContext$1(it, urlProf)) : items;
+    const prCfg = getPriceRating(runtimeState.featureFlags);
+    const urlProf = profileFromSearchPageUrl(location.href);
+    const enriched = urlProf ? items.map((it) => enrichCohortItemFromSearchContext(it, urlProf)) : items;
     const cacheKeyForItem = (item) => {
       if (!item) return "";
-      const ctx = urlProf ? enrichCohortItemFromSearchContext$1(item, urlProf) : item;
-      return cohortCacheKey$1(ctx, prCfg);
+      const ctx = urlProf ? enrichCohortItemFromSearchContext(item, urlProf) : item;
+      return cohortCacheKey(ctx, prCfg);
     };
     const byKey = new Map();
     enriched.forEach((item) => {
@@ -3438,7 +2882,7 @@ Kontext: …${item.snippet}…` : "";
     let written = 0;
     let anchorMerged = 0;
     if (urlProf && (urlProf.makeId || urlProf.make) && (urlProf.modelId || urlProf.model)) {
-      const searchKey = cohortCacheKey$1(urlProf, prCfg);
+      const searchKey = cohortCacheKey(urlProf, prCfg);
       const searchCohort = cohortItemsForSearchProfile(enriched, urlProf, prCfg);
       if (searchCohort.length >= 3) {
         writeCohortCache(searchKey, searchCohort);
@@ -3446,14 +2890,14 @@ Kontext: …${item.snippet}…` : "";
         priceRatingDebugLog("Kohorte unter Such-URL-Key gecacht", {
           searchKey,
           count: searchCohort.length,
-          cohortHuman: cohortHumanLabel$1(urlProf, prCfg)
+          cohortHuman: cohortHumanLabel(urlProf, prCfg)
         });
       }
     }
-    readVipCohortAnchors$1().forEach(({ adId, anchor }) => {
+    readVipCohortAnchors().forEach(({ adId, anchor }) => {
       const anchorProf = profileFromVipCohortAnchor(anchor);
       if (!anchorProf) return;
-      const anchorKey = anchor.cacheKey || cohortCacheKey$1(anchorProf, prCfg);
+      const anchorKey = anchor.cacheKey || cohortCacheKey(anchorProf, prCfg);
       if (!anchorKey) return;
       const forAnchor = enriched.filter(
         (it) => it && itemMatchesCohortProfile(it, anchorProf, prCfg)
@@ -3489,12 +2933,12 @@ Kontext: …${item.snippet}…` : "";
       groups: byKey.size,
       writtenGroups: written,
       anchorMerged,
-      searchUrlKey: urlProf ? cohortCacheKey$1(urlProf, prCfg) : null,
+      searchUrlKey: urlProf ? cohortCacheKey(urlProf, prCfg) : null,
       topGroups: top
     });
     debugLog("ui", "SRP-Kohorten in Cache synchronisiert", { groups: byKey.size, writtenGroups: written, anchorMerged });
   }
-  function findSrpListingsInState$1(state) {
+  function findSrpListingsInState(state) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
     if (!state || typeof state !== "object") return [];
     const tryList = (v) => {
@@ -3587,7 +3031,7 @@ Kontext: …${item.snippet}…` : "";
     }
     return prof;
   }
-  function countCohortVipDetailCount$1(items) {
+  function countCohortVipDetailCount(items) {
     return (items || []).filter((c) => c && c.equipmentFromVipCache).length;
   }
   function enrichCohortItemsWithVipCache(items) {
@@ -3609,7 +3053,7 @@ Kontext: …${item.snippet}…` : "";
       }
     });
   }
-  function getCohortComparables$1(profile, prCfg) {
+  function getCohortComparables(profile, prCfg) {
     const uniqueModelCount = (list) => {
       const s = new Set();
       (list || []).forEach((item) => {
@@ -3621,7 +3065,7 @@ Kontext: …${item.snippet}…` : "";
     };
     const now = Date.now();
     pruneCohortComparablesMemo(now);
-    const cacheKey = cohortCacheKey$1(profile, prCfg);
+    const cacheKey = cohortCacheKey(profile, prCfg);
     const memo = cohortComparablesMemo.get(cacheKey);
     if (memo && now - memo.ts < COHORT_COMPARABLES_MEMO_TTL_MS) {
       priceRatingDebugLog("Kohorte aus Memo", {
@@ -3630,13 +3074,13 @@ Kontext: …${item.snippet}…` : "";
       });
       return memo.value;
     }
-    const cached = readCohortCache$1(cacheKey);
+    const cached = readCohortCache(cacheKey);
     if (cached && cached.length) {
       const items = enrichCohortItemsWithVipCache(cached);
       priceRatingDebugLog("Kohorte aus Cache", {
         cacheKey,
         count: items.length,
-        vipDetails: countCohortVipDetailCount$1(items),
+        vipDetails: countCohortVipDetailCount(items),
         uniqueModelsInSource: uniqueModelCount(items),
         storeSource: "local-cache"
       });
@@ -3650,7 +3094,7 @@ Kontext: …${item.snippet}…` : "";
       priceRatingDebugLog("Kohorte aus Store-Scan (passende Keys)", {
         cacheKey,
         count: fromStoreScan.length,
-        vipDetails: countCohortVipDetailCount$1(fromStoreScan),
+        vipDetails: countCohortVipDetailCount(fromStoreScan),
         uniqueModelsInSource: uniqueModelCount(fromStoreScan),
         storeSource: "store-scan"
       });
@@ -3659,8 +3103,8 @@ Kontext: …${item.snippet}…` : "";
       return out2;
     }
     if (isSearchResultsPage()) {
-      const state = getPageInitialState$1();
-      const urlProf = profileFromSearchPageUrl$1(location.href);
+      const state = getPageInitialState();
+      const urlProf = profileFromSearchPageUrl(location.href);
       const urlHasMakeModel = urlProf && (urlProf.makeId || urlProf.make) && (urlProf.modelId || urlProf.model);
       if (urlHasMakeModel && !sameMakeModelForCohort(urlProf, profile)) {
         priceRatingDebugLog("SRP ignoriert: URL-Profil passt nicht zum angeforderten Profil", {
@@ -3673,14 +3117,14 @@ Kontext: …${item.snippet}…` : "";
       } else {
         const enrichCtx = urlHasMakeModel && sameMakeModelForCohort(urlProf, profile) ? urlProf : profile;
         const fromPage = enrichCohortItemsWithVipCache(
-          parseCohortItemsFromState$1(state, profile.id)
-        ).map((item) => enrichCohortItemFromSearchContext$1(item, enrichCtx)).filter((item) => itemMatchesCohortProfile(item, profile, prCfg));
+          parseCohortItemsFromState(state, profile.id)
+        ).map((item) => enrichCohortItemFromSearchContext(item, enrichCtx)).filter((item) => itemMatchesCohortProfile(item, profile, prCfg));
         if (fromPage.length >= 3) {
           writeCohortCache(cacheKey, fromPage);
           priceRatingDebugLog("Kohorte von aktueller SRP", {
             cacheKey,
             count: fromPage.length,
-            vipDetails: countCohortVipDetailCount$1(fromPage),
+            vipDetails: countCohortVipDetailCount(fromPage),
             uniqueModelsInSource: uniqueModelCount(fromPage),
             storeSource: "current-srp"
           });
@@ -3697,8 +3141,8 @@ Kontext: …${item.snippet}…` : "";
     return out;
   }
   async function openCohortSearchTab(profile) {
-    const resolved = await resolveMakeModelIdsForProfile(profile || buildVehicleProfile$1());
-    const url = buildCohortSearchUrl(resolved, getPriceRating$1(runtimeState.featureFlags));
+    const resolved = await resolveMakeModelIdsForProfile(profile || buildVehicleProfile());
+    const url = buildCohortSearchUrl(resolved, getPriceRating(runtimeState.featureFlags));
     window.open(url, "_blank", "noopener");
   }
   function median(nums) {
@@ -3736,7 +3180,7 @@ Kontext: …${item.snippet}…` : "";
   }
   function computePriceRating(profile, comparables, options) {
     var _a, _b;
-    const prCfg = getPriceRating$1(runtimeState.featureFlags);
+    const prCfg = getPriceRating(runtimeState.featureFlags);
     const ownEquip = (options == null ? void 0 : options.equipment) || equipmentFingerprintFromProfile(profile);
     const ownScore = ownEquip.score;
     const price = profile.priceGross;
@@ -3845,7 +3289,7 @@ Kontext: …${item.snippet}…` : "";
   function enrichRatingWithCohortMeta(rating, cohortRes) {
     if (!rating) return rating;
     const items = cohortRes && cohortRes.items || [];
-    rating.cohortVipDetailCount = countCohortVipDetailCount$1(items);
+    rating.cohortVipDetailCount = countCohortVipDetailCount(items);
     if (cohortRes && cohortRes.cacheKey) rating.cohortCacheKey = cohortRes.cacheKey;
     return rating;
   }
@@ -3865,7 +3309,7 @@ Kontext: …${item.snippet}…` : "";
     }
     return txt;
   }
-  function readRatingCache$1(adId) {
+  function readRatingCache(adId) {
     try {
       const raw = sessionStorage.getItem(PRICE_RATING_CACHE_PREFIX + adId);
       if (!raw) return null;
@@ -3876,7 +3320,7 @@ Kontext: …${item.snippet}…` : "";
       return null;
     }
   }
-  function readRatingUiCache$1(adId) {
+  function readRatingUiCache(adId) {
     if (!adId) return null;
     try {
       const raw = localStorage.getItem(PRICE_RATING_UI_CACHE_PREFIX + adId);
@@ -3905,6 +3349,19 @@ Kontext: …${item.snippet}…` : "";
   function priceRatingFetchTokenIncrement() {
     priceRatingFetchToken++;
   }
+  function scheduleStaleRatingRetry(profile) {
+    const adId = profile && profile.id ? String(profile.id) : "";
+    if (!adId) {
+      renderVipPriceRatingWidget(null, false);
+      return;
+    }
+    setTimeout(() => {
+      if (!isVehicleDetailPage()) return;
+      const current = buildVehicleProfile();
+      if (!current || String(current.id) !== adId) return;
+      preisBewertungAktualisieren({ force: true });
+    }, 80);
+  }
   let vipRatingUpdateInFlight = false;
   let vipRatingLastRunSig = "";
   let vipRatingLastRunTs = 0;
@@ -3920,7 +3377,7 @@ Kontext: …${item.snippet}…` : "";
   }
   const inflightRatingByAdId = new Map();
   let srpPriceRatingIo = null;
-  function injectPriceRatingStyles$1() {
+  function injectPriceRatingStyles() {
     if (document.getElementById("mobilede-price-rating-style")) return;
     const st = document.createElement("style");
     st.id = "mobilede-price-rating-style";
@@ -4098,7 +3555,7 @@ Kontext: …${item.snippet}…` : "";
   function renderVipPriceRatingWidget(rating, loading) {
     const anchor = getVipPriceRatingAnchor();
     if (!anchor) return;
-    injectPriceRatingStyles$1();
+    injectPriceRatingStyles();
     const mainPriceBox = document.querySelector('[data-testid="vip-price-box"]');
     if (mainPriceBox && mainPriceBox !== anchor && !anchor.contains(mainPriceBox)) {
       mainPriceBox.querySelectorAll(".mobilede-price-rating").forEach((el) => el.remove());
@@ -4139,7 +3596,7 @@ Kontext: …${item.snippet}…` : "";
         info2.className = "mobilede-price-rating__info";
         info2.setAttribute("aria-label", "Vergleichssuche manuell öffnen");
         info2.textContent = "?";
-        const prof = buildVehicleProfile$1();
+        const prof = buildVehicleProfile();
         info2.addEventListener("click", (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -4167,7 +3624,7 @@ Kontext: …${item.snippet}…` : "";
     info.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      openPriceRatingModal(rating, buildVehicleProfile$1());
+      openPriceRatingModal(rating, buildVehicleProfile());
     });
     row.appendChild(info);
     wrap.appendChild(row);
@@ -4180,9 +3637,9 @@ Kontext: …${item.snippet}…` : "";
   }
   function computeAndCacheRatingForProfile(profile) {
     const t0 = pricePerfMarkStart();
-    const prCfg = getPriceRating$1(runtimeState.featureFlags);
+    const prCfg = getPriceRating(runtimeState.featureFlags);
     persistVipCohortAnchor(profile, prCfg);
-    const cohortRes = getCohortComparables$1(profile, prCfg);
+    const cohortRes = getCohortComparables(profile, prCfg);
     const rating = enrichRatingWithCohortMeta(
       computePriceRating(profile, cohortRes.items),
       cohortRes
@@ -4229,8 +3686,8 @@ Kontext: …${item.snippet}…` : "";
     return p;
   }
   function syncVipEquipmentCache(profile) {
-    if (!profile || !profile.id || !isVehicleDetailPage$1()) return;
-    persistVipCohortAnchor(profile, getPriceRating$1(runtimeState.featureFlags));
+    if (!profile || !profile.id || !isVehicleDetailPage()) return;
+    persistVipCohortAnchor(profile, getPriceRating(runtimeState.featureFlags));
     const equipment = equipmentFingerprintFromProfile(profile);
     if (equipment && typeof equipment.score === "number") {
       writeVipEquipCache(profile.id, equipment);
@@ -4255,7 +3712,7 @@ Kontext: …${item.snippet}…` : "";
     }
   }
   function getVipRatingRunSignature(profile) {
-    const pr = getPriceRating$1(runtimeState.featureFlags);
+    const pr = getPriceRating(runtimeState.featureFlags);
     const th = (pr.thresholds || []).map((t) => String(t.maxPct)).join(",");
     return [
       location.pathname,
@@ -4277,10 +3734,10 @@ Kontext: …${item.snippet}…` : "";
   async function preisBewertungAktualisieren(opts) {
     const options = opts || {};
     const perfStart = pricePerfMarkStart();
-    const prCfg = getPriceRating$1(runtimeState.featureFlags);
-    if (!isVehicleDetailPage$1() || !isPriceRatingEnabled(prCfg) || !prCfg.enabledVip) {
+    const prCfg = getPriceRating(runtimeState.featureFlags);
+    if (!isVehicleDetailPage() || !isPriceRatingEnabled(prCfg) || !prCfg.enabledVip) {
       priceRatingDebugLog("Preisbewertung übersprungen", {
-        isVehicleDetailPage: isVehicleDetailPage$1(),
+        isVehicleDetailPage: isVehicleDetailPage(),
         enabled: isPriceRatingEnabled(prCfg),
         enabledVip: prCfg.enabledVip
       });
@@ -4292,7 +3749,7 @@ Kontext: …${item.snippet}…` : "";
       priceRatingDebugLog("Preisbewertung übersprungen: Update läuft bereits");
       return;
     }
-    const profile = buildVehicleProfile$1();
+    const profile = buildVehicleProfile();
     if (!profile || !profile.id) {
       priceRatingDebugLog("Preisbewertung übersprungen: kein Fahrzeugprofil");
       return;
@@ -4307,7 +3764,7 @@ Kontext: …${item.snippet}…` : "";
     try {
       const token = ++priceRatingFetchToken;
       priceRatingDebugLog("Preisbewertung Lauf gestartet", { adId: profile.id, token, force: !!options.force });
-      const uiCached = readRatingUiCache$1(profile.id);
+      const uiCached = readRatingUiCache(profile.id);
       if (!vipRatingUiBootstrapped) {
         if (uiCached && uiCached.ok) {
           renderVipPriceRatingWidget(uiCached, false);
@@ -4323,13 +3780,14 @@ Kontext: …${item.snippet}…` : "";
       }
       if (token !== priceRatingFetchToken) {
         priceRatingDebugLog("Preisbewertung Lauf verworfen: Token gewechselt", { adId: profile.id, token });
+        scheduleStaleRatingRetry(profile);
         return;
       }
       persistVipCohortAnchor(profile, prCfg);
       syncVipEquipmentCache(profile);
-      const cached = readRatingCache$1(profile.id);
+      const cached = readRatingCache(profile.id);
       if (cached && cached.ok && !cached.needsCohortSearch) {
-        const cohortRes = getCohortComparables$1(profile, prCfg);
+        const cohortRes = getCohortComparables(profile, prCfg);
         if (cohortRes.items.length || !cached.usedMobileFallback) {
           const rating2 = enrichRatingWithCohortMeta(cached, cohortRes);
           renderVipPriceRatingWidget(rating2, false);
@@ -4348,9 +3806,17 @@ Kontext: …${item.snippet}…` : "";
           usedMobileFallback: cached.usedMobileFallback
         });
       }
-      const rating = await computeAndCacheRatingForProfileAsync(profile);
+      let rating;
+      try {
+        rating = await computeAndCacheRatingForProfileAsync(profile);
+      } catch (err) {
+        console.error("[mobilede Preis]", err);
+        renderVipPriceRatingWidget({ ok: false, reason: "error" }, false);
+        return;
+      }
       if (token !== priceRatingFetchToken) {
         priceRatingDebugLog("Preisbewertung Recompute verworfen: Token gewechselt", { adId: profile.id, token });
+        scheduleStaleRatingRetry(profile);
         return;
       }
       renderVipPriceRatingWidget(rating, false);
@@ -4392,9 +3858,9 @@ Kontext: …${item.snippet}…` : "";
     if (!link) return null;
     const id = extractAdIdFromHref(link.getAttribute("href"));
     if (!id) return null;
-    const state = getPageInitialState$1();
+    const state = getPageInitialState();
     if (state) {
-      const listings = findSrpListingsInState$1(state);
+      const listings = findSrpListingsInState(state);
       const hit = listings.find((raw) => {
         var _a;
         const ad = (raw == null ? void 0 : raw.ad) || ((_a = raw == null ? void 0 : raw.data) == null ? void 0 : _a.ad) || raw;
@@ -4428,7 +3894,7 @@ Kontext: …${item.snippet}…` : "";
     };
   }
   function renderSrpPriceBadge(card, rating, loading) {
-    injectPriceRatingStyles$1();
+    injectPriceRatingStyles();
     const link = card.querySelector('a[href*="details.html?id="], a[href*="/auto-inserat/"]');
     if (!link) return;
     let badge = card.querySelector(".mobilede-srp-price-badge");
@@ -4453,12 +3919,12 @@ Kontext: …${item.snippet}…` : "";
     badge.title = rating.label + " — erwartet ~" + rating.adjustedExpected.toLocaleString("de-DE") + " €";
   }
   function loadSrpCardRating(card) {
-    const prCfg = getPriceRating$1(runtimeState.featureFlags);
+    const prCfg = getPriceRating(runtimeState.featureFlags);
     if (!isPriceRatingEnabled(prCfg) || !prCfg.enabledSrp) return;
     if (card.dataset.mobiledePriceRated === "1") return;
     const profile = profileFromSrpCard(card);
     if (!profile || !profile.id) return;
-    const cached = readRatingCache$1(profile.id);
+    const cached = readRatingCache(profile.id);
     if (cached && cached.ok) {
       card.dataset.mobiledePriceRated = "1";
       renderSrpPriceBadge(card, cached);
@@ -4489,7 +3955,7 @@ Kontext: …${item.snippet}…` : "";
   }
   function runSrpRatingQueue() {
     const t0 = pricePerfMarkStart();
-    const prCfg = getPriceRating$1(runtimeState.featureFlags);
+    const prCfg = getPriceRating(runtimeState.featureFlags);
     if (!isSearchResultsPage() || !isPriceRatingEnabled(prCfg) || !prCfg.enabledSrp) {
       srpRatingQueue.length = 0;
       srpRatingQueueRunning = false;
@@ -4514,7 +3980,7 @@ Kontext: …${item.snippet}…` : "";
     }
   }
   function ensureSrpPriceRatingObserver() {
-    const prCfg = getPriceRating$1(runtimeState.featureFlags);
+    const prCfg = getPriceRating(runtimeState.featureFlags);
     if (!isSearchResultsPage() || !isPriceRatingEnabled(prCfg) || !prCfg.enabledSrp) {
       if (srpPriceRatingIo) {
         srpPriceRatingIo.disconnect();
@@ -4534,7 +4000,7 @@ Kontext: …${item.snippet}…` : "";
     scanSrpPriceBadges();
   }
   function scanSrpPriceBadges() {
-    const prCfg = getPriceRating$1(runtimeState.featureFlags);
+    const prCfg = getPriceRating(runtimeState.featureFlags);
     if (!isSearchResultsPage() || !isPriceRatingEnabled(prCfg) || !prCfg.enabledSrp) return;
     ensureSrpPriceRatingObserver();
     findSrpListingRoots().forEach((card) => {
@@ -4553,15 +4019,571 @@ Kontext: …${item.snippet}…` : "";
     });
     srpRatingQueue.length = 0;
   }
+  const SRP_DEBUG_LOG_MAX_ENTRIES = 100;
+  let applyingDefaultSrpSort = false;
+  let lastSrpFingerprint = null;
+  let lastPolledSrpSort = null;
+  let srpSortMo = null;
+  let srpSortPollTimerId = null;
+  let srpSortOnPageshow = null;
+  function isSrpLogCardEnabled(flags) {
+    const dbg = getDebugConfig(flags || runtimeState.featureFlags);
+    return dbg && dbg.showSrpLogCard === true;
+  }
+  function serializeSrpDebugPayload(payload) {
+    if (payload == null) return "";
+    if (typeof payload === "string") return payload;
+    try {
+      return JSON.stringify(payload, null, 2);
+    } catch (e) {
+      return String(payload);
+    }
+  }
+  function appendSrpDebugLog$1(level, label, payload) {
+    const ts = ( new Date()).toLocaleTimeString("de-DE", { hour12: false });
+    const line = `[${ts}] ${String(level || "info").toUpperCase()} ${label}${payload == null ? "" : "\n" + serializeSrpDebugPayload(payload)}`;
+    srpDebugLogEntries.push({ level: level || "info", text: line });
+    if (srpDebugLogEntries.length > SRP_DEBUG_LOG_MAX_ENTRIES) {
+      srpDebugLogEntries = srpDebugLogEntries.slice(-SRP_DEBUG_LOG_MAX_ENTRIES);
+    }
+    renderSrpDebugLogCard();
+  }
+  function clearSrpDebugLog() {
+    srpDebugLogEntries = [];
+    renderSrpDebugLogCard();
+  }
+  function getSrpDebugLogText() {
+    if (!srpDebugLogEntries.length) return "Noch keine Logs vorhanden.";
+    return srpDebugLogEntries.map((e) => e.text).join("\n\n");
+  }
+  async function copySrpDebugLogToClipboard(sourceBtn) {
+    const safeToast = (msg, kind) => {
+      if (typeof showToast === "function") showToast(msg, kind);
+    };
+    const setButtonFeedback = (tempLabel) => {
+      if (!sourceBtn) return;
+      const base = sourceBtn.dataset.defaultLabel || "⧉ Copy";
+      if (sourceBtn._copyResetTimer) clearTimeout(sourceBtn._copyResetTimer);
+      sourceBtn.textContent = tempLabel;
+      sourceBtn.disabled = true;
+      sourceBtn._copyResetTimer = setTimeout(() => {
+        sourceBtn.textContent = base;
+        sourceBtn.disabled = false;
+        sourceBtn._copyResetTimer = null;
+      }, 1100);
+    };
+    const text = getSrpDebugLogText();
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(text);
+        setButtonFeedback("Kopiert!");
+        safeToast("Debug-Logs kopiert", "success");
+        return;
+      }
+    } catch (e) {
+    }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "readonly");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      if (ok) {
+        setButtonFeedback("Kopiert!");
+        safeToast("Debug-Logs kopiert", "success");
+      } else safeToast("Kopieren nicht moeglich", "warn");
+    } catch (e2) {
+      safeToast("Kopieren nicht moeglich", "warn");
+      setButtonFeedback("Fehler");
+    }
+  }
+  function runManualCohortLog() {
+    const prof = buildVehicleProfile();
+    if (!prof || !prof.id) {
+      console.warn("[mobilede Preis]", "Kein Fahrzeugprofil auf dieser Seite");
+      appendSrpDebugLog$1("warn", "Kohorten-Check nicht moeglich", { reason: "Kein Fahrzeugprofil auf dieser Seite" });
+      showToast("Nur auf einer Fahrzeugdetailseite mit Inserat-ID", "warn");
+      return;
+    }
+    const prCfg = getPriceRating(runtimeState.featureFlags);
+    const cohortRes = getCohortComparables(prof, prCfg);
+    const payload = {
+      profileId: prof.id,
+      cacheKey: cohortRes.cacheKey,
+      cohortHuman: cohortHumanLabel(prof, prCfg),
+      count: cohortRes.items.length,
+      vipDetails: countCohortVipDetailCount(cohortRes.items),
+      needsManualSearch: !!cohortRes.needsManualSearch
+    };
+    console.info("[mobilede Preis]", "Manueller Kohorten-Check", payload);
+    appendSrpDebugLog$1("info", "Manueller Kohorten-Check", payload);
+    showToast("Kohorte wurde geloggt", "success");
+  }
+  function runManualSrpStatusLog() {
+    if (!isSearchResultsPage()) {
+      console.warn("[mobilede Preis]", "SRP-Status nur auf Suchergebnisseite verfügbar");
+      appendSrpDebugLog$1("warn", "SRP-Status nicht verfuegbar", { reason: "Nicht auf Suchergebnisseite" });
+      showToast("Nur auf einer Suchergebnisseite (SRP)", "warn");
+      return;
+    }
+    const state = getPageInitialState();
+    if (!state) {
+      console.warn("[mobilede Preis]", "SRP-Status: kein __INITIAL_STATE__ vorhanden");
+      appendSrpDebugLog$1("warn", "SRP-Status ohne __INITIAL_STATE__", null);
+      showToast("Kein __INITIAL_STATE__ auf dieser SRP", "warn");
+      return;
+    }
+    const rawList = findSrpListingsInState(state);
+    const items = parseCohortItemsFromState(state, null);
+    const prof = profileFromSearchPageUrl(location.href);
+    const prCfg = getPriceRating(runtimeState.featureFlags);
+    const enrichedForLog = prof ? items.map((it) => enrichCohortItemFromSearchContext(it, prof)) : items;
+    const grouped = {};
+    enrichedForLog.forEach((item) => {
+      if (!item || !(item.makeId || item.make) || !(item.modelId || item.model)) return;
+      const key = cohortCacheKey(item, prCfg);
+      grouped[key] = (grouped[key] || 0) + 1;
+    });
+    const topGroups = Object.entries(grouped).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([key, count]) => ({ cacheKey: key, count }));
+    const hasMultiModelMs = !!(prof && Array.isArray(prof.searchMsList) && prof.searchMsList.length > 1);
+    const cacheKey = prof && (prof.makeId || prof.make || prof.modelId || prof.model) ? hasMultiModelMs ? null : cohortCacheKey(prof, prCfg) : null;
+    const cached = cacheKey ? readCohortCache(cacheKey) : null;
+    const anchorCount = readVipCohortAnchors().length;
+    const payload = {
+      url: location.href,
+      rawListings: rawList.length,
+      parsedComparables: items.length,
+      cacheKey,
+      cohortHuman: prof ? cohortHumanLabel(prof, prCfg) : null,
+      cachedCount: Array.isArray(cached) ? cached.length : 0,
+      vipAnchors: anchorCount,
+      modelGroupsDetected: topGroups,
+      profileFromUrl: prof ? {
+        makeId: prof.makeId || "",
+        modelId: prof.modelId || "",
+        modelGroupId: prof.modelGroupId || "",
+        modelIdList: Array.isArray(prof.modelIdList) ? prof.modelIdList : [],
+        msCount: Array.isArray(prof.searchMsList) ? prof.searchMsList.length : 0,
+        mileageKm: prof.mileageKm,
+        firstRegistrationYear: prof.firstRegistrationYear,
+        powerKw: prof.powerKw
+      } : null
+    };
+    console.info("[mobilede Preis]", "Manueller SRP-Status", payload);
+    appendSrpDebugLog$1("info", "Manueller SRP-Status", payload);
+    showToast("SRP-Status wurde geloggt", "success");
+  }
+  function runManualPriceRatingUiLog() {
+    if (!isVehicleDetailPage()) {
+      appendSrpDebugLog$1("warn", "Preisbewertung-UI nicht verfuegbar", { reason: "Nicht auf Detailseite" });
+      showToast("Nur auf einer Fahrzeugdetailseite", "warn");
+      return;
+    }
+    const profile = buildVehicleProfile();
+    const adId = profile && profile.id ? String(profile.id) : null;
+    const wrap = document.querySelector(".mobilede-price-rating");
+    const row = wrap ? wrap.querySelector(".mobilede-price-rating__row") : null;
+    const bars = wrap ? wrap.querySelectorAll(".mobilede-price-rating__bar") : [];
+    const barsOn = wrap ? wrap.querySelectorAll(".mobilede-price-rating__bar--on") : [];
+    const labelEl = wrap ? wrap.querySelector(".mobilede-price-rating__label") : null;
+    const tagEl = wrap ? wrap.querySelector(".mobilede-price-rating__tag") : null;
+    const subEl = wrap ? wrap.querySelector(".mobilede-price-rating__sub") : null;
+    const infoEl = wrap ? wrap.querySelector(".mobilede-price-rating__info") : null;
+    const csInfo = infoEl ? getComputedStyle(infoEl) : null;
+    const csTag = tagEl ? getComputedStyle(tagEl) : null;
+    const ratingCache = adId ? readRatingUiCache(adId) || readRatingCache(adId) : null;
+    const payload = {
+      profileId: adId,
+      cohortHuman: profile ? cohortHumanLabel(profile, getPriceRating(runtimeState.featureFlags)) : null,
+      hasWidget: !!wrap,
+      widgetClass: wrap ? wrap.className : null,
+      hasRow: !!row,
+      barsTotal: bars ? bars.length : 0,
+      barsOn: barsOn ? barsOn.length : 0,
+      labelText: labelEl ? labelEl.textContent.trim() : "",
+      tagText: tagEl ? tagEl.textContent.trim() : "",
+      subText: subEl ? subEl.textContent.trim() : "",
+      infoButtonText: infoEl ? infoEl.textContent.trim() : "",
+      infoButtonStyle: csInfo ? {
+        width: csInfo.width,
+        height: csInfo.height,
+        lineHeight: csInfo.lineHeight,
+        fontSize: csInfo.fontSize,
+        fontWeight: csInfo.fontWeight,
+        fontFamily: csInfo.fontFamily,
+        borderRadius: csInfo.borderRadius,
+        borderTop: csInfo.borderTopWidth + " " + csInfo.borderTopStyle + " " + csInfo.borderTopColor
+      } : null,
+      tagStyle: csTag ? {
+        fontSize: csTag.fontSize,
+        lineHeight: csTag.lineHeight,
+        padding: csTag.padding
+      } : null,
+      ratingCache: ratingCache ? {
+        ok: !!ratingCache.ok,
+        label: ratingCache.label || null,
+        level: typeof ratingCache.level === "number" ? ratingCache.level : null,
+        price: typeof ratingCache.price === "number" ? ratingCache.price : null,
+        adjustedExpected: typeof ratingCache.adjustedExpected === "number" ? ratingCache.adjustedExpected : null,
+        basePrice: typeof ratingCache.basePrice === "number" ? ratingCache.basePrice : null,
+        devEuro: typeof ratingCache.devEuro === "number" ? ratingCache.devEuro : null,
+        devPct: typeof ratingCache.devPct === "number" ? Math.round(ratingCache.devPct * 1e4) / 100 : null,
+        mobileLabel: ratingCache.mobileLabel || null,
+        cohortCount: typeof ratingCache.cohortCount === "number" ? ratingCache.cohortCount : null,
+        cohortVipDetailCount: typeof ratingCache.cohortVipDetailCount === "number" ? ratingCache.cohortVipDetailCount : null,
+        usedMobileFallback: !!ratingCache.usedMobileFallback,
+        insufficientCohort: !!ratingCache.insufficientCohort,
+        cohortQuality: ratingCache.insufficientCohort ? "small-cohort-fallback" : "cohort-ok"
+      } : null
+    };
+    console.info("[mobilede Preis]", "Manuelle Preisbewertung-UI", payload);
+    appendSrpDebugLog$1("info", "Manuelle Preisbewertung-UI", payload);
+    showToast("Preisbewertung-UI wurde geloggt", "success");
+  }
+  function renderDebugLogIntoCard(cardId) {
+    const existing = document.getElementById(cardId);
+    if (!existing) return;
+    const logBox = existing.querySelector(".mobilede-srp-debug-card__log");
+    const copyBtn = existing.querySelector('.mobilede-srp-debug-card__btn[data-copy-log="1"]');
+    if (copyBtn) {
+      const hasLogs = srpDebugLogEntries.length > 0;
+      copyBtn.disabled = !hasLogs;
+      copyBtn.title = hasLogs ? "Logs in Zwischenablage kopieren" : "Keine Logs zum Kopieren vorhanden";
+    }
+    if (!logBox) return;
+    logBox.innerHTML = "";
+    if (srpDebugLogEntries.length === 0) {
+      logBox.textContent = "Noch keine Logs vorhanden.";
+      return;
+    }
+    srpDebugLogEntries.slice().reverse().forEach((entry) => {
+      const line = document.createElement("div");
+      line.className = "mobilede-srp-debug-card__log-line mobilede-srp-debug-card__log-line--" + entry.level;
+      line.textContent = entry.text;
+      logBox.appendChild(line);
+    });
+  }
+  function renderSrpDebugLogCard() {
+    renderDebugLogIntoCard("mobilede-srp-debug-card");
+    renderDebugLogIntoCard("mobilede-detail-debug-card");
+    wireDebugCardCopyButtons();
+  }
+  function wireDebugCardCopyButtons() {
+    const cards = ["mobilede-srp-debug-card", "mobilede-detail-debug-card"];
+    cards.forEach((cardId) => {
+      const card = document.getElementById(cardId);
+      if (!card) return;
+      const buttons = card.querySelectorAll(".mobilede-srp-debug-card__btn");
+      buttons.forEach((btn) => {
+        const txt = (btn.textContent || "").toLowerCase();
+        if (!txt.includes("copy")) return;
+        btn.onclick = () => {
+          copySrpDebugLogToClipboard(btn);
+        };
+      });
+    });
+  }
+  function removeSrpDebugLogCard() {
+    const existing = document.getElementById("mobilede-srp-debug-card");
+    if (existing) existing.remove();
+  }
+  function removeDetailDebugLogCard() {
+    const existing = document.getElementById("mobilede-detail-debug-card");
+    if (existing) existing.remove();
+  }
+  function ensureSrpDebugLogCard() {
+    if (!isSearchResultsPage() || !isSrpLogCardEnabled(runtimeState.featureFlags)) {
+      removeSrpDebugLogCard();
+      return;
+    }
+    injectPriceRatingStyles();
+    const summarySection = document.querySelector(
+      "div.leHcX article.A3G6X.vTKPY section.HaBLt.ku0Os.Ln3aV"
+    );
+    const summaryArticle = summarySection ? summarySection.closest("article.A3G6X.vTKPY") : null;
+    const leftFilterSection = document.querySelector('section[data-testid="search-column-content-section"]');
+    const topBtn = leftFilterSection && leftFilterSection.querySelector('button[data-testid="dsp-button-top"]');
+    const fallbackParent = topBtn ? topBtn.parentElement : leftFilterSection ? leftFilterSection.querySelector('[data-testid="search-column-content"]') : null;
+    if (!summarySection && !fallbackParent) return;
+    let card = document.getElementById("mobilede-srp-debug-card");
+    if (!card) {
+      card = document.createElement("div");
+      card.id = "mobilede-srp-debug-card";
+      card.className = "mobilede-srp-debug-card";
+      const title = document.createElement("div");
+      title.className = "mobilede-srp-debug-card__title";
+      title.textContent = "Mobile.de Debug-Logs";
+      card.appendChild(title);
+      const actions = document.createElement("div");
+      actions.className = "mobilede-srp-debug-card__actions";
+      const bSrp = document.createElement("button");
+      bSrp.type = "button";
+      bSrp.className = "mobilede-srp-debug-card__btn";
+      bSrp.textContent = "SRP-Status jetzt loggen";
+      bSrp.addEventListener("click", runManualSrpStatusLog);
+      actions.appendChild(bSrp);
+      const bClear = document.createElement("button");
+      bClear.type = "button";
+      bClear.className = "mobilede-srp-debug-card__btn";
+      bClear.textContent = "Logs leeren";
+      bClear.addEventListener("click", clearSrpDebugLog);
+      actions.appendChild(bClear);
+      const bCopy = document.createElement("button");
+      bCopy.type = "button";
+      bCopy.className = "mobilede-srp-debug-card__btn";
+      bCopy.textContent = "⧉ Copy";
+      bCopy.dataset.defaultLabel = bCopy.textContent;
+      bCopy.dataset.copyLog = "1";
+      bCopy.title = "Logs in Zwischenablage kopieren";
+      bCopy.addEventListener("click", () => {
+        copySrpDebugLogToClipboard(bCopy);
+      });
+      actions.appendChild(bCopy);
+      card.appendChild(actions);
+      const logBox = document.createElement("div");
+      logBox.className = "mobilede-srp-debug-card__log";
+      card.appendChild(logBox);
+    }
+    if (summaryArticle) {
+      const shouldMove = card.parentElement !== summaryArticle.parentElement || card.previousElementSibling !== summaryArticle;
+      if (shouldMove) summaryArticle.insertAdjacentElement("afterend", card);
+    } else if (summarySection) {
+      const shouldMove = card.parentElement !== summarySection.parentElement || card.previousElementSibling !== summarySection;
+      if (shouldMove) summarySection.insertAdjacentElement("afterend", card);
+    } else if (topBtn) {
+      const shouldMove = card.parentElement !== topBtn.parentElement || card.previousElementSibling !== topBtn;
+      if (shouldMove) topBtn.insertAdjacentElement("afterend", card);
+    } else if (fallbackParent && !card.parentElement) {
+      fallbackParent.prepend(card);
+    } else if (fallbackParent) {
+      if (card.parentElement !== fallbackParent) fallbackParent.appendChild(card);
+    }
+    renderSrpDebugLogCard();
+  }
+  function ensureDetailDebugLogCard() {
+    if (!isVehicleDetailPage() || !isSrpLogCardEnabled(runtimeState.featureFlags)) {
+      removeDetailDebugLogCard();
+      return;
+    }
+    injectPriceRatingStyles();
+    const galleryArticle = document.querySelector('article[data-testid="gallery-main-focus-container"]');
+    if (!galleryArticle || !galleryArticle.parentElement) return;
+    let card = document.getElementById("mobilede-detail-debug-card");
+    if (!card) {
+      card = document.createElement("div");
+      card.id = "mobilede-detail-debug-card";
+      card.className = "mobilede-srp-debug-card mobilede-srp-debug-card--detail";
+      const title = document.createElement("div");
+      title.className = "mobilede-srp-debug-card__title";
+      title.textContent = "Mobile.de Debug-Logs (Detailseite)";
+      card.appendChild(title);
+      const actions = document.createElement("div");
+      actions.className = "mobilede-srp-debug-card__actions";
+      const bCohort = document.createElement("button");
+      bCohort.type = "button";
+      bCohort.className = "mobilede-srp-debug-card__btn";
+      bCohort.textContent = "Kohorte jetzt loggen";
+      bCohort.addEventListener("click", runManualCohortLog);
+      actions.appendChild(bCohort);
+      const bRatingUi = document.createElement("button");
+      bRatingUi.type = "button";
+      bRatingUi.className = "mobilede-srp-debug-card__btn";
+      bRatingUi.textContent = "Preisbewertung-UI loggen";
+      bRatingUi.addEventListener("click", runManualPriceRatingUiLog);
+      actions.appendChild(bRatingUi);
+      const bClear = document.createElement("button");
+      bClear.type = "button";
+      bClear.className = "mobilede-srp-debug-card__btn";
+      bClear.textContent = "Logs leeren";
+      bClear.addEventListener("click", clearSrpDebugLog);
+      actions.appendChild(bClear);
+      const bCopy = document.createElement("button");
+      bCopy.type = "button";
+      bCopy.className = "mobilede-srp-debug-card__btn";
+      bCopy.textContent = "⧉ Copy";
+      bCopy.dataset.defaultLabel = bCopy.textContent;
+      bCopy.dataset.copyLog = "1";
+      bCopy.title = "Logs in Zwischenablage kopieren";
+      bCopy.addEventListener("click", () => {
+        copySrpDebugLogToClipboard(bCopy);
+      });
+      actions.appendChild(bCopy);
+      card.appendChild(actions);
+      const logBox = document.createElement("div");
+      logBox.className = "mobilede-srp-debug-card__log";
+      card.appendChild(logBox);
+    }
+    const shouldMove = card.parentElement !== galleryArticle.parentElement || card.previousElementSibling !== galleryArticle;
+    if (shouldMove) galleryArticle.insertAdjacentElement("afterend", card);
+    renderSrpDebugLogCard();
+  }
+  function getSrpSearchFingerprint$1() {
+    const u = new URL(location.href);
+    const parts = [];
+    for (const [k, v] of u.searchParams.entries()) {
+      if (SRP_FINGERPRINT_EXCLUDE.has(k)) continue;
+      parts.push(k + "=" + v);
+    }
+    parts.sort((a, b) => a.localeCompare(b));
+    return u.pathname + (parts.length ? "?" + parts.join("&") : "");
+  }
+  function getSrpConfigSort() {
+    const opt = findSrpSortOption(getSrpSort(runtimeState.featureFlags).sortId);
+    return { sb: opt.sb, od: opt.od };
+  }
+  function urlSortMatchesUserChoice(fp) {
+    const choice = getStoredSrpUserChoice();
+    if (!choice || choice.fp !== fp) return false;
+    return srpSortParamsEqual(parseSortFromUrl$1(), choice);
+  }
+  function parseSortFromUrl$1(href) {
+    const u = new URL(location.href);
+    return { sb: u.searchParams.get("sb"), od: u.searchParams.get("od") || "up" };
+  }
+  function detectUserSortAfterReload(fp) {
+    const srp = getSrpSort(runtimeState.featureFlags);
+    if (!srp.enabled) return false;
+    if (urlSortMatchesUserChoice(fp)) {
+      return true;
+    }
+    const current = parseSortFromUrl$1();
+    const configSort = getSrpConfigSort();
+    if (srpSortParamsEqual(current, configSort)) return false;
+    const applied = getStoredSrpSortApplied();
+    if (applied && applied.fp === fp && !srpSortParamsEqual(current, applied)) {
+      markSrpSortUserOverride(current);
+      return true;
+    }
+    return false;
+  }
+  function applySrpDefaultSort(force) {
+    if (!isSearchResultsPage()) return;
+    const srp = getSrpSort(runtimeState.featureFlags);
+    if (!srp.enabled) return;
+    const fp = getSrpSearchFingerprint$1();
+    if (!force && (hasSrpSortUserOverride(fp) || urlSortMatchesUserChoice(fp))) return;
+    const configSort = getSrpConfigSort();
+    const current = parseSortFromUrl$1();
+    if (srpSortParamsEqual(current, configSort)) {
+      markSrpSortApplied(fp, configSort.sb, configSort.od);
+      return;
+    }
+    applyingDefaultSrpSort = true;
+    try {
+      const u = new URL(location.href);
+      u.searchParams.set("sb", configSort.sb);
+      u.searchParams.set("od", configSort.od);
+      const newUrl = u.toString();
+      markSrpSortApplied(fp, configSort.sb, configSort.od);
+      lastUrl = newUrl;
+      location.replace(newUrl);
+    } finally {
+      applyingDefaultSrpSort = false;
+    }
+  }
+  function resetSrpSortOverrideAndApply() {
+    clearSrpSortSessionState();
+    applySrpDefaultSort(true);
+  }
+  function bindSrpSortDropdown() {
+    if (!isSearchResultsPage()) return;
+    const sel = document.getElementById("sorting-menu-dropdown");
+    if (!sel || sel.dataset.mobiledeSrpBound === "1") return;
+    sel.dataset.mobiledeSrpBound = "1";
+    const onUserSort = () => {
+      if (applyingDefaultSrpSort) return;
+      markSrpSortUserOverride(parseSortFromUrl$1());
+    };
+    sel.addEventListener("change", onUserSort, true);
+    sel.addEventListener("input", onUserSort, true);
+    sel.addEventListener("pointerdown", () => {
+      sel.dataset.mobiledeSortTouched = "1";
+    }, true);
+  }
+  function pollSrpSortFromUrl() {
+    if (!isSearchResultsPage() || applyingDefaultSrpSort) return;
+    const srp = getSrpSort(runtimeState.featureFlags);
+    if (!srp.enabled) return;
+    const fp = getSrpSearchFingerprint$1();
+    const current = parseSortFromUrl$1();
+    const configSort = getSrpConfigSort();
+    const key = fp + "|" + (current.sb || "") + "|" + current.od;
+    if (lastPolledSrpSort === key) return;
+    const prev = lastPolledSrpSort;
+    lastPolledSrpSort = key;
+    if (prev === null) return;
+    if (!srpSortParamsEqual(current, configSort)) {
+      markSrpSortUserOverride(current);
+    }
+  }
+  function destroySrpSortBehavior() {
+    if (srpSortMo) {
+      srpSortMo.disconnect();
+      srpSortMo = null;
+    }
+    if (srpSortPollTimerId != null) {
+      clearInterval(srpSortPollTimerId);
+      srpSortPollTimerId = null;
+    }
+    if (srpSortOnPageshow) {
+      window.removeEventListener("pageshow", srpSortOnPageshow);
+      srpSortOnPageshow = null;
+    }
+  }
+  function syncSrpPolledSortKey(fp) {
+    const cur = parseSortFromUrl$1();
+    lastPolledSrpSort = fp + "|" + (cur.sb || "") + "|" + cur.od;
+  }
+  function handleSrpUrlChange() {
+    if (!isSearchResultsPage()) return;
+    bindSrpSortDropdown();
+    const fp = getSrpSearchFingerprint$1();
+    if (fp !== lastSrpFingerprint) {
+      lastSrpFingerprint = fp;
+      lastPolledSrpSort = null;
+      clearSrpSortSessionState();
+      applySrpDefaultSort(false);
+      return;
+    }
+    pollSrpSortFromUrl();
+  }
+  function ensureSrpSortBehavior() {
+    if (!isSearchResultsPage()) {
+      destroySrpSortBehavior();
+      return;
+    }
+    if (srpSortPollTimerId != null) return;
+    const fp = getSrpSearchFingerprint$1();
+    lastSrpFingerprint = fp;
+    lastPolledSrpSort = null;
+    const choice = getStoredSrpUserChoice();
+    if (choice && choice.fp === fp) ;
+    bindSrpSortDropdown();
+    if (!detectUserSortAfterReload(fp)) {
+      applySrpDefaultSort(false);
+    }
+    syncSrpPolledSortKey(fp);
+    srpSortMo = new MutationObserver(() => bindSrpSortDropdown());
+    srpSortMo.observe(document.body, { childList: true, subtree: true });
+    srpSortOnPageshow = () => {
+      if (!isSearchResultsPage()) return;
+      const fpNow = getSrpSearchFingerprint$1();
+      if (detectUserSortAfterReload(fpNow)) syncSrpPolledSortKey(fpNow);
+    };
+    window.addEventListener("pageshow", srpSortOnPageshow);
+    srpSortPollTimerId = setInterval(pollSrpSortFromUrl, 400);
+  }
+  function initSrpSortBehavior() {
+    destroySrpSortBehavior();
+    ensureSrpSortBehavior();
+  }
   const scheduledJobs = new Map();
   let schedulerTickPending = false;
   const taskPriority = { ui: 0, network: 1, rating: 2 };
-  function requestIdle$1(fn, timeoutMs) {
-    if (typeof requestIdleCallback === "function") {
-      return requestIdleCallback(fn, { timeout: timeoutMs || 350 });
-    }
-    return setTimeout(fn, Math.min(timeoutMs || 350, 220));
-  }
   function scheduleTask(key, type, job) {
     if (!key || typeof job !== "function") return;
     const existing = scheduledJobs.get(key);
@@ -4569,7 +4591,7 @@ Kontext: …${item.snippet}…` : "";
     scheduledJobs.set(key, { type: type || "ui", job });
     if (schedulerTickPending) return;
     schedulerTickPending = true;
-    requestIdle$1(runScheduledTasks, 220);
+    requestIdle(runScheduledTasks, 220);
   }
   function runScheduledTasks() {
     schedulerTickPending = false;
@@ -4594,7 +4616,7 @@ Kontext: …${item.snippet}…` : "";
     });
     if (deferredCount > 0 && !schedulerTickPending) {
       schedulerTickPending = true;
-      requestIdle$1(runScheduledTasks, 400);
+      requestIdle(runScheduledTasks, 400);
     }
   }
   function isConfigPopupOpen() {
@@ -4707,11 +4729,11 @@ Kontext: …${item.snippet}…` : "";
       scheduleTask("ui:results", "ui", () => {
         ergebnisHinzufuegen();
         verlinkeStandortAufGoogleMaps();
-        ensureSrpDebugLogCard$1();
+        ensureSrpDebugLogCard();
         ensureDetailDebugLogCard();
       });
       scheduleTask("network:cohort-sync", "network", () => syncCohortCacheFromSearchPage());
-      if (!isVehicleDetailPage$1()) {
+      if (!isVehicleDetailPage()) {
         scheduleTask("rating:vip-refresh", "rating", () => {
           preisBewertungAktualisieren();
         });
@@ -4748,19 +4770,22 @@ Kontext: …${item.snippet}…` : "";
       ensureSrpSortBehavior();
       handleSrpUrlChange();
       ensureSrpPriceRatingObserver();
-      ensureSrpDebugLogCard$1();
+      ensureSrpDebugLogCard();
       removeDetailDebugLogCard();
     } else {
       destroySrpSortBehavior();
       disconnectSrpPriceRatingObserver();
       removeSrpDebugLogCard();
       ensureDetailDebugLogCard();
+      scheduleTask("rating:vip-after-nav", "rating", () => {
+        preisBewertungAktualisieren({ force: true });
+      });
     }
     setTimeout(ensureConfigButton, 1500);
   }
   function onStorageCohortUpdate(e) {
     if (e.key !== PRICE_COHORT_CACHE_PREFIX + "_updated") return;
-    if (!isVehicleDetailPage$1()) return;
+    if (!isVehicleDetailPage()) return;
     invalidateVipRatingCacheForReload();
     priceRatingFetchTokenIncrement();
     scheduleTask("rating:vip-storage-refresh", "rating", () => {
@@ -4781,7 +4806,7 @@ Kontext: …${item.snippet}…` : "";
     });
     initSrpSortBehavior();
     scheduleTask("rating:srp-observer-init", "rating", () => ensureSrpPriceRatingObserver());
-    scheduleTask("ui:srp-debug-card-init", "ui", () => ensureSrpDebugLogCard$1());
+    scheduleTask("ui:srp-debug-card-init", "ui", () => ensureSrpDebugLogCard());
     scheduleTask("ui:detail-debug-card-init", "ui", () => ensureDetailDebugLogCard());
   }
   const KONFIG_TAB_HELP_HTML = new Map([
@@ -5143,8 +5168,8 @@ Kontext: …${item.snippet}…` : "";
     }
     function diffPriceRating(baseline, current) {
       const lines = [];
-      const b = getPriceRating$1(baseline);
-      const c = getPriceRating$1(current);
+      const b = getPriceRating(baseline);
+      const c = getPriceRating(current);
       if (!!b.enabled !== !!c.enabled) {
         lines.push("Preisbewertung gesamt: " + (c.enabled ? "an" : "aus"));
       }
@@ -10237,6 +10262,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             persistDebugConfig({ ...now, showSrpLogCard: !now.showSrpLogCard });
             aktuelleFeatureFlags = ladeFeatureFlags();
             ensureSrpDebugLogCard();
+            ensureDetailDebugLogCard();
             renderConfig();
             showToast2("Debug-Log-Cards " + (isSrpLogCardEnabled(aktuelleFeatureFlags) ? "aktiviert" : "deaktiviert"), "success");
           }

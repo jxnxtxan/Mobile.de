@@ -73,6 +73,10 @@ import {
     isSearchResultsPage,
     runManualCohortLog,
     runManualSrpStatusLog,
+    isSrpLogCardEnabled,
+    ensureSrpDebugLogCard,
+    removeSrpDebugLogCard,
+    ensureDetailDebugLogCard,
 } from '../features/srp-sort/index.js';
 import { KONFIG_TAB_HELP_HTML } from './help/tabs.js';
 
@@ -5695,6 +5699,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                     persistDebugConfig({ ...now, showSrpLogCard: !now.showSrpLogCard });
                     aktuelleFeatureFlags = ladeFeatureFlags();
                     ensureSrpDebugLogCard();
+                    ensureDetailDebugLogCard();
                     renderConfig();
                     showToast('Debug-Log-Cards ' + (isSrpLogCardEnabled(aktuelleFeatureFlags) ? 'aktiviert' : 'deaktiviert'), 'success');
                 }

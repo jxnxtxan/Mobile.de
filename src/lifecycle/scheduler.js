@@ -1,15 +1,11 @@
 import { pricePerfMarkEnd, pricePerfMarkStart } from '../features/price-rating/index.js';
+import { requestIdle } from '../core/util/request-idle.js';
+
+export { requestIdle };
 
 export const scheduledJobs = new Map();
 export let schedulerTickPending = false;
 export const taskPriority = { ui: 0, network: 1, rating: 2 };
-
-export function requestIdle(fn, timeoutMs) {
-    if (typeof requestIdleCallback === 'function') {
-        return requestIdleCallback(fn, { timeout: timeoutMs || 350 });
-    }
-    return setTimeout(fn, Math.min(timeoutMs || 350, 220));
-}
 
 export function scheduleTask(key, type, job) {
     if (!key || typeof job !== 'function') return;
