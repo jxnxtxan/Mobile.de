@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.15.18
+// @version      2.15.22
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @homepageURL  https://github.com/jxnxtxan/Mobile.de
@@ -2808,7 +2808,8 @@ article.mobilede-tech-article,article.mobilede-result-article{
             version: PRICE_DATA_STORE_VERSION,
             updatedTs: Date.now(),
             adsById: {},
-            cohortsByKey: {}
+            cohortsByKey: {},
+            anchorsByAdId: {}
         };
     }
 
@@ -2821,6 +2822,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             if (parsed.version !== PRICE_DATA_STORE_VERSION) return createEmptyPriceDataStore();
             parsed.adsById = parsed.adsById && typeof parsed.adsById === 'object' ? parsed.adsById : {};
             parsed.cohortsByKey = parsed.cohortsByKey && typeof parsed.cohortsByKey === 'object' ? parsed.cohortsByKey : {};
+            parsed.anchorsByAdId = parsed.anchorsByAdId && typeof parsed.anchorsByAdId === 'object' ? parsed.anchorsByAdId : {};
             return parsed;
         } catch (e) {
             return createEmptyPriceDataStore();
@@ -2837,10 +2839,17 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const keptCohorts = cohorts.slice(0, PRICE_DATA_STORE_MAX_COHORTS);
         store.cohortsByKey = Object.fromEntries(keptCohorts);
 
+        const anchors = Object.entries(store.anchorsByAdId || {})
+            .filter(([, a]) => a && typeof a.ts === 'number' && (now - a.ts) <= maxAge)
+            .sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0))
+            .slice(0, 300);
+        store.anchorsByAdId = Object.fromEntries(anchors);
+
         const keepAdIds = new Set();
         keptCohorts.forEach(([, c]) => {
             (c.adIds || []).forEach(id => keepAdIds.add(String(id)));
         });
+        anchors.forEach(([id]) => keepAdIds.add(String(id)));
         Object.entries(store.adsById || {}).forEach(([id, ad]) => {
             if (!ad || typeof ad !== 'object') return;
             if (typeof ad.ts === 'number' && (now - ad.ts) <= maxAge) keepAdIds.add(String(id));
@@ -2903,10 +2912,19 @@ article.mobilede-tech-article,article.mobilede-result-article{
         items.forEach(item => {
             const ad = normalizeAdForPriceStore(item, now);
             if (!ad) return;
-            const prev = store.adsById[ad.id] || {};
-            store.adsById[ad.id] = { ...prev, ...ad, ts: now };
+            store.adsById[ad.id] = mergePriceDataStoreAdEntry(store.adsById[ad.id], ad, now);
         });
         writePriceDataStore(store);
+    }
+
+    /** SRP-Kohorte darf echte VIP-Ausstattung nicht mit SRP-Fingerprint überschreiben. */
+    function mergePriceDataStoreAdEntry(prev, ad, ts) {
+        const merged = { ...(prev || {}), ...ad, ts: ts || Date.now() };
+        if (prev && prev.equipmentFromVipCache && prev.equipment) {
+            merged.equipment = prev.equipment;
+            merged.equipmentFromVipCache = true;
+        }
+        return merged;
     }
 
     function writePriceDataStoreCohort(cacheKey, items, ts) {
@@ -2917,7 +2935,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
         items.forEach(item => {
             const ad = normalizeAdForPriceStore(item, now);
             if (!ad) return;
-            store.adsById[ad.id] = { ...(store.adsById[ad.id] || {}), ...ad, ts: now };
+            store.adsById[ad.id] = mergePriceDataStoreAdEntry(store.adsById[ad.id], ad, now);
             adIds.push(ad.id);
         });
         if (!adIds.length) return;
@@ -2951,12 +2969,14 @@ article.mobilede-tech-article,article.mobilede-result-article{
     }
 
     function mergePriceDataStoreImport(rawStore) {
-        if (!rawStore || typeof rawStore !== 'object') return { mergedAds: 0, mergedCohorts: 0 };
+        if (!rawStore || typeof rawStore !== 'object') return { mergedAds: 0, mergedCohorts: 0, mergedAnchors: 0 };
         const incomingAds = rawStore.adsById && typeof rawStore.adsById === 'object' ? rawStore.adsById : {};
         const incomingCohorts = rawStore.cohortsByKey && typeof rawStore.cohortsByKey === 'object' ? rawStore.cohortsByKey : {};
+        const incomingAnchors = rawStore.anchorsByAdId && typeof rawStore.anchorsByAdId === 'object' ? rawStore.anchorsByAdId : {};
         const store = readPriceDataStore();
         let mergedAds = 0;
         let mergedCohorts = 0;
+        let mergedAnchors = 0;
 
         Object.entries(incomingAds).forEach(([id, ad]) => {
             if (!ad || typeof ad !== 'object') return;
@@ -2984,8 +3004,69 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 mergedCohorts += 1;
             }
         });
+        store.anchorsByAdId = store.anchorsByAdId && typeof store.anchorsByAdId === 'object' ? store.anchorsByAdId : {};
+        Object.entries(incomingAnchors).forEach(([id, anchor]) => {
+            if (!anchor || typeof anchor !== 'object') return;
+            const key = String(id);
+            const prev = store.anchorsByAdId[key];
+            const inTs = typeof anchor.ts === 'number' ? anchor.ts : 0;
+            const prevTs = prev && typeof prev.ts === 'number' ? prev.ts : 0;
+            if (!prev || inTs >= prevTs) {
+                store.anchorsByAdId[key] = { ...prev, ...anchor };
+                mergedAnchors += 1;
+            }
+        });
         const ok = writePriceDataStore(store);
-        return ok ? { mergedAds, mergedCohorts } : { mergedAds: 0, mergedCohorts: 0 };
+        return ok ? { mergedAds, mergedCohorts, mergedAnchors } : { mergedAds: 0, mergedCohorts: 0, mergedAnchors: 0 };
+    }
+
+    function profileFromVipCohortAnchor(anchor) {
+        if (!anchor || typeof anchor !== 'object') return null;
+        return {
+            makeId: anchor.makeId || '',
+            modelId: anchor.modelId || '',
+            make: anchor.make || '',
+            model: anchor.model || '',
+            modelRange: anchor.modelRange || '',
+            mileageKm: anchor.mileageKm,
+            firstRegistrationYear: anchor.firstRegistrationYear,
+            powerKw: anchor.powerKw,
+            powerPs: null
+        };
+    }
+
+    function readVipCohortAnchors() {
+        const store = readPriceDataStore();
+        const now = Date.now();
+        return Object.entries(store.anchorsByAdId || {})
+            .filter(([, a]) => a && typeof a.ts === 'number' && (now - a.ts) <= PRICE_COHORT_CACHE_TTL_MS)
+            .map(([adId, anchor]) => ({ adId, anchor }));
+    }
+
+    function persistVipCohortAnchor(profile, prCfg) {
+        if (!profile || !profile.id) return;
+        const pr = prCfg || getPriceRating(featureFlags);
+        if (!(profile.makeId || profile.make) || !(profile.modelId || profile.model)) return;
+        const cacheKey = cohortCacheKey(profile, pr);
+        if (!cacheKey) return;
+        const bucketed = profileForCohortCacheKey(profile, pr);
+        const anchor = {
+            cacheKey,
+            makeId: bucketed.makeId || '',
+            modelId: bucketed.modelId || '',
+            modelRange: bucketed.modelRange || '',
+            mileageKm: bucketed.mileageKm,
+            firstRegistrationYear: bucketed.firstRegistrationYear,
+            powerKw: bucketed.powerKw,
+            make: profile.make || '',
+            model: profile.model || '',
+            ts: Date.now()
+        };
+        const store = readPriceDataStore();
+        store.anchorsByAdId = store.anchorsByAdId && typeof store.anchorsByAdId === 'object' ? store.anchorsByAdId : {};
+        store.anchorsByAdId[String(profile.id)] = anchor;
+        writePriceDataStore(store);
+        priceRatingDebugLog('VIP-Kohorten-Anker gespeichert', { adId: profile.id, cacheKey });
     }
 
     function cohortCacheStorageKey(key) {
@@ -3035,6 +3116,44 @@ article.mobilede-tech-article,article.mobilede-result-article{
         } catch (e) { /* noop */ }
     }
 
+    function mergeCohortCache(key, newItems) {
+        if (!key || !Array.isArray(newItems) || !newItems.length) return 0;
+        const existing = readCohortCache(key) || [];
+        const byId = new Map();
+        existing.forEach(it => {
+            if (it && it.id) byId.set(String(it.id), it);
+        });
+        newItems.forEach(it => {
+            if (it && it.id) byId.set(String(it.id), it);
+        });
+        const merged = [...byId.values()];
+        if (merged.length < 1) return 0;
+        writeCohortCache(key, merged);
+        return merged.length;
+    }
+
+    function findCohortItemsFromStoreByProfile(profile, prCfg) {
+        if (!profile) return [];
+        const pr = prCfg || getPriceRating(featureFlags);
+        const store = readPriceDataStore();
+        const now = Date.now();
+        const byId = new Map();
+        Object.entries(store.cohortsByKey || {}).forEach(([, cohort]) => {
+            if (!cohort || typeof cohort.ts !== 'number' || (now - cohort.ts) > PRICE_COHORT_CACHE_TTL_MS) return;
+            (cohort.adIds || []).forEach(id => {
+                const ad = store.adsById[String(id)];
+                if (!ad || typeof ad !== 'object') return;
+                const item = { ...ad };
+                if (item.equipment && typeof item.equipment.score === 'number') {
+                    item.equipmentFromVipCache = !!item.equipmentFromVipCache;
+                }
+                if (!itemMatchesCohortProfile(item, profile, pr)) return;
+                byId.set(String(id), item);
+            });
+        });
+        return [...byId.values()];
+    }
+
     function vipEquipCacheStorageKey(adId) {
         return PRICE_VIP_EQUIP_CACHE_PREFIX + String(adId || '');
     }
@@ -3044,7 +3163,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
         try {
             const store = readPriceDataStore();
             const ad = store.adsById[String(adId)];
-            if (ad && ad.equipment && typeof ad.equipment.score === 'number') {
+            if (ad && ad.equipmentFromVipCache && ad.equipment && typeof ad.equipment.score === 'number') {
                 return ad.equipment;
             }
         } catch (e) { /* noop */ }
@@ -3147,6 +3266,60 @@ article.mobilede-tech-article,article.mobilede-result-article{
             .filter(c => !excludeId || String(c.id) !== String(excludeId));
     }
 
+    /** SRP-Treffer mit ms/URL-Kontext anreichern, damit Cache-Keys zu VIP (3500|335|…) passen. */
+    function enrichCohortItemFromSearchContext(item, searchProfile) {
+        if (!item || !searchProfile) return item;
+        const out = { ...item };
+        if (!out.makeId && searchProfile.makeId) out.makeId = String(searchProfile.makeId);
+        if (!out.modelId && searchProfile.modelId) out.modelId = String(searchProfile.modelId);
+        if (!out.modelGroupId && searchProfile.modelGroupId) out.modelGroupId = String(searchProfile.modelGroupId);
+        return out;
+    }
+
+    function sameMakeModelForCohort(item, profile) {
+        const iMake = String((item && (item.makeId || item.make)) || '').toLowerCase();
+        const iModel = String((item && (item.modelId || item.model)) || '').toLowerCase();
+        const pMake = String((profile && (profile.makeId || profile.make)) || '').toLowerCase();
+        const pModel = String((profile && (profile.modelId || profile.model)) || '').toLowerCase();
+        return !!(iMake && iModel && pMake && pModel && iMake === pMake && iModel === pModel);
+    }
+
+    /** Treffer innerhalb der Such-Toleranzen (wie buildCohortSearchUrl), nicht exakter Bucket-Key pro Inserat. */
+    function itemMatchesCohortProfile(item, profile, prCfg) {
+        if (!item || !profile) return false;
+        if (!sameMakeModelForCohort(item, profile)) return false;
+        const pr = prCfg || getPriceRating(featureFlags);
+        if (pr.keyUseMileage !== false && profile.mileageKm != null && item.mileageKm != null) {
+            const tol = Math.max(0, parseInt(pr.kmToleranceAbs, 10) || 0);
+            if (Math.abs(item.mileageKm - profile.mileageKm) > tol) return false;
+        }
+        if (pr.keyUseYear !== false && profile.firstRegistrationYear != null && item.firstRegistrationYear != null) {
+            const tol = Math.max(0, parseInt(pr.yearTolerance, 10) || 0);
+            if (Math.abs(item.firstRegistrationYear - profile.firstRegistrationYear) > tol) return false;
+        }
+        if (pr.keyUsePower !== false) {
+            const pKw = profile.powerKw != null
+                ? profile.powerKw
+                : (profile.powerPs != null ? Math.round(profile.powerPs * PS_TO_KW) : null);
+            const iKw = item.powerKw != null
+                ? item.powerKw
+                : (item.powerPs != null ? Math.round(item.powerPs * PS_TO_KW) : null);
+            if (pKw != null && iKw != null) {
+                const tol = Math.max(0, parseInt(pr.powerToleranceKw, 10) || 0);
+                if (Math.abs(iKw - pKw) > tol) return false;
+            }
+        }
+        return true;
+    }
+
+    function cohortItemsForSearchProfile(items, searchProfile, prCfg) {
+        if (!searchProfile || !(searchProfile.makeId || searchProfile.make)) return [];
+        const pr = prCfg || getPriceRating(featureFlags);
+        return (items || [])
+            .map(it => enrichCohortItemFromSearchContext(it, searchProfile))
+            .filter(it => itemMatchesCohortProfile(it, searchProfile, pr));
+    }
+
     /**
      * Kohorte aus Suchergebnisliste (__INITIAL_STATE__) — kein fetch, kein VIP-Besuch.
      * Einzelne Inseratsseiten füllen den Cache nicht; Tab teilt localStorage.
@@ -3159,33 +3332,76 @@ article.mobilede-tech-article,article.mobilede-result-article{
             return;
         }
         const items = parseCohortItemsFromState(state, null);
-        if (items.length < 5) {
+        if (items.length < 3) {
             priceRatingDebugLog('SRP-Cache-Sync übersprungen: zu wenige SRP-Treffer', { count: items.length });
             return;
         }
         const prCfg = getPriceRating(featureFlags);
+        const urlProf = profileFromSearchPageUrl(location.href);
+        const enriched = urlProf
+            ? items.map(it => enrichCohortItemFromSearchContext(it, urlProf))
+            : items;
+        const cacheKeyForItem = item => {
+            if (!item) return '';
+            const ctx = urlProf ? enrichCohortItemFromSearchContext(item, urlProf) : item;
+            return cohortCacheKey(ctx, prCfg);
+        };
         const byKey = new Map();
-        items.forEach(item => {
+        enriched.forEach(item => {
             if (!item || !(item.makeId || item.make) || !(item.modelId || item.model)) return;
-            const key = cohortCacheKey(item, prCfg);
+            const key = cacheKeyForItem(item);
             if (!key) return;
             if (!byKey.has(key)) byKey.set(key, []);
             byKey.get(key).push(item);
         });
-        if (!byKey.size) {
+        let written = 0;
+        let anchorMerged = 0;
+        if (urlProf && (urlProf.makeId || urlProf.make) && (urlProf.modelId || urlProf.model)) {
+            const searchKey = cohortCacheKey(urlProf, prCfg);
+            const searchCohort = cohortItemsForSearchProfile(enriched, urlProf, prCfg);
+            if (searchCohort.length >= 3) {
+                writeCohortCache(searchKey, searchCohort);
+                written += 1;
+                priceRatingDebugLog('Kohorte unter Such-URL-Key gecacht', {
+                    searchKey,
+                    count: searchCohort.length,
+                    cohortHuman: cohortHumanLabel(urlProf, prCfg)
+                });
+            }
+        }
+        readVipCohortAnchors().forEach(({ adId, anchor }) => {
+            const anchorProf = profileFromVipCohortAnchor(anchor);
+            if (!anchorProf) return;
+            const anchorKey = anchor.cacheKey || cohortCacheKey(anchorProf, prCfg);
+            if (!anchorKey) return;
+            const forAnchor = enriched.filter(it =>
+                it && itemMatchesCohortProfile(it, anchorProf, prCfg)
+            );
+            if (forAnchor.length < 3) return;
+            const mergedCount = mergeCohortCache(anchorKey, forAnchor);
+            if (mergedCount >= 3) {
+                anchorMerged += 1;
+                priceRatingDebugLog('SRP-Kohorte in VIP-Anker-Key gemerged', {
+                    adId,
+                    anchorKey,
+                    count: mergedCount
+                });
+            }
+        });
+        if (!byKey.size && !written && !anchorMerged) {
             priceRatingDebugLog('SRP-Cache-Sync übersprungen: keine modellgenauen Cache-Keys aus Treffern ableitbar');
             return;
         }
-        let written = 0;
         byKey.forEach((cohortItems, key) => {
             if (cohortItems.length < 3) return;
             writeCohortCache(key, cohortItems);
             written += 1;
         });
-        if (!written) {
+        if (!written && !anchorMerged) {
             priceRatingDebugLog('SRP-Cache-Sync übersprungen: modellgenaue Kohorten zu klein', { groups: byKey.size });
             return;
         }
+        notifyCohortCacheUpdated();
         const top = [...byKey.entries()]
             .sort((a, b) => b[1].length - a[1].length)
             .slice(0, 6)
@@ -3194,9 +3410,11 @@ article.mobilede-tech-article,article.mobilede-result-article{
             totalItems: items.length,
             groups: byKey.size,
             writtenGroups: written,
+            anchorMerged,
+            searchUrlKey: urlProf ? cohortCacheKey(urlProf, prCfg) : null,
             topGroups: top
         });
-        debugLog('ui', 'SRP-Kohorten in Cache synchronisiert', { groups: byKey.size, writtenGroups: written });
+        debugLog('ui', 'SRP-Kohorten in Cache synchronisiert', { groups: byKey.size, writtenGroups: written, anchorMerged });
     }
 
     function findSrpListingsInState(state) {
@@ -3355,25 +3573,55 @@ article.mobilede-tech-article,article.mobilede-result-article{
             return out;
         }
 
+        const fromStoreScan = enrichCohortItemsWithVipCache(findCohortItemsFromStoreByProfile(profile, prCfg));
+        if (fromStoreScan.length >= 3) {
+            writeCohortCache(cacheKey, fromStoreScan);
+            priceRatingDebugLog('Kohorte aus Store-Scan (passende Keys)', {
+                cacheKey,
+                count: fromStoreScan.length,
+                vipDetails: countCohortVipDetailCount(fromStoreScan),
+                uniqueModelsInSource: uniqueModelCount(fromStoreScan),
+                storeSource: 'store-scan'
+            });
+            const out = { items: fromStoreScan, fromCache: true, cacheKey, storeScan: true };
+            cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out });
+            return out;
+        }
+
         if (isSearchResultsPage()) {
             const state = getPageInitialState();
-            const fromPage = enrichCohortItemsWithVipCache(
-                parseCohortItemsFromState(state, profile.id)
-            ).filter(item => cohortCacheKey(item, prCfg) === cacheKey);
-            if (fromPage.length >= 5) {
-                writeCohortCache(cacheKey, fromPage);
-                priceRatingDebugLog('Kohorte von aktueller SRP', {
+            const urlProf = profileFromSearchPageUrl(location.href);
+            const urlHasMakeModel = urlProf && (urlProf.makeId || urlProf.make) && (urlProf.modelId || urlProf.model);
+            if (urlHasMakeModel && !sameMakeModelForCohort(urlProf, profile)) {
+                priceRatingDebugLog('SRP ignoriert: URL-Profil passt nicht zum angeforderten Profil', {
                     cacheKey,
-                    count: fromPage.length,
-                    vipDetails: countCohortVipDetailCount(fromPage),
-                    uniqueModelsInSource: uniqueModelCount(fromPage),
-                    storeSource: 'current-srp'
+                    urlMake: urlProf.makeId || urlProf.make,
+                    urlModel: urlProf.modelId || urlProf.model,
+                    profMake: profile.makeId || profile.make,
+                    profModel: profile.modelId || profile.model
                 });
-                const out = { items: fromPage, fromCache: false, fromPage: true, cacheKey };
-                cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out });
-                return out;
+            } else {
+                const enrichCtx = urlHasMakeModel && sameMakeModelForCohort(urlProf, profile) ? urlProf : profile;
+                const fromPage = enrichCohortItemsWithVipCache(
+                    parseCohortItemsFromState(state, profile.id)
+                )
+                    .map(item => enrichCohortItemFromSearchContext(item, enrichCtx))
+                    .filter(item => itemMatchesCohortProfile(item, profile, prCfg));
+                if (fromPage.length >= 3) {
+                    writeCohortCache(cacheKey, fromPage);
+                    priceRatingDebugLog('Kohorte von aktueller SRP', {
+                        cacheKey,
+                        count: fromPage.length,
+                        vipDetails: countCohortVipDetailCount(fromPage),
+                        uniqueModelsInSource: uniqueModelCount(fromPage),
+                        storeSource: 'current-srp'
+                    });
+                    const out = { items: fromPage, fromCache: false, fromPage: true, cacheKey };
+                    cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out });
+                    return out;
+                }
+                priceRatingDebugLog('SRP ohne ausreichend Treffer', { cacheKey, count: fromPage.length });
             }
-            priceRatingDebugLog('SRP ohne ausreichend Treffer', { cacheKey, count: fromPage.length });
         }
 
         priceRatingDebugLog('Keine Kohorte — Vergleichssuche nötig', { cacheKey });
@@ -3896,6 +4144,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
     function computeAndCacheRatingForProfile(profile) {
         const t0 = pricePerfMarkStart();
         const prCfg = getPriceRating(featureFlags);
+        persistVipCohortAnchor(profile, prCfg);
         const cohortRes = getCohortComparables(profile, prCfg);
         const rating = enrichRatingWithCohortMeta(
             computePriceRating(profile, cohortRes.items),
@@ -3946,6 +4195,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
 
     function syncVipEquipmentCache(profile) {
         if (!profile || !profile.id || !isVehicleDetailPage()) return;
+        persistVipCohortAnchor(profile, getPriceRating(featureFlags));
         const equipment = equipmentFingerprintFromProfile(profile);
         if (equipment && typeof equipment.score === 'number') {
             writeVipEquipCache(profile.id, equipment);
@@ -4042,6 +4292,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
                 return;
             }
 
+            persistVipCohortAnchor(profile, prCfg);
             syncVipEquipmentCache(profile);
 
             const cached = readRatingCache(profile.id);
@@ -4631,8 +4882,11 @@ article.mobilede-tech-article,article.mobilede-result-article{
         const items = parseCohortItemsFromState(state, null);
         const prof = profileFromSearchPageUrl(location.href);
         const prCfg = getPriceRating(featureFlags);
+        const enrichedForLog = prof
+            ? items.map(it => enrichCohortItemFromSearchContext(it, prof))
+            : items;
         const grouped = {};
-        items.forEach(item => {
+        enrichedForLog.forEach(item => {
             if (!item || !(item.makeId || item.make) || !(item.modelId || item.model)) return;
             const key = cohortCacheKey(item, prCfg);
             grouped[key] = (grouped[key] || 0) + 1;
@@ -4646,6 +4900,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             ? (hasMultiModelMs ? null : cohortCacheKey(prof, prCfg))
             : null;
         const cached = cacheKey ? readCohortCache(cacheKey) : null;
+        const anchorCount = readVipCohortAnchors().length;
         const payload = {
             url: location.href,
             rawListings: rawList.length,
@@ -4653,6 +4908,7 @@ article.mobilede-tech-article,article.mobilede-result-article{
             cacheKey,
             cohortHuman: prof ? cohortHumanLabel(prof, prCfg) : null,
             cachedCount: Array.isArray(cached) ? cached.length : 0,
+            vipAnchors: anchorCount,
             modelGroupsDetected: topGroups,
             profileFromUrl: prof ? {
                 makeId: prof.makeId || '',
