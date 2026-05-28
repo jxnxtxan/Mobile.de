@@ -25,7 +25,8 @@ Desktop.ini
 .env.*
 !.env.example
 
-# Node (falls später Tooling ergänzt wird)
+# Node / Build
 node_modules/
+dist/
 
 docs/

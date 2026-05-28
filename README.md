@@ -17,6 +17,19 @@ Tampermonkey-Skript für **mobile.de**-Fahrzeugdetailseiten: definierte **Aussta
 1. [Tampermonkey](https://www.tampermonkey.net/) (oder kompatibles Userscript-Manager-Add-on) installieren.
 2. Skriptdatei [`mobile-ausstattungssuche.js`](https://raw.githubusercontent.com/jxnxtxan/Mobile/main/mobile-ausstattungssuche.js) in Tampermonkey öffnen bzw. per „Neues Userscript aus URL …“ einbinden (`@updateURL` / `@downloadURL` zeigen darauf).
 
+## Entwicklung (Build)
+
+Quellcode liegt unter `src/` — der Kern läuft noch über `src/legacy/monolith.js` (Preis, SRP, Popup). Ausgelagert: `src/config/`, `src/core/` (Match, DOM, Suche), `src/ui/results/`. Die installierbare Datei `mobile-ausstattungssuche.js` im Repo-Root wird per Build erzeugt:
+
+```bash
+npm install
+npm run build
+```
+
+- **Version** in `vite.config.js` (`USERSCRIPT_VERSION`) und `package.json` pflegen.
+- `npm run dev` startet den Vite-Dev-Server von vite-plugin-monkey (Tampermonkey-Test mit lokalem Build).
+- Ausgabe: `dist/mobile-ausstattungssuche.user.js` → wird nach `mobile-ausstattungssuche.js` kopiert.
+
 ## Screenshots
 
 ### Ergebnis auf der Detailseite

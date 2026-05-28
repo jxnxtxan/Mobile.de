@@ -1,0 +1,16 @@
+{
+  "name": "mobile-ausstattungssuche",
+  "version": "2.16.5",
+  "private": true,
+  "description": "Tampermonkey-Skript für mobile.de Ausstattungssuche",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/postbuild-copy.js",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5",
+    "vite-plugin-monkey": "^7.1.0"
+  }
+}
