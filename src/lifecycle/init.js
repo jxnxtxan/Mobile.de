@@ -20,14 +20,15 @@ import {
 } from '../features/srp-sort/index.js';
 import { PRICE_COHORT_CACHE_PREFIX } from '../config/constants.js';
 import { ensureConfigButton } from '../core/search/popup-bridge.js';
+import { lastUrl, syncLastUrl } from './navigation-state.js';
 import { startObserver, trigger } from './observer.js';
 import { scheduleTask } from './scheduler.js';
 
-export let lastUrl = location.href;
+export { lastUrl, syncLastUrl };
 
 export function onUrlChange() {
     if (location.href === lastUrl) return;
-    lastUrl = location.href;
+    syncLastUrl(location.href);
     resetVipRatingUiOnNavigation();
     clearResults();
     priceRatingFetchTokenIncrement();

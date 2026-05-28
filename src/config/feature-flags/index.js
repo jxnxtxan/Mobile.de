@@ -146,32 +146,6 @@ export function clearStoredSrpUserChoice() {
     } catch (e) { /* noop */ }
 }
 
-export function hasSrpSortUserOverride(fp) {
-    const choice = getStoredSrpUserChoice();
-    return srpSortUserOverrideFp === fp || !!(choice && choice.fp === fp);
-}
-
-export function markSrpSortUserOverride(sort) {
-    const fp = getSrpSearchFingerprint();
-    const current = sort || parseSortFromUrl();
-    srpSortUserOverrideFp = fp;
-    setStoredSrpUserChoice({
-        fp,
-        sb: current.sb,
-        od: current.od || 'up'
-    });
-}
-
-export function clearSrpSortUserOverride() {
-    srpSortUserOverrideFp = null;
-    clearStoredSrpUserChoice();
-}
-
-export function clearSrpSortSessionState() {
-    clearSrpSortUserOverride();
-    clearStoredSrpSortApplied();
-}
-
 export function countConfigTabSettings(flags) {
     const f = flags || runtimeState.featureFlags;
     let on = FEATURE_FLAG_DEFINITIONS.filter(d => f[d.key] !== false).length;

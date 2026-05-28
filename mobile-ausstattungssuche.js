@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.8
+// @version      2.16.9
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -397,28 +397,6 @@
     } catch (e) {
     }
   }
-  function hasSrpSortUserOverride(fp) {
-    const choice = getStoredSrpUserChoice();
-    return srpSortUserOverrideFp === fp || !!(choice && choice.fp === fp);
-  }
-  function markSrpSortUserOverride(sort) {
-    const fp = getSrpSearchFingerprint();
-    const current = sort || parseSortFromUrl();
-    srpSortUserOverrideFp = fp;
-    setStoredSrpUserChoice({
-      fp,
-      sb: current.sb,
-      od: current.od || "up"
-    });
-  }
-  function clearSrpSortUserOverride() {
-    srpSortUserOverrideFp = null;
-    clearStoredSrpUserChoice();
-  }
-  function clearSrpSortSessionState() {
-    clearSrpSortUserOverride();
-    clearStoredSrpSortApplied();
-  }
   function countConfigTabSettings(flags) {
     const f = flags || runtimeState.featureFlags;
     let on = FEATURE_FLAG_DEFINITIONS.filter((d) => f[d.key] !== false).length;
@@ -475,15 +453,15 @@
   }
   function persistShowSrpLogCard(enabled) {
     const merged = ladeFeatureFlags();
-    const dbg = getDebugConfig(merged);
+    const dbg = getDebugConfig$1(merged);
     persistDebugConfig({ ...dbg, showSrpLogCard: !!enabled });
   }
-  function getDebugConfig(flags) {
+  function getDebugConfig$1(flags) {
     const merged = mergeDebugConfig(flags && flags.debug, flags || runtimeState.featureFlags);
     return merged;
   }
   function isDebugEnabled(scope, flags) {
-    const dbg = getDebugConfig(runtimeState.featureFlags);
+    const dbg = getDebugConfig$1(runtimeState.featureFlags);
     if (!dbg.enabled) return false;
     if (!scope) return true;
     return dbg.scopes[scope] === true;
@@ -503,12 +481,12 @@
   }
   function persistDebugMaster(enabled) {
     const merged = ladeFeatureFlags();
-    const dbg = getDebugConfig(merged);
+    const dbg = getDebugConfig$1(merged);
     persistDebugConfig({ ...dbg, enabled: !!enabled });
   }
   function persistDebugScope(scope, enabled) {
     const merged = ladeFeatureFlags();
-    const dbg = getDebugConfig(merged);
+    const dbg = getDebugConfig$1(merged);
     persistDebugConfig({
       ...dbg,
       scopes: { ...dbg.scopes, [scope]: !!enabled }
@@ -4030,6 +4008,10 @@ Kontext: …${item.snippet}…` : "";
     });
     srpRatingQueue.length = 0;
   }
+  let lastUrl = location.href;
+  function syncLastUrl(href) {
+    lastUrl = href || location.href;
+  }
   const SRP_DEBUG_LOG_MAX_ENTRIES = 100;
   let srpDebugLogEntries = [];
   function notifyUser(msg, kind) {
@@ -4037,6 +4019,7 @@ Kontext: …${item.snippet}…` : "";
       window.__mobiledeShowToast(msg, kind);
     }
   }
+  let srpSortUserOverrideFp = null;
   let applyingDefaultSrpSort = false;
   let lastSrpFingerprint = null;
   let lastPolledSrpSort = null;
@@ -4449,7 +4432,29 @@ Kontext: …${item.snippet}…` : "";
     renderSrpDebugLogCard();
     wireDebugCardCopyButtons();
   }
-  function getSrpSearchFingerprint$1() {
+  function hasSrpSortUserOverride(fp) {
+    const choice = getStoredSrpUserChoice();
+    return srpSortUserOverrideFp === fp || !!(choice && choice.fp === fp);
+  }
+  function markSrpSortUserOverride(sort) {
+    const fp = getSrpSearchFingerprint();
+    const current = sort || parseSortFromUrl();
+    srpSortUserOverrideFp = fp;
+    setStoredSrpUserChoice({
+      fp,
+      sb: current.sb,
+      od: current.od || "up"
+    });
+  }
+  function clearSrpSortUserOverride() {
+    srpSortUserOverrideFp = null;
+    clearStoredSrpUserChoice();
+  }
+  function clearSrpSortSessionState() {
+    clearSrpSortUserOverride();
+    clearStoredSrpSortApplied();
+  }
+  function getSrpSearchFingerprint() {
     const u = new URL(location.href);
     const parts = [];
     for (const [k, v] of u.searchParams.entries()) {
@@ -4466,9 +4471,9 @@ Kontext: …${item.snippet}…` : "";
   function urlSortMatchesUserChoice(fp) {
     const choice = getStoredSrpUserChoice();
     if (!choice || choice.fp !== fp) return false;
-    return srpSortParamsEqual(parseSortFromUrl$1(), choice);
+    return srpSortParamsEqual(parseSortFromUrl(), choice);
   }
-  function parseSortFromUrl$1(href) {
+  function parseSortFromUrl(href) {
     const u = new URL(location.href);
     return { sb: u.searchParams.get("sb"), od: u.searchParams.get("od") || "up" };
   }
@@ -4476,9 +4481,10 @@ Kontext: …${item.snippet}…` : "";
     const srp = getSrpSort(runtimeState.featureFlags);
     if (!srp.enabled) return false;
     if (urlSortMatchesUserChoice(fp)) {
+      srpSortUserOverrideFp = fp;
       return true;
     }
-    const current = parseSortFromUrl$1();
+    const current = parseSortFromUrl();
     const configSort = getSrpConfigSort();
     if (srpSortParamsEqual(current, configSort)) return false;
     const applied = getStoredSrpSortApplied();
@@ -4492,10 +4498,10 @@ Kontext: …${item.snippet}…` : "";
     if (!isSearchResultsPage()) return;
     const srp = getSrpSort(runtimeState.featureFlags);
     if (!srp.enabled) return;
-    const fp = getSrpSearchFingerprint$1();
+    const fp = getSrpSearchFingerprint();
     if (!force && (hasSrpSortUserOverride(fp) || urlSortMatchesUserChoice(fp))) return;
     const configSort = getSrpConfigSort();
-    const current = parseSortFromUrl$1();
+    const current = parseSortFromUrl();
     if (srpSortParamsEqual(current, configSort)) {
       markSrpSortApplied(fp, configSort.sb, configSort.od);
       return;
@@ -4507,7 +4513,7 @@ Kontext: …${item.snippet}…` : "";
       u.searchParams.set("od", configSort.od);
       const newUrl = u.toString();
       markSrpSortApplied(fp, configSort.sb, configSort.od);
-      lastUrl = newUrl;
+      syncLastUrl(newUrl);
       location.replace(newUrl);
     } finally {
       applyingDefaultSrpSort = false;
@@ -4524,7 +4530,7 @@ Kontext: …${item.snippet}…` : "";
     sel.dataset.mobiledeSrpBound = "1";
     const onUserSort = () => {
       if (applyingDefaultSrpSort) return;
-      markSrpSortUserOverride(parseSortFromUrl$1());
+      markSrpSortUserOverride(parseSortFromUrl());
     };
     sel.addEventListener("change", onUserSort, true);
     sel.addEventListener("input", onUserSort, true);
@@ -4536,8 +4542,8 @@ Kontext: …${item.snippet}…` : "";
     if (!isSearchResultsPage() || applyingDefaultSrpSort) return;
     const srp = getSrpSort(runtimeState.featureFlags);
     if (!srp.enabled) return;
-    const fp = getSrpSearchFingerprint$1();
-    const current = parseSortFromUrl$1();
+    const fp = getSrpSearchFingerprint();
+    const current = parseSortFromUrl();
     const configSort = getSrpConfigSort();
     const key = fp + "|" + (current.sb || "") + "|" + current.od;
     if (lastPolledSrpSort === key) return;
@@ -4563,13 +4569,13 @@ Kontext: …${item.snippet}…` : "";
     }
   }
   function syncSrpPolledSortKey(fp) {
-    const cur = parseSortFromUrl$1();
+    const cur = parseSortFromUrl();
     lastPolledSrpSort = fp + "|" + (cur.sb || "") + "|" + cur.od;
   }
   function handleSrpUrlChange() {
     if (!isSearchResultsPage()) return;
     bindSrpSortDropdown();
-    const fp = getSrpSearchFingerprint$1();
+    const fp = getSrpSearchFingerprint();
     if (fp !== lastSrpFingerprint) {
       lastSrpFingerprint = fp;
       lastPolledSrpSort = null;
@@ -4585,11 +4591,11 @@ Kontext: …${item.snippet}…` : "";
       return;
     }
     if (srpSortPollTimerId != null) return;
-    const fp = getSrpSearchFingerprint$1();
+    const fp = getSrpSearchFingerprint();
     lastSrpFingerprint = fp;
     lastPolledSrpSort = null;
     const choice = getStoredSrpUserChoice();
-    if (choice && choice.fp === fp) ;
+    if (choice && choice.fp === fp) srpSortUserOverrideFp = fp;
     bindSrpSortDropdown();
     if (!detectUserSortAfterReload(fp)) {
       applySrpDefaultSort(false);
@@ -4599,7 +4605,7 @@ Kontext: …${item.snippet}…` : "";
     srpSortMo.observe(document.body, { childList: true, subtree: true });
     srpSortOnPageshow = () => {
       if (!isSearchResultsPage()) return;
-      const fpNow = getSrpSearchFingerprint$1();
+      const fpNow = getSrpSearchFingerprint();
       if (detectUserSortAfterReload(fpNow)) syncSrpPolledSortKey(fpNow);
     };
     window.addEventListener("pageshow", srpSortOnPageshow);
@@ -4783,10 +4789,9 @@ Kontext: …${item.snippet}…` : "";
     }
     return false;
   }
-  let lastUrl$1 = location.href;
   function onUrlChange() {
-    if (location.href === lastUrl$1) return;
-    lastUrl$1 = location.href;
+    if (location.href === lastUrl) return;
+    syncLastUrl(location.href);
     resetVipRatingUiOnNavigation();
     clearResults();
     priceRatingFetchTokenIncrement();
@@ -9368,7 +9373,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     installKonfigTabHelp("config", "mc-konfig-help-config", "Hilfe zum Tab Config", "Hilfe zu Config", configHeader, null, configPanel, configContainer);
     let configDebugUnlockClicks = 0;
     let configDebugUnlockTimer = null;
-    let configDebugUiUnlocked = !!getDebugConfig(aktuelleFeatureFlags).enabled;
+    let configDebugUiUnlocked = !!getDebugConfig$1(aktuelleFeatureFlags).enabled;
     configIntro.addEventListener("click", () => {
       configDebugUnlockClicks++;
       clearTimeout(configDebugUnlockTimer);
@@ -9378,7 +9383,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       if (configDebugUnlockClicks < 5) return;
       configDebugUnlockClicks = 0;
       configDebugUiUnlocked = true;
-      const currentDebug = getDebugConfig(aktuelleFeatureFlags);
+      const currentDebug = getDebugConfig$1(aktuelleFeatureFlags);
       const next = !currentDebug.enabled;
       aktuelleFeatureFlags.debug = { ...currentDebug, enabled: next };
       persistDebugMaster(next);
@@ -10230,7 +10235,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       prSec.appendChild(prCard);
       configContainer.appendChild(prSec);
       function appendPriceDebugSection() {
-        const dbgCfg = getDebugConfig(aktuelleFeatureFlags);
+        const dbgCfg = getDebugConfig$1(aktuelleFeatureFlags);
         if (!dbgCfg.enabled && !configDebugUiUnlocked) return;
         const areAllScopesEnabled = (cfg) => {
           const scopes = cfg && cfg.scopes || {};
@@ -10242,7 +10247,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             mergedScopes[def.key] = scopes[def.key] === true;
           });
           const nextEnabled = enabled !== false && Object.values(mergedScopes).some(Boolean);
-          const prevDbg = getDebugConfig(aktuelleFeatureFlags);
+          const prevDbg = getDebugConfig$1(aktuelleFeatureFlags);
           aktuelleFeatureFlags.debug = {
             enabled: nextEnabled,
             scopes: mergedScopes,
@@ -10274,7 +10279,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           showToast("Debug-Modus deaktiviert", "success");
         });
         const dbgAllOn = mkBtn("dbg-all-on", "Alle Module an", () => {
-          const curr = getDebugConfig(aktuelleFeatureFlags);
+          const curr = getDebugConfig$1(aktuelleFeatureFlags);
           const nextAllOn = !areAllScopesEnabled(curr);
           const scopes = {};
           DEBUG_SCOPE_DEFINITIONS.forEach((def) => {
@@ -10321,12 +10326,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         scopeList.className = "mc-pr-actions";
         scopeList.style.marginTop = "10px";
         DEBUG_SCOPE_DEFINITIONS.forEach((def) => {
-          const scopeOn = getDebugConfig(aktuelleFeatureFlags).scopes[def.key] === true;
+          const scopeOn = getDebugConfig$1(aktuelleFeatureFlags).scopes[def.key] === true;
           const btn = mkBtn(
             "dbg-scope-" + def.key,
             def.label + ": " + (scopeOn ? "an" : "aus"),
             () => {
-              const nowCfg = getDebugConfig(aktuelleFeatureFlags);
+              const nowCfg = getDebugConfig$1(aktuelleFeatureFlags);
               const next = !nowCfg.scopes[def.key];
               persistDebugMaster(true);
               persistDebugScope(def.key, next);

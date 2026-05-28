@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import monkey from 'vite-plugin-monkey';
 
-const USERSCRIPT_VERSION = '2.16.8';
+const USERSCRIPT_VERSION = '2.16.9';
 const RAW_BASE =
   'https://raw.githubusercontent.com/jxnxtxan/Mobile.de/main/mobile-ausstattungssuche.js';
 

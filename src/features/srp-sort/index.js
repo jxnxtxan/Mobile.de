@@ -2,12 +2,12 @@ import { SRP_SORT_OPTIONS } from '../../config/constants.js';
 import { runtimeState } from '../../config/runtime-state.js';
 import { isSearchResultsPage, isVehicleDetailPage } from '../../core/page-context.js';
 import {
-    getDebugConfig, getSrpSort, findSrpSortOption, hasSrpSortUserOverride,
-    markSrpSortUserOverride, clearSrpSortUserOverride, clearSrpSortSessionState,
+    getSrpSort, findSrpSortOption,
     getStoredSrpUserChoice, setStoredSrpUserChoice, clearStoredSrpUserChoice,
     getStoredSrpSortApplied, markSrpSortApplied, clearStoredSrpSortApplied,
     srpSortParamsEqual, getPriceRating,
 } from '../../config/feature-flags/index.js';
+import { syncLastUrl } from '../../lifecycle/navigation-state.js';
 import {
     injectPriceRatingStyles,
     buildVehicleProfile,
@@ -531,6 +531,32 @@ export function ensureDetailDebugLogCard() {
     wireDebugCardCopyButtons();
 }
 
+export function hasSrpSortUserOverride(fp) {
+    const choice = getStoredSrpUserChoice();
+    return srpSortUserOverrideFp === fp || !!(choice && choice.fp === fp);
+}
+
+export function markSrpSortUserOverride(sort) {
+    const fp = getSrpSearchFingerprint();
+    const current = sort || parseSortFromUrl();
+    srpSortUserOverrideFp = fp;
+    setStoredSrpUserChoice({
+        fp,
+        sb: current.sb,
+        od: current.od || 'up',
+    });
+}
+
+export function clearSrpSortUserOverride() {
+    srpSortUserOverrideFp = null;
+    clearStoredSrpUserChoice();
+}
+
+export function clearSrpSortSessionState() {
+    clearSrpSortUserOverride();
+    clearStoredSrpSortApplied();
+}
+
 export function getSrpSearchFingerprint() {
     const u = new URL(location.href);
     const parts = [];
@@ -601,7 +627,7 @@ export function applySrpDefaultSort(force) {
         u.searchParams.set('od', configSort.od);
         const newUrl = u.toString();
         markSrpSortApplied(fp, configSort.sb, configSort.od);
-        lastUrl = newUrl;
+        syncLastUrl(newUrl);
         location.replace(newUrl);
     } finally {
         applyingDefaultSrpSort = false;
