@@ -1,6 +1,6 @@
 {
   "name": "mobile-ausstattungssuche",
-  "version": "2.16.6",
+  "version": "2.16.7",
   "private": true,
   "description": "Tampermonkey-Skript für mobile.de Ausstattungssuche",
   "type": "module",

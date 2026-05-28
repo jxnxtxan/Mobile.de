@@ -1,11 +1,16 @@
 import { ergebnisHinzufuegen } from '../ui/results/render.js';
 import {
-    isVehicleDetailPage,
     preisBewertungAktualisieren,
     scanSrpPriceBadges,
     syncCohortCacheFromSearchPage,
 } from '../features/price-rating/index.js';
-import { ensureSrpDebugLogCard, ensureDetailDebugLogCard } from '../features/srp-sort/index.js';
+import {
+    ensureSrpDebugLogCard,
+    ensureDetailDebugLogCard,
+    removeSrpDebugLogCard,
+    removeDetailDebugLogCard,
+} from '../features/srp-sort/index.js';
+import { isSearchResultsPage, isVehicleDetailPage } from '../core/page-context.js';
 import { scheduleTask } from './scheduler.js';
 import { verlinkeStandortAufGoogleMaps } from './maps-link.js';
 
@@ -25,8 +30,10 @@ export function trigger() {
         scheduleTask('ui:results', 'ui', () => {
             ergebnisHinzufuegen();
             verlinkeStandortAufGoogleMaps();
-            ensureSrpDebugLogCard();
-            ensureDetailDebugLogCard();
+            if (isSearchResultsPage()) ensureSrpDebugLogCard();
+            else removeSrpDebugLogCard();
+            if (isVehicleDetailPage()) ensureDetailDebugLogCard();
+            else removeDetailDebugLogCard();
         });
         scheduleTask('network:cohort-sync', 'network', () => syncCohortCacheFromSearchPage());
         if (!isVehicleDetailPage()) {

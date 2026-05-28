@@ -76,6 +76,7 @@ import {
     isSrpLogCardEnabled,
     ensureSrpDebugLogCard,
     removeSrpDebugLogCard,
+    removeDetailDebugLogCard,
     ensureDetailDebugLogCard,
 } from '../features/srp-sort/index.js';
 import { KONFIG_TAB_HELP_HTML } from './help/tabs.js';
@@ -1156,7 +1157,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                         : variant === 'dup' ? ' mc-btn--ghost mc-btn--action-dup'
                             : variant === 'del' ? ' mc-btn--ghost mc-btn--action-del'
                                 : variant === 'prem' ? ' mc-btn--ghost mc-btn--action-prem'
-                                        : variant === 'clearw' ? ' mc-btn--ghost mc-btn--action-clearw' : '');
+                                        : variant === 'clearw' ? ' mc-btn--ghost mc-btn--action-clearw'
+                                    : variant === 'toggle' ? ' mc-btn--ghost mc-btn--toggle' : '');
         b.textContent = label;
         if (onClick) b.addEventListener('click', onClick);
         return b;
@@ -5650,7 +5652,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                     mergedScopes[def.key] = scopes[def.key] === true;
                 });
                 const nextEnabled = enabled !== false && Object.values(mergedScopes).some(Boolean);
-                aktuelleFeatureFlags.debug = { enabled: nextEnabled, scopes: mergedScopes };
+                const prevDbg = getDebugConfig(aktuelleFeatureFlags);
+                aktuelleFeatureFlags.debug = {
+                    enabled: nextEnabled,
+                    scopes: mergedScopes,
+                    showSrpLogCard: prevDbg.showSrpLogCard === true,
+                };
                 persistDebugConfig(aktuelleFeatureFlags.debug);
                 aktuelleFeatureFlags = ladeFeatureFlags();
                 renderConfig();
@@ -5691,23 +5698,29 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             const dbgSrpLog = mkBtn('dbg-srp-log', 'SRP-Status jetzt loggen', () => {
                 runManualSrpStatusLog();
             });
+            const srpLogCardsOn = isSrpLogCardEnabled(aktuelleFeatureFlags);
             const dbgSrpCard = mkBtn(
-                'dbg-srp-card',
-                'Debug-Log-Cards: ' + (dbgCfg.showSrpLogCard ? 'an' : 'aus'),
+                'toggle',
+                'Debug-Log-Cards: ' + (srpLogCardsOn ? 'an' : 'aus'),
                 () => {
                     const now = getDebugConfig(aktuelleFeatureFlags);
                     persistDebugConfig({ ...now, showSrpLogCard: !now.showSrpLogCard });
                     aktuelleFeatureFlags = ladeFeatureFlags();
-                    ensureSrpDebugLogCard();
-                    ensureDetailDebugLogCard();
+                    if (isSrpLogCardEnabled(aktuelleFeatureFlags)) {
+                        ensureSrpDebugLogCard();
+                        ensureDetailDebugLogCard();
+                    } else {
+                        removeSrpDebugLogCard();
+                        removeDetailDebugLogCard();
+                    }
                     renderConfig();
                     showToast('Debug-Log-Cards ' + (isSrpLogCardEnabled(aktuelleFeatureFlags) ? 'aktiviert' : 'deaktiviert'), 'success');
                 }
             );
             dbgAllOn.classList.toggle('mc-btn--toggle-active', areAllScopesEnabled(dbgCfg));
             dbgAllOn.setAttribute('aria-pressed', areAllScopesEnabled(dbgCfg) ? 'true' : 'false');
-            dbgSrpCard.classList.toggle('mc-btn--toggle-active', dbgCfg.showSrpLogCard === true);
-            dbgSrpCard.setAttribute('aria-pressed', dbgCfg.showSrpLogCard === true ? 'true' : 'false');
+            dbgSrpCard.classList.toggle('mc-btn--toggle-active', srpLogCardsOn);
+            dbgSrpCard.setAttribute('aria-pressed', srpLogCardsOn ? 'true' : 'false');
             dbgRow.appendChild(dbgOff);
             dbgRow.appendChild(dbgAllOn);
             dbgRow.appendChild(dbgLog);

@@ -10,7 +10,8 @@ import { getUnsafeWindow } from '../../platform/page-window.js';
 import { cleanText, tokenize, escapeRegex } from '../../core/text/normalize.js';
 import { collectConfigMatches } from '../../core/search/config-matches.js';
 import { extractSources, classifyDescription } from '../../core/dom/sources.js';
-import { getDescriptionEl } from '../../core/dom/selectors.js';
+import { getDescriptionEl, getTechDataDl } from '../../core/dom/selectors.js';
+import { extractRawEquipmentItems, findConfigEntryForRawLabel } from '../../core/search/automode.js';
 import { runtimeState } from '../../config/runtime-state.js';
 import { debugLog, getDebugConfig, isDebugEnabled, getPriceRating, isPriceRatingEnabled, getSrpSort, mergePriceRating } from '../../config/feature-flags/index.js';
 import { getFavoriteAnzeigeKeys } from '../../config/list-helpers.js';
@@ -2293,6 +2294,7 @@ export async function preisBewertungAktualisieren(opts) {
         } catch (e) { /* noop */ }
         if (token !== priceRatingFetchToken) {
             priceRatingDebugLog('Preisbewertung Lauf verworfen: Token gewechselt', { adId: profile.id, token });
+            renderVipPriceRatingWidget(readRatingUiCache(profile.id) || null, false);
             scheduleStaleRatingRetry(profile);
             return;
         }
@@ -2332,6 +2334,7 @@ export async function preisBewertungAktualisieren(opts) {
         }
         if (token !== priceRatingFetchToken) {
             priceRatingDebugLog('Preisbewertung Recompute verworfen: Token gewechselt', { adId: profile.id, token });
+            renderVipPriceRatingWidget(readRatingUiCache(profile.id) || null, false);
             scheduleStaleRatingRetry(profile);
             return;
         }
@@ -2344,6 +2347,9 @@ export async function preisBewertungAktualisieren(opts) {
             reason: rating && rating.reason ? rating.reason : null
         });
         pricePerfMarkEnd('preisBewertungAktualisieren_recompute', perfStart, 50);
+    } catch (err) {
+        console.error('[mobilede Preis]', err);
+        renderVipPriceRatingWidget({ ok: false, reason: 'error' }, false);
     } finally {
         vipRatingUpdateInFlight = false;
     }

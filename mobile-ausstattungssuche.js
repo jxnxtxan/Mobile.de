@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.6
+// @version      2.16.7
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -884,7 +884,7 @@
   function getDescriptionEl() {
     return document.querySelector("div[data-testid='vip-vehicle-description-text']");
   }
-  function getTechDataDl$1() {
+  function getTechDataDl() {
     return document.querySelector("article[data-testid='vip-technical-data-box'] dl");
   }
   function getZusatzEl() {
@@ -913,7 +913,7 @@
       const text = featureItems.map((li) => li.textContent.trim()).filter(Boolean).join(" | ");
       sources.push({ id: "features", confidence: "high", text, tokens: tokenize(text) });
     }
-    const techDl = getTechDataDl$1();
+    const techDl = getTechDataDl();
     if (techDl) {
       const text = techDl.textContent.replace(/\s+/g, " ").trim();
       sources.push({ id: "tech", confidence: "high", text, tokens: tokenize(text) });
@@ -1251,7 +1251,7 @@
     }
     return merged;
   }
-  function extractRawEquipmentItems$1() {
+  function extractRawEquipmentItems() {
     const byKey = new Map();
     const sourcePriority = { features: 2, description: 1 };
     function add(label, source, confidence) {
@@ -1299,7 +1299,7 @@
     }
     return false;
   }
-  function findConfigEntryForRawLabel$1(rawLabel) {
+  function findConfigEntryForRawLabel(rawLabel) {
     const r = cleanText(rawLabel);
     if (!r) return null;
     for (const cfg of runtimeState.suchKonfigurationen) {
@@ -1440,7 +1440,7 @@
       if (usedRawKeys.has(key)) return;
       const covered = results.some((e) => e.highlighted && rawCoveredByEntryLabel(raw.label, e.anzeige));
       if (covered) return;
-      const cfg = findConfigEntryForRawLabel$1(raw.label);
+      const cfg = findConfigEntryForRawLabel(raw.label);
       if (cfg) {
         const anzeigeKey = cleanText(cfg.anzeige || "");
         if (results.some((e) => cleanText(e.anzeige) === anzeigeKey)) return;
@@ -1491,7 +1491,7 @@
   }
   function getResultEntries() {
     if (isAutoModeEnabled()) {
-      const rawItems = extractRawEquipmentItems$1();
+      const rawItems = extractRawEquipmentItems();
       return buildUnifiedResults(rawItems, collectRawConfigHits());
     }
     return sucheBegriffe();
@@ -1499,7 +1499,7 @@
   function openLearnConfig(label, source) {
     const trimmed = (label || "").trim();
     if (!trimmed) return;
-    if (findConfigEntryForRawLabel$1(trimmed)) {
+    if (findConfigEntryForRawLabel(trimmed)) {
       runtimeState.pendingAusstattungPrefill = null;
       openConfigPopup();
       return;
@@ -1510,7 +1510,7 @@
   function finalizeAusstattungResults(entries) {
     let unique = subsetDedup([...entries]);
     unique = generalizedMergeEntries(unique, runtimeState.mergeGruppenConfig);
-    unique = enrichAussenMergeFromRaw(unique, extractRawEquipmentItems$1());
+    unique = enrichAussenMergeFromRaw(unique, extractRawEquipmentItems());
     unique = subsetDedup(unique);
     return sortEntriesByConfigOrder(unique, runtimeState.suchKonfigurationen, getFavoriteAnzeigeKeys(runtimeState.suchKonfigurationen));
   }
@@ -1530,7 +1530,7 @@
     document.head.appendChild(st);
   }
   function sucheTechnischeDaten() {
-    const techDataBereich = getTechDataDl$1();
+    const techDataBereich = getTechDataDl();
     if (!techDataBereich) return [];
     const dtElements = techDataBereich.querySelectorAll("dt");
     const daten = [];
@@ -3780,6 +3780,7 @@ Kontext: …${item.snippet}…` : "";
       }
       if (token !== priceRatingFetchToken) {
         priceRatingDebugLog("Preisbewertung Lauf verworfen: Token gewechselt", { adId: profile.id, token });
+        renderVipPriceRatingWidget(readRatingUiCache(profile.id) || null, false);
         scheduleStaleRatingRetry(profile);
         return;
       }
@@ -3816,6 +3817,7 @@ Kontext: …${item.snippet}…` : "";
       }
       if (token !== priceRatingFetchToken) {
         priceRatingDebugLog("Preisbewertung Recompute verworfen: Token gewechselt", { adId: profile.id, token });
+        renderVipPriceRatingWidget(readRatingUiCache(profile.id) || null, false);
         scheduleStaleRatingRetry(profile);
         return;
       }
@@ -3828,6 +3830,9 @@ Kontext: …${item.snippet}…` : "";
         reason: rating && rating.reason ? rating.reason : null
       });
       pricePerfMarkEnd("preisBewertungAktualisieren_recompute", perfStart, 50);
+    } catch (err) {
+      console.error("[mobilede Preis]", err);
+      renderVipPriceRatingWidget({ ok: false, reason: "error" }, false);
     } finally {
       vipRatingUpdateInFlight = false;
     }
@@ -4729,8 +4734,10 @@ Kontext: …${item.snippet}…` : "";
       scheduleTask("ui:results", "ui", () => {
         ergebnisHinzufuegen();
         verlinkeStandortAufGoogleMaps();
-        ensureSrpDebugLogCard();
-        ensureDetailDebugLogCard();
+        if (isSearchResultsPage()) ensureSrpDebugLogCard();
+        else removeSrpDebugLogCard();
+        if (isVehicleDetailPage()) ensureDetailDebugLogCard();
+        else removeDetailDebugLogCard();
       });
       scheduleTask("network:cohort-sync", "network", () => syncCohortCacheFromSearchPage());
       if (!isVehicleDetailPage()) {
@@ -5948,7 +5955,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function mkBtn(variant, label, onClick) {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "mc-btn" + (variant === "primary" ? " mc-btn--primary" : variant === "ghost" ? " mc-btn--ghost" : variant === "danger" ? " mc-btn--danger" : variant === "dup" ? " mc-btn--ghost mc-btn--action-dup" : variant === "del" ? " mc-btn--ghost mc-btn--action-del" : variant === "prem" ? " mc-btn--ghost mc-btn--action-prem" : variant === "clearw" ? " mc-btn--ghost mc-btn--action-clearw" : "");
+      b.className = "mc-btn" + (variant === "primary" ? " mc-btn--primary" : variant === "ghost" ? " mc-btn--ghost" : variant === "danger" ? " mc-btn--danger" : variant === "dup" ? " mc-btn--ghost mc-btn--action-dup" : variant === "del" ? " mc-btn--ghost mc-btn--action-del" : variant === "prem" ? " mc-btn--ghost mc-btn--action-prem" : variant === "clearw" ? " mc-btn--ghost mc-btn--action-clearw" : variant === "toggle" ? " mc-btn--ghost mc-btn--toggle" : "");
       b.textContent = label;
       if (onClick) b.addEventListener("click", onClick);
       return b;
@@ -10212,7 +10219,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             mergedScopes[def.key] = scopes[def.key] === true;
           });
           const nextEnabled = enabled !== false && Object.values(mergedScopes).some(Boolean);
-          aktuelleFeatureFlags.debug = { enabled: nextEnabled, scopes: mergedScopes };
+          const prevDbg = getDebugConfig(aktuelleFeatureFlags);
+          aktuelleFeatureFlags.debug = {
+            enabled: nextEnabled,
+            scopes: mergedScopes,
+            showSrpLogCard: prevDbg.showSrpLogCard === true
+          };
           persistDebugConfig(aktuelleFeatureFlags.debug);
           aktuelleFeatureFlags = ladeFeatureFlags();
           renderConfig();
@@ -10254,23 +10266,29 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const dbgSrpLog = mkBtn("dbg-srp-log", "SRP-Status jetzt loggen", () => {
           runManualSrpStatusLog();
         });
+        const srpLogCardsOn = isSrpLogCardEnabled(aktuelleFeatureFlags);
         const dbgSrpCard = mkBtn(
-          "dbg-srp-card",
-          "Debug-Log-Cards: " + (dbgCfg.showSrpLogCard ? "an" : "aus"),
+          "toggle",
+          "Debug-Log-Cards: " + (srpLogCardsOn ? "an" : "aus"),
           () => {
             const now = getDebugConfig(aktuelleFeatureFlags);
             persistDebugConfig({ ...now, showSrpLogCard: !now.showSrpLogCard });
             aktuelleFeatureFlags = ladeFeatureFlags();
-            ensureSrpDebugLogCard();
-            ensureDetailDebugLogCard();
+            if (isSrpLogCardEnabled(aktuelleFeatureFlags)) {
+              ensureSrpDebugLogCard();
+              ensureDetailDebugLogCard();
+            } else {
+              removeSrpDebugLogCard();
+              removeDetailDebugLogCard();
+            }
             renderConfig();
             showToast2("Debug-Log-Cards " + (isSrpLogCardEnabled(aktuelleFeatureFlags) ? "aktiviert" : "deaktiviert"), "success");
           }
         );
         dbgAllOn.classList.toggle("mc-btn--toggle-active", areAllScopesEnabled(dbgCfg));
         dbgAllOn.setAttribute("aria-pressed", areAllScopesEnabled(dbgCfg) ? "true" : "false");
-        dbgSrpCard.classList.toggle("mc-btn--toggle-active", dbgCfg.showSrpLogCard === true);
-        dbgSrpCard.setAttribute("aria-pressed", dbgCfg.showSrpLogCard === true ? "true" : "false");
+        dbgSrpCard.classList.toggle("mc-btn--toggle-active", srpLogCardsOn);
+        dbgSrpCard.setAttribute("aria-pressed", srpLogCardsOn ? "true" : "false");
         dbgRow.appendChild(dbgOff);
         dbgRow.appendChild(dbgAllOn);
         dbgRow.appendChild(dbgLog);
