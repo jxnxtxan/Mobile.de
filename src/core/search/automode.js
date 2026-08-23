@@ -4,8 +4,6 @@ import { getDescriptionEl, getFeatureItems } from '../dom/selectors.js';
 import { getFavoriteAnzeigeKeys } from '../../config/list-helpers.js';
 import { sortEntriesByConfigOrder } from '../../config/ordering.js';
 import { runtimeState } from '../../config/runtime-state.js';
-import { collectConfigMatches } from './config-matches.js';
-import { extractSources } from '../dom/sources.js';
 import {
     enrichAussenMergeFromRaw,
     generalizedMergeEntries,

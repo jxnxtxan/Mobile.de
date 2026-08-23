@@ -7,14 +7,13 @@ import {
     DEBUG_SCOPE_PREFIX,
 } from '../../config/constants.js';
 import { getUnsafeWindow } from '../../platform/page-window.js';
-import { cleanText, tokenize, escapeRegex } from '../../core/text/normalize.js';
+import { cleanText, tokenize } from '../../core/text/normalize.js';
 import { collectConfigMatches } from '../../core/search/config-matches.js';
-import { extractSources, classifyDescription } from '../../core/dom/sources.js';
+import { classifyDescription } from '../../core/dom/sources.js';
 import { getDescriptionEl, getFeatureItems, getTechDataDl } from '../../core/dom/selectors.js';
 import { extractRawEquipmentItems, findConfigEntryForRawLabel } from '../../core/search/automode.js';
 import { runtimeState } from '../../config/runtime-state.js';
-import { debugLog, getDebugConfig, isDebugEnabled, getPriceRating, isPriceRatingEnabled, getSrpSort, mergePriceRating } from '../../config/feature-flags/index.js';
-import { getFavoriteAnzeigeKeys } from '../../config/list-helpers.js';
+import { debugLog, isDebugEnabled, getPriceRating, isPriceRatingEnabled } from '../../config/feature-flags/index.js';
 import { isSearchResultsPage, isVehicleDetailPage } from '../../core/page-context.js';
 import { requestIdle } from '../../core/util/request-idle.js';
 
@@ -2461,14 +2460,7 @@ export async function preisBewertungAktualisieren(opts) {
 }
 
 export function findSrpListingRoots() {
-    const links = document.querySelectorAll('a[href*="details.html?id="], a[href*="/auto-inserat/"]');
-    const roots = new Set();
-    links.forEach(a => {
-        const card = a.closest('article, li, [data-testid*="result"], [class*="result"]')
-            || a.parentElement;
-        if (card) roots.add(card);
-    });
-    return [...roots];
+    return [...listingRootsFromRoot(document.body)];
 }
 
 export function extractAdIdFromHref(href) {
@@ -2647,22 +2639,20 @@ export function ensureSrpPriceRatingObserver() {
             enqueueSrpCard(card);
         });
     }, { rootMargin: '120px' });
-    scanSrpPriceBadges();
 }
+
+const SRP_LISTING_LINK_SELECTOR = 'a[href*="details.html?id="], a[href*="/auto-inserat/"]';
+const SRP_LISTING_CARD_SELECTOR = 'article, li, [data-testid*="result"], [class*="result"]';
 
 function listingRootsFromRoot(root) {
     const cards = new Set();
     if (!root || root.nodeType !== 1) return cards;
-    const links = root === document.body
-        ? root.querySelectorAll('a[href*="details.html?id="], a[href*="/auto-inserat/"]')
-        : (root.matches?.('a[href*="details.html?id="], a[href*="/auto-inserat/"]')
-            ? [root]
-            : root.querySelectorAll('a[href*="details.html?id="], a[href*="/auto-inserat/"]'));
-    links.forEach(a => {
-        const card = a.closest('article, li, [data-testid*="result"], [class*="result"]')
-            || a.parentElement;
+    const addCard = a => {
+        const card = a.closest(SRP_LISTING_CARD_SELECTOR) || a.parentElement;
         if (card) cards.add(card);
-    });
+    };
+    if (root.matches?.(SRP_LISTING_LINK_SELECTOR)) addCard(root);
+    root.querySelectorAll(SRP_LISTING_LINK_SELECTOR).forEach(addCard);
     return cards;
 }
 

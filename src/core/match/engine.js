@@ -1,4 +1,4 @@
-import { escapeRegex, tokenize } from '../text/normalize.js';
+import { escapeRegex } from '../text/normalize.js';
 
 export const MAX_WORD_GAP = { 1: 0, 2: 3, 3: 6, 4: 10, 5: 14 };
 export function getMaxWordGap(parts) {

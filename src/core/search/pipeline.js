@@ -25,14 +25,14 @@ export function collectRawConfigHits() {
         collectConfigMatches(sources, runtimeState.suchKonfigurationen));
 }
 
-export function getResultEntries() {
+export function getResultEntries(inputSignature) {
     return getCachedResultEntries(() => {
         if (isAutoModeEnabled()) {
             const rawItems = extractRawEquipmentItems();
             return buildUnifiedResults(rawItems, collectRawConfigHits());
         }
         return sucheBegriffe();
-    });
+    }, inputSignature);
 }
 
 export function openLearnConfig(label, source) {

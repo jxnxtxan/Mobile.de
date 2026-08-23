@@ -5,9 +5,11 @@ const STANDORT_RE = /^[A-Z]{2}-\d{4,5}\s+\S.*$/;
 const EXCLUDE_SELECTOR =
     '#mobilede-config-popup, #mobilede-config-overlay, .mobilede-result-article, .mobilede-tech-article, #mobilede-srp-debug-card';
 const MAPS_SCAN_DEBOUNCE_MS = 400;
+const MAPS_SCAN_MAX_WAIT_MS = 1600;
 
 let mapsMo = null;
 let mapsDebounceTimer = null;
+let mapsDebounceDeadline = 0;
 let mapsIdlePending = false;
 const pendingScanRoots = new Set();
 
@@ -134,22 +136,34 @@ function flushPendingScans() {
     for (const root of roots) scanStandortInRoot(root);
 }
 
+/** Debounce mit Obergrenze, sonst schiebt eine dauernd mutierende Seite den Scan endlos. */
 function scheduleIncrementalScan() {
     if (!isMapsEnabled()) return;
+    const now = Date.now();
+    if (!mapsDebounceDeadline) mapsDebounceDeadline = now + MAPS_SCAN_MAX_WAIT_MS;
     clearTimeout(mapsDebounceTimer);
+    const delay = Math.max(0, Math.min(MAPS_SCAN_DEBOUNCE_MS, mapsDebounceDeadline - now));
     mapsDebounceTimer = setTimeout(() => {
-        if (mapsIdlePending) return;
+        mapsDebounceTimer = null;
+        mapsDebounceDeadline = 0;
+        if (mapsIdlePending) {
+            // Läuft schon ein Flush — nur erneut anstoßen, wenn noch Arbeit übrig ist.
+            if (pendingScanRoots.size) scheduleIncrementalScan();
+            return;
+        }
         mapsIdlePending = true;
         requestIdle(flushPendingScans, 350);
-    }, MAPS_SCAN_DEBOUNCE_MS);
+    }, delay);
 }
 
 function onMapsDomMutation(mutations) {
     if (!isMapsEnabled()) return;
     for (const m of mutations) {
         if (m.type === 'characterData') {
-            const parent = m.target.parentElement;
-            if (parent) enqueueMapsScanRoot(parent.closest('main, article') || parent);
+            // Das Elternelement des Textknotens ist genau der Standort-Kandidat
+            // (scanStandortInRoot überspringt Elemente mit Kind-Elementen).
+            // closest('main, article') wäre praktisch die halbe Seite.
+            enqueueMapsScanRoot(m.target.parentElement);
             continue;
         }
         for (const node of m.addedNodes) {
@@ -167,6 +181,7 @@ function stopMapsLinkObserver() {
     }
     clearTimeout(mapsDebounceTimer);
     mapsDebounceTimer = null;
+    mapsDebounceDeadline = 0;
     mapsIdlePending = false;
     pendingScanRoots.clear();
 }

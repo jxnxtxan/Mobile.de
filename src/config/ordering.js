@@ -1,5 +1,5 @@
 import { mergeListOrder } from './feature-flags/index.js';
-import { getFavoriteAnzeigeKeys, partitionEntriesByFavorites } from './list-helpers.js';
+import { partitionEntriesByFavorites } from './list-helpers.js';
 import { runtimeState } from './runtime-state.js';
 
 export function isAutoModeEnabled() {

@@ -1,4 +1,3 @@
-import { SRP_SORT_OPTIONS } from '../../config/constants.js';
 import { runtimeState } from '../../config/runtime-state.js';
 import { isSearchResultsPage, isVehicleDetailPage } from '../../core/page-context.js';
 import {
@@ -25,7 +24,6 @@ import {
     readVipCohortAnchors,
     readRatingUiCache,
     readRatingCache,
-    readPriceDataStore,
     mergePriceDataStoreImport,
     notifyCohortCacheUpdated,
 } from '../price-rating/index.js';
@@ -286,30 +284,6 @@ export function runManualPriceRatingUiLog() {
     console.info('[mobilede Preis]', 'Manuelle Preisbewertung-UI', payload);
     appendSrpDebugLog('info', 'Manuelle Preisbewertung-UI', payload);
     notifyUser('Preisbewertung-UI wurde geloggt', 'success');
-}
-
-async function runManualPriceDataStoreExport() {
-    const store = readPriceDataStore();
-    const payload = {
-        version: store.version,
-        updatedTs: store.updatedTs || null,
-        adsCount: Object.keys(store.adsById || {}).length,
-        cohortsCount: Object.keys(store.cohortsByKey || {}).length,
-        export: { priceDataStore: store }
-    };
-    console.info('[mobilede Preis]', 'Preisdaten-Store Export', payload);
-    appendSrpDebugLog('info', 'Preisdaten-Store Export', {
-        adsCount: payload.adsCount,
-        cohortsCount: payload.cohortsCount
-    });
-    try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(JSON.stringify(payload.export, null, 2));
-            notifyUser('Preisdaten-Export in Zwischenablage kopiert', 'success');
-            return;
-        }
-    } catch (e) { /* noop */ }
-    notifyUser('Export geloggt (Clipboard nicht verfügbar)', 'warn');
 }
 
 export function runManualPriceDataStoreImportPrompt() {

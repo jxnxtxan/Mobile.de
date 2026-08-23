@@ -75,13 +75,14 @@ export function ergebnisHinzufuegen(force) {
         return;
     }
 
-    if (!force && shouldSkipResultsRender()) return;
+    const inputSignature = computeResultsInputSignature();
+    if (!force && shouldSkipResultsRender(zielBereich, inputSignature)) return;
 
     document.querySelectorAll('.mobilede-result-article, .mobilede-tech-article').forEach(el => el.remove());
 
     injectResultStyles();
     const autoMode = isAutoModeEnabled();
-    const gefundeneTexte = getResultEntries();
+    const gefundeneTexte = getResultEntries(inputSignature);
 
     const article = document.createElement('article');
     article.className = 'A3G6X lAeeF vTKPY HaBLt ku0Os mobilede-result-article';
@@ -144,7 +145,7 @@ export function ergebnisHinzufuegen(force) {
 
     zielBereich.parentNode.insertBefore(article, zielBereich.nextSibling);
     technischeDatenHinzufuegen(article);
-    markResultsInputCommitted(computeResultsInputSignature());
+    markResultsInputCommitted(inputSignature);
 }
 
 export function clearResults() {

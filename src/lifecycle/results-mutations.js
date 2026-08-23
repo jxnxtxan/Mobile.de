@@ -52,7 +52,7 @@ export function collectRelevantAddedRoots(mutations) {
             continue;
         }
         for (const node of m.addedNodes) {
-            if (node.nodeType === 1 && !isIgnoredNode(node)) roots.add(node);
+            if (node.nodeType === 1 && isRelevantContentElement(node)) roots.add(node);
         }
     }
     return roots;

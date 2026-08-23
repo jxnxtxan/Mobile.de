@@ -21,9 +21,10 @@ import {
 import { PRICE_COHORT_CACHE_PREFIX } from '../config/constants.js';
 import { ensureConfigButton } from '../core/search/popup-bridge.js';
 import { lastUrl, syncLastUrl } from './navigation-state.js';
-import { startObserver, trigger } from './observer.js';
+import { resetTriggerState, startObserver, trigger } from './observer.js';
 import { refreshMapsLinkBehavior } from './maps-link.js';
 import { resetSrpPageRefreshState, scheduleSrpPageRefresh } from './srp-refresh.js';
+import { resetVehicleResultsRefreshState } from '../ui/results/refresh.js';
 import { scheduleTask } from './scheduler.js';
 
 export { lastUrl, syncLastUrl };
@@ -36,14 +37,16 @@ export function onUrlChange() {
     priceRatingFetchTokenIncrement();
     clearPriceRatingUi();
     startObserver();
+    resetTriggerState();
     resetSrpPageRefreshState();
+    resetVehicleResultsRefreshState();
     trigger(true);
     refreshMapsLinkBehavior();
     if (isSearchResultsPage()) {
         ensureSrpSortBehavior();
         handleSrpUrlChange();
         ensureSrpPriceRatingObserver();
-        scheduleSrpPageRefresh(true);
+        scheduleSrpPageRefresh({ force: true, fullScan: true });
         syncDebugLogCardsOnPage();
     } else {
         destroySrpSortBehavior();

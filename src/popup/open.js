@@ -5,20 +5,10 @@ import {
     STORAGE_KEYS,
     POPUP_OVERLAY_Z_INDEX,
     FEATURE_FLAG_DEFINITIONS,
-    LIST_ORDER_DEFAULT,
     SRP_SORT_OPTIONS,
-    SRP_SORT_DEFAULT,
     PRICE_RATING_LEVELS,
-    PRICE_RATING_DEFAULT,
-    DEFAULT_PREIS_GEWICHT_BY_ANZEIGE,
-    PRICE_DATA_STORE_KEY,
-    PRICE_DATA_STORE_VERSION,
-    PRICE_DATA_STORE_MAX_ADS,
-    PRICE_DATA_STORE_MAX_COHORTS,
     DEBUG_SCOPE_DEFINITIONS,
-    DEBUG_SCOPE_PREFIX,
-} from '../config/constants.js';
-import { gmGetValue, gmSetValue } from '../platform/gm.js';
+    } from '../config/constants.js';
 import { getUnsafeWindow } from '../platform/page-window.js';
 import { cleanText } from '../core/text/normalize.js';
 import { runtimeState } from '../config/runtime-state.js';
@@ -32,7 +22,6 @@ import {
 } from '../config/migration/index.js';
 import {
     countConfigTabSettings,
-    listOrderDefault,
     mergeListOrder,
     getConfigListUi,
     mergeConfigListUi,
@@ -45,21 +34,13 @@ import {
     persistShowSrpLogCard,
     featureFlagsDefault,
     ladeFeatureFlags,
-    persistPriceRatingPerfDebug,
-    srpSortDefault,
     findSrpSortOption,
     mergeSrpSort,
-    priceRatingDefault,
     mergePriceRating,
     getPriceRating,
-    isPriceRatingEnabled,
     getSrpSort,
 } from '../config/feature-flags/index.js';
 import {
-    getListOrder,
-    isManualScope,
-    hasAnyManualListScope,
-    shouldApplyOrderToVehicleResults,
     applySaveOrdering,
     orderIndicesByArrayPosition,
 } from '../config/ordering.js';
@@ -79,9 +60,6 @@ import {
     runManualCohortLog,
     runManualSrpStatusLog,
     isSrpLogCardEnabled,
-    ensureSrpDebugLogCard,
-    removeSrpDebugLogCard,
-    removeDetailDebugLogCard,
     syncDebugLogCardsOnPage,
     appendSrpDebugLog,
 } from '../features/srp-sort/index.js';
@@ -2198,7 +2176,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             createFloatPreview(e.clientY);
             card.classList.add('mc-card--drag-source-hidden');
             card.style.display = 'none';
-            const ph = ensurePlaceholder();
+            ensurePlaceholder();
             updatePlaceholderAtY(e.clientY);
             startDragScrollLoop();
             try { handle.setPointerCapture(e.pointerId); } catch (_e) { /* ignore */ }
@@ -3520,6 +3498,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
 
     function renderAusstattungClassic() {
         sanitizeExpandedAusstattungIndex();
+        purgeListDragArtifacts();
         ausstattungContainer.innerHTML = '';
         const vis = getVisibleAusIndices();
         const { a, t } = countAusaktiv();
@@ -3844,13 +3823,20 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         refreshValidationUI();
     }
 
-    function purgeListDragArtifacts(container) {
-        if (!container) return;
-        container.querySelectorAll('.mc-drop-placeholder').forEach(el => el.remove());
+    /**
+     * Ein `container.innerHTML = ''` räumt nur den eigenen Container auf. Beim
+     * Wechsel zwischen Classic- und Split-Ansicht (oder zwischen den Tabs)
+     * bleibt ein abgebrochener Drag-Placeholder im anderen Container stehen,
+     * deshalb dokumentweit aufräumen.
+     */
+    function purgeListDragArtifacts() {
+        document.querySelectorAll('.mc-drop-placeholder').forEach(el => el.remove());
+        document.querySelectorAll('.mc-card--drop-target').forEach(el =>
+            el.classList.remove('mc-card--drop-target'));
     }
 
     function renderTechDataClassic() {
-        purgeListDragArtifacts(techContainer);
+        purgeListDragArtifacts();
         techContainer.innerHTML = '';
         const vis = getVisibleTechIndices();
         const total = aktuelleTechKonfigurationen.length;
@@ -4241,7 +4227,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     }
 
     function renderMergeConfigClassic() {
-        purgeListDragArtifacts(mergeContainer);
+        purgeListDragArtifacts();
         mergeContainer.innerHTML = '';
         const vis = getVisibleMergeIndices();
         const total = aktuelleMergeGruppen.length;
