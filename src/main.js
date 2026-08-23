@@ -1,5 +1,5 @@
 /**
  * Userscript-Einstieg (Build via Vite + vite-plugin-monkey).
- * Schritt 1: Legacy-IIFE unverändert eingebunden; Aufteilung folgt in späteren Schritten.
+ * Die eigentliche Verdrahtung liegt in app.js.
  */
-import './legacy/monolith.js';
+import './app.js';

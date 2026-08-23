@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.19
+// @version      2.16.20
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -1477,27 +1477,58 @@
     }
     return String(h);
   }
+  const FIELD_SEP = "";
+  const ENTRY_SEP = "";
+  const LIST_SEP = "";
+  function norm(value) {
+    return String(value == null ? "" : value).trim().toLowerCase();
+  }
+  function normList(value) {
+    return Array.isArray(value) ? value.map(norm).join(LIST_SEP) : norm(value);
+  }
+  function flag(value) {
+    return value === true ? "1" : "0";
+  }
   function fingerprintActiveConfigs(configs) {
     if (!Array.isArray(configs) || !configs.length) return "0";
     const parts = [];
     for (const cfg of configs) {
-      if (!cfg || cfg.aktiv === false) continue;
-      parts.push((cfg.anzeige || cfg.begriff || "").trim().toLowerCase());
-      if (Array.isArray(cfg.begriffe)) {
-        parts.push(...cfg.begriffe.map((b) => String(b || "").trim().toLowerCase()));
-      }
+      if (!cfg) continue;
+      parts.push([
+        cfg.aktiv === false ? "0" : "1",
+        flag(cfg.favorit),
+        norm(cfg.anzeige || cfg.begriff),
+        norm(cfg.farbe),
+        flag(cfg.nurInFeatures),
+        flag(cfg.compound),
+        normList(cfg.begriffe),
+        normList(cfg.verboten)
+      ].join(FIELD_SEP));
     }
-    parts.sort();
-    return hashString(parts.join(""));
+    return hashString(parts.join(ENTRY_SEP));
   }
   function fingerprintMergeGroups(groups) {
     if (!Array.isArray(groups) || !groups.length) return "0";
-    const parts = groups.filter((g) => g && g.aktiv !== false).map((g) => {
-      const order = Array.isArray(g.order) ? g.order.join(",") : "";
-      return `${(g.basis || "").trim().toLowerCase()}${order}`;
+    const parts = groups.map((g) => {
+      if (!g) return "";
+      return [
+        g.aktiv === false ? "0" : "1",
+        norm(g.basis),
+        normList(g.order)
+      ].join(FIELD_SEP);
     });
-    parts.sort();
-    return hashString(parts.join(""));
+    return hashString(parts.join(ENTRY_SEP));
+  }
+  function fingerprintListOrder(listOrder) {
+    if (!listOrder || typeof listOrder !== "object") return "0";
+    const scopes = listOrder.scopes || {};
+    return [
+      norm(listOrder.mode),
+      flag(listOrder.applyToVehicleResults),
+      flag(scopes.ausstattung),
+      flag(scopes.ausstattungFavorites),
+      flag(scopes.tech)
+    ].join(FIELD_SEP);
   }
   let entriesCache = null;
   let entriesCacheSig = "";
@@ -1508,6 +1539,7 @@
     const tech = getTechDataDl();
     const descText = desc ? desc.textContent : "";
     const featureTexts = items.map((li) => (li.textContent || "").trim()).join("");
+    const flags = runtimeState.featureFlags || {};
     const parts = [
       isAutoModeEnabled() ? "1" : "0",
       String(items.length),
@@ -1517,7 +1549,8 @@
       tech ? hashString(tech.textContent) : "0",
       fingerprintActiveConfigs(runtimeState.suchKonfigurationen),
       fingerprintActiveConfigs(runtimeState.techDataKonfigurationen),
-      fingerprintMergeGroups(runtimeState.mergeGruppenConfig)
+      fingerprintMergeGroups(runtimeState.mergeGruppenConfig),
+      fingerprintListOrder(flags.listOrder)
     ];
     return parts.join("");
   }
@@ -1529,17 +1562,26 @@
   function markResultsInputCommitted(sig) {
     committedInputSig = sig || computeResultsInputSignature();
   }
-  function shouldSkipResultsRender() {
-    const sig = computeResultsInputSignature();
-    if (sig !== committedInputSig) return false;
-    return !!document.querySelector(".mobilede-result-article");
+  function resultsAnchoredCorrectly(anchor) {
+    const next = anchor && anchor.nextElementSibling;
+    if (!next) return false;
+    if (next.classList.contains("mobilede-tech-article")) {
+      const after = next.nextElementSibling;
+      return !!(after && after.classList.contains("mobilede-result-article"));
+    }
+    return next.classList.contains("mobilede-result-article");
   }
-  function getCachedResultEntries(computeFn) {
-    const sig = computeResultsInputSignature();
-    if (entriesCache && sig === entriesCacheSig) return entriesCache;
+  function shouldSkipResultsRender(anchor, sig) {
+    if (!resultsAnchoredCorrectly(anchor)) return false;
+    const current = sig || computeResultsInputSignature();
+    return current === committedInputSig;
+  }
+  function getCachedResultEntries(computeFn, sig) {
+    const current = sig || computeResultsInputSignature();
+    if (entriesCache && current === entriesCacheSig) return entriesCache;
     const entries = computeFn();
     entriesCache = entries;
-    entriesCacheSig = sig;
+    entriesCacheSig = current;
     return entries;
   }
   function collectRawConfigHits() {
@@ -1549,14 +1591,14 @@
       collectConfigMatches(sources, runtimeState.suchKonfigurationen)
     );
   }
-  function getResultEntries() {
+  function getResultEntries(inputSignature) {
     return getCachedResultEntries(() => {
       if (isAutoModeEnabled()) {
         const rawItems = extractRawEquipmentItems();
         return buildUnifiedResults(rawItems, collectRawConfigHits());
       }
       return sucheBegriffe();
-    });
+    }, inputSignature);
   }
   function openLearnConfig(label, source) {
     const trimmed = (label || "").trim();
@@ -1702,11 +1744,12 @@ Kontext: …${item.snippet}…` : "";
       }
       return;
     }
-    if (!force && shouldSkipResultsRender()) return;
+    const inputSignature = computeResultsInputSignature();
+    if (!force && shouldSkipResultsRender(zielBereich, inputSignature)) return;
     document.querySelectorAll(".mobilede-result-article, .mobilede-tech-article").forEach((el) => el.remove());
     injectResultStyles();
     const autoMode = isAutoModeEnabled();
-    const gefundeneTexte = getResultEntries();
+    const gefundeneTexte = getResultEntries(inputSignature);
     const article = document.createElement("article");
     article.className = "A3G6X lAeeF vTKPY HaBLt ku0Os mobilede-result-article";
     const ergebnisBereich = document.createElement("div");
@@ -1760,7 +1803,7 @@ Kontext: …${item.snippet}…` : "";
     }
     zielBereich.parentNode.insertBefore(article, zielBereich.nextSibling);
     technischeDatenHinzufuegen(article);
-    markResultsInputCommitted(computeResultsInputSignature());
+    markResultsInputCommitted(inputSignature);
   }
   function clearResults() {
     document.querySelectorAll(".mobilede-result-article, .mobilede-tech-article").forEach((el) => el.remove());
@@ -4004,13 +4047,7 @@ Kontext: …${item.snippet}…` : "";
     }
   }
   function findSrpListingRoots() {
-    const links = document.querySelectorAll('a[href*="details.html?id="], a[href*="/auto-inserat/"]');
-    const roots = new Set();
-    links.forEach((a) => {
-      const card = a.closest('article, li, [data-testid*="result"], [class*="result"]') || a.parentElement;
-      if (card) roots.add(card);
-    });
-    return [...roots];
+    return [...listingRootsFromRoot(document.body)];
   }
   function extractAdIdFromHref(href) {
     if (!href) return null;
@@ -4168,17 +4205,19 @@ Kontext: …${item.snippet}…` : "";
         enqueueSrpCard(card);
       });
     }, { rootMargin: "120px" });
-    scanSrpPriceBadges();
   }
+  const SRP_LISTING_LINK_SELECTOR = 'a[href*="details.html?id="], a[href*="/auto-inserat/"]';
+  const SRP_LISTING_CARD_SELECTOR = 'article, li, [data-testid*="result"], [class*="result"]';
   function listingRootsFromRoot(root) {
     var _a;
     const cards = new Set();
     if (!root || root.nodeType !== 1) return cards;
-    const links = root === document.body ? root.querySelectorAll('a[href*="details.html?id="], a[href*="/auto-inserat/"]') : ((_a = root.matches) == null ? void 0 : _a.call(root, 'a[href*="details.html?id="], a[href*="/auto-inserat/"]')) ? [root] : root.querySelectorAll('a[href*="details.html?id="], a[href*="/auto-inserat/"]');
-    links.forEach((a) => {
-      const card = a.closest('article, li, [data-testid*="result"], [class*="result"]') || a.parentElement;
+    const addCard = (a) => {
+      const card = a.closest(SRP_LISTING_CARD_SELECTOR) || a.parentElement;
       if (card) cards.add(card);
-    });
+    };
+    if ((_a = root.matches) == null ? void 0 : _a.call(root, SRP_LISTING_LINK_SELECTOR)) addCard(root);
+    root.querySelectorAll(SRP_LISTING_LINK_SELECTOR).forEach(addCard);
     return cards;
   }
   function scanSrpPriceBadgesInRoots(roots) {
@@ -4194,9 +4233,6 @@ Kontext: …${item.snippet}…` : "";
       if (srpPriceRatingIo) srpPriceRatingIo.observe(card);
       else enqueueSrpCard(card);
     });
-  }
-  function scanSrpPriceBadges() {
-    scanSrpPriceBadgesInRoots([document.body]);
   }
   function clearPriceRatingUi() {
     document.querySelectorAll(".mobilede-price-rating, .mobilede-srp-price-badge").forEach((el) => el.remove());
@@ -4906,7 +4942,7 @@ Kontext: …${item.snippet}…` : "";
         continue;
       }
       for (const node of m.addedNodes) {
-        if (node.nodeType === 1 && !isIgnoredNode(node)) roots.add(node);
+        if (node.nodeType === 1 && isRelevantContentElement(node)) roots.add(node);
       }
     }
     return roots;
@@ -4927,18 +4963,22 @@ Kontext: …${item.snippet}…` : "";
     return isRelevantContentElement(el);
   }
   const SRP_DEBOUNCE_MS = 450;
+  const SRP_MAX_WAIT_MS = 1800;
   const SRP_THROTTLE_MS = 1200;
   let srpDebounceTimer = null;
+  let srpDebounceDeadline = 0;
   let srpThrottleAt = 0;
   let srpIdlePending = false;
   let pendingSrpForce = false;
+  let pendingSrpFullScan = false;
   const pendingSrpRoots = new Set();
   let lastCohortSyncSig = "";
-  function cohortListingFingerprint(items) {
-    const sample = (items || []).slice(0, 32).map((raw) => {
-      var _a, _b;
+  function cohortListingFingerprint(rawItems) {
+    const sample = (rawItems || []).slice(0, 64).map((raw) => {
+      var _a, _b, _c;
       const ad = (raw == null ? void 0 : raw.ad) || ((_a = raw == null ? void 0 : raw.data) == null ? void 0 : _a.ad) || raw;
-      return String((ad == null ? void 0 : ad.id) || ((_b = ad == null ? void 0 : ad.price) == null ? void 0 : _b.grossAmount) || "").trim();
+      if (!ad) return "";
+      return String(ad.id || "") + ":" + String(((_b = ad.price) == null ? void 0 : _b.grossAmount) ?? ((_c = ad.price) == null ? void 0 : _c.gross) ?? "");
     });
     return hashString(sample.join(","));
   }
@@ -4946,128 +4986,204 @@ Kontext: …${item.snippet}…` : "";
     if (!isSearchResultsPage()) return "";
     const state = getPageInitialState();
     if (!state) return location.pathname + location.search;
-    const items = parseCohortItemsFromState(state, null);
+    const rawItems = findSrpListingsInState(state);
     return [
       location.pathname,
       location.search,
-      items.length,
-      cohortListingFingerprint(items)
+      rawItems.length,
+      cohortListingFingerprint(rawItems)
     ].join("|");
   }
-  function scheduleSrpPageRefresh(force, addedRoot) {
-    if (!isSearchResultsPage()) return;
-    if (force) pendingSrpForce = true;
-    if (addedRoot && addedRoot.nodeType === 1 && addedRoot !== document.body) {
-      pendingSrpRoots.add(addedRoot);
-    }
+  function hasPendingSrpWork() {
+    return pendingSrpForce || pendingSrpFullScan || pendingSrpRoots.size > 0;
+  }
+  function armSrpTimer() {
+    const now = Date.now();
+    if (!srpDebounceDeadline) srpDebounceDeadline = now + SRP_MAX_WAIT_MS;
     clearTimeout(srpDebounceTimer);
-    const delay = pendingSrpForce ? 0 : SRP_DEBOUNCE_MS;
-    srpDebounceTimer = setTimeout(() => {
-      const now = Date.now();
-      if (!pendingSrpForce && now - srpThrottleAt < SRP_THROTTLE_MS) {
-        scheduleSrpPageRefresh(false);
-        return;
+    const delay = pendingSrpForce ? 0 : Math.max(0, Math.min(SRP_DEBOUNCE_MS, srpDebounceDeadline - now));
+    srpDebounceTimer = setTimeout(onSrpTimer, delay);
+  }
+  function onSrpTimer() {
+    srpDebounceTimer = null;
+    srpDebounceDeadline = 0;
+    if (srpIdlePending) {
+      if (hasPendingSrpWork()) armSrpTimer();
+      return;
+    }
+    if (!pendingSrpForce && Date.now() - srpThrottleAt < SRP_THROTTLE_MS) {
+      armSrpTimer();
+      return;
+    }
+    srpIdlePending = true;
+    requestIdle(() => {
+      srpIdlePending = false;
+      srpThrottleAt = Date.now();
+      const runForce = pendingSrpForce;
+      pendingSrpForce = false;
+      runSrpPageRefresh(runForce);
+    }, 360);
+  }
+  function scheduleSrpPageRefresh(options) {
+    if (!isSearchResultsPage()) return;
+    const opts = options || {};
+    if (opts.force) pendingSrpForce = true;
+    let added = 0;
+    if (opts.roots) {
+      for (const node of opts.roots) {
+        if (!node || node.nodeType !== 1) continue;
+        if (node === document.body) {
+          pendingSrpFullScan = true;
+          continue;
+        }
+        pendingSrpRoots.add(node);
+        added++;
       }
-      if (srpIdlePending) {
-        if (force) pendingSrpForce = true;
-        return;
-      }
-      srpIdlePending = true;
-      requestIdle(() => {
-        srpIdlePending = false;
-        srpThrottleAt = Date.now();
-        const runForce = pendingSrpForce;
-        pendingSrpForce = false;
-        runSrpPageRefresh(runForce);
-      }, 360);
-    }, delay);
+    }
+    if (opts.fullScan || !added) pendingSrpFullScan = true;
+    armSrpTimer();
   }
   function runSrpPageRefresh(force) {
-    if (!isSearchResultsPage()) return;
+    if (!isSearchResultsPage()) {
+      pendingSrpRoots.clear();
+      pendingSrpFullScan = false;
+      return;
+    }
     const cohortSig = computeCohortSyncSignature();
     if (force || cohortSig !== lastCohortSyncSig) {
       lastCohortSyncSig = cohortSig;
       syncCohortCacheFromSearchPage();
     }
-    const roots = pendingSrpRoots.size ? [...pendingSrpRoots] : [document.body];
+    const fullScan = force || pendingSrpFullScan || !pendingSrpRoots.size;
+    const roots = fullScan ? [document.body] : [...pendingSrpRoots];
     pendingSrpRoots.clear();
+    pendingSrpFullScan = false;
     scanSrpPriceBadgesInRoots(roots);
   }
   function resetSrpPageRefreshState() {
     clearTimeout(srpDebounceTimer);
     srpDebounceTimer = null;
+    srpDebounceDeadline = 0;
     srpIdlePending = false;
     pendingSrpForce = false;
+    pendingSrpFullScan = false;
     pendingSrpRoots.clear();
     lastCohortSyncSig = "";
   }
   const RESULTS_DEBOUNCE_MS = 400;
+  const RESULTS_MAX_WAIT_MS = 1500;
   const RESULTS_THROTTLE_MS = 900;
   let resultsDebounceTimer = null;
+  let resultsDebounceDeadline = 0;
   let resultsThrottleAt = 0;
   let resultsIdlePending = false;
   let pendingResultsForce = false;
+  let pendingResultsRefresh = false;
   function invalidateAndRefreshVehicleResults() {
     invalidateResultsCache();
     scheduleVehicleResultsRefresh(true);
   }
+  function armResultsTimer() {
+    const now = Date.now();
+    if (!resultsDebounceDeadline) resultsDebounceDeadline = now + RESULTS_MAX_WAIT_MS;
+    clearTimeout(resultsDebounceTimer);
+    const delay = pendingResultsForce ? 0 : Math.max(0, Math.min(RESULTS_DEBOUNCE_MS, resultsDebounceDeadline - now));
+    resultsDebounceTimer = setTimeout(onResultsTimer, delay);
+  }
+  function onResultsTimer() {
+    resultsDebounceTimer = null;
+    resultsDebounceDeadline = 0;
+    if (resultsIdlePending) {
+      if (pendingResultsRefresh) armResultsTimer();
+      return;
+    }
+    if (!pendingResultsForce && Date.now() - resultsThrottleAt < RESULTS_THROTTLE_MS) {
+      armResultsTimer();
+      return;
+    }
+    resultsIdlePending = true;
+    requestIdle(() => {
+      resultsIdlePending = false;
+      resultsThrottleAt = Date.now();
+      const runForce = pendingResultsForce;
+      pendingResultsForce = false;
+      pendingResultsRefresh = false;
+      ergebnisHinzufuegen(runForce);
+    }, 320);
+  }
   function scheduleVehicleResultsRefresh(force) {
     if (!isVehicleDetailPage()) return;
     if (force) pendingResultsForce = true;
-    clearTimeout(resultsDebounceTimer);
-    const delay = pendingResultsForce ? 0 : RESULTS_DEBOUNCE_MS;
-    resultsDebounceTimer = setTimeout(() => {
-      const now = Date.now();
-      if (!pendingResultsForce && now - resultsThrottleAt < RESULTS_THROTTLE_MS) {
-        scheduleVehicleResultsRefresh(false);
-        return;
-      }
-      if (resultsIdlePending) {
-        if (force) pendingResultsForce = true;
-        return;
-      }
-      resultsIdlePending = true;
-      requestIdle(() => {
-        resultsIdlePending = false;
-        resultsThrottleAt = Date.now();
-        const runForce = pendingResultsForce;
-        pendingResultsForce = false;
-        ergebnisHinzufuegen(runForce);
-      }, 320);
-    }, delay);
+    pendingResultsRefresh = true;
+    armResultsTimer();
   }
+  function resetVehicleResultsRefreshState() {
+    clearTimeout(resultsDebounceTimer);
+    resultsDebounceTimer = null;
+    resultsDebounceDeadline = 0;
+    resultsIdlePending = false;
+    pendingResultsForce = false;
+    pendingResultsRefresh = false;
+  }
+  const TRIGGER_DEBOUNCE_MS = 300;
+  const TRIGGER_MAX_WAIT_MS = 1200;
   let observer = null;
   let triggerTimer = null;
+  let triggerDeadline = 0;
+  const pendingSrpRootQueue = new Set();
   function startObserver() {
     if (observer) observer.disconnect();
     observer = new MutationObserver((mutations) => {
       if (!mutations.some(mutationAffectsPageContent)) return;
-      const srpRoots = isSearchResultsPage() ? collectRelevantAddedRoots(mutations) : [];
-      trigger(false, srpRoots);
+      if (isSearchResultsPage()) {
+        for (const root of collectRelevantAddedRoots(mutations)) pendingSrpRootQueue.add(root);
+      }
+      trigger(false);
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
   function trigger(immediate, srpRoots) {
+    if (immediate) {
+      clearTimeout(triggerTimer);
+      triggerTimer = null;
+      triggerDeadline = 0;
+      runTrigger(true);
+      return;
+    }
+    const now = Date.now();
+    if (!triggerDeadline) triggerDeadline = now + TRIGGER_MAX_WAIT_MS;
     clearTimeout(triggerTimer);
-    const run = () => {
-      if (hasActiveSelectionInsideResults()) return;
-      if (isVehicleDetailPage()) {
-        scheduleVehicleResultsRefresh(!!immediate);
+    const delay = Math.max(0, Math.min(TRIGGER_DEBOUNCE_MS, triggerDeadline - now));
+    triggerTimer = setTimeout(() => runTrigger(false), delay);
+  }
+  function runTrigger(immediate) {
+    triggerTimer = null;
+    triggerDeadline = 0;
+    if (isVehicleDetailPage()) {
+      if (!hasActiveSelectionInsideResults()) {
+        scheduleVehicleResultsRefresh(immediate);
         scheduleTask("rating:vip-refresh", "rating", () => {
           preisBewertungAktualisieren();
         });
       }
-      if (isSearchResultsPage()) {
-        for (const root of srpRoots || []) scheduleSrpPageRefresh(false, root);
-        scheduleSrpPageRefresh(!!immediate);
-      }
-      scheduleTask("ui:page-chrome", "ui", () => {
-        syncDebugLogCardsOnPage();
-        ensureConfigButton();
-      });
-    };
-    if (immediate) run();
-    else triggerTimer = setTimeout(() => run(), 300);
+    }
+    if (isSearchResultsPage()) {
+      const roots = pendingSrpRootQueue.size ? [...pendingSrpRootQueue] : null;
+      pendingSrpRootQueue.clear();
+      scheduleSrpPageRefresh({ force: immediate, fullScan: immediate, roots });
+    } else {
+      pendingSrpRootQueue.clear();
+    }
+    scheduleTask("ui:page-chrome", "ui", () => {
+      syncDebugLogCardsOnPage();
+      ensureConfigButton();
+    });
+  }
+  function resetTriggerState() {
+    clearTimeout(triggerTimer);
+    triggerTimer = null;
+    triggerDeadline = 0;
+    pendingSrpRootQueue.clear();
   }
   function hasActiveSelectionInsideResults() {
     const sel = window.getSelection ? window.getSelection() : null;
@@ -5087,8 +5203,10 @@ Kontext: …${item.snippet}…` : "";
   const STANDORT_RE = /^[A-Z]{2}-\d{4,5}\s+\S.*$/;
   const EXCLUDE_SELECTOR = "#mobilede-config-popup, #mobilede-config-overlay, .mobilede-result-article, .mobilede-tech-article, #mobilede-srp-debug-card";
   const MAPS_SCAN_DEBOUNCE_MS = 400;
+  const MAPS_SCAN_MAX_WAIT_MS = 1600;
   let mapsMo = null;
   let mapsDebounceTimer = null;
+  let mapsDebounceDeadline = 0;
   let mapsIdlePending = false;
   const pendingScanRoots = new Set();
   function isMapsEnabled() {
@@ -5208,19 +5326,26 @@ Kontext: …${item.snippet}…` : "";
   }
   function scheduleIncrementalScan() {
     if (!isMapsEnabled()) return;
+    const now = Date.now();
+    if (!mapsDebounceDeadline) mapsDebounceDeadline = now + MAPS_SCAN_MAX_WAIT_MS;
     clearTimeout(mapsDebounceTimer);
+    const delay = Math.max(0, Math.min(MAPS_SCAN_DEBOUNCE_MS, mapsDebounceDeadline - now));
     mapsDebounceTimer = setTimeout(() => {
-      if (mapsIdlePending) return;
+      mapsDebounceTimer = null;
+      mapsDebounceDeadline = 0;
+      if (mapsIdlePending) {
+        if (pendingScanRoots.size) scheduleIncrementalScan();
+        return;
+      }
       mapsIdlePending = true;
       requestIdle(flushPendingScans, 350);
-    }, MAPS_SCAN_DEBOUNCE_MS);
+    }, delay);
   }
   function onMapsDomMutation(mutations) {
     if (!isMapsEnabled()) return;
     for (const m of mutations) {
       if (m.type === "characterData") {
-        const parent = m.target.parentElement;
-        if (parent) enqueueMapsScanRoot(parent.closest("main, article") || parent);
+        enqueueMapsScanRoot(m.target.parentElement);
         continue;
       }
       for (const node of m.addedNodes) {
@@ -5237,6 +5362,7 @@ Kontext: …${item.snippet}…` : "";
     }
     clearTimeout(mapsDebounceTimer);
     mapsDebounceTimer = null;
+    mapsDebounceDeadline = 0;
     mapsIdlePending = false;
     pendingScanRoots.clear();
   }
@@ -5269,14 +5395,16 @@ Kontext: …${item.snippet}…` : "";
     priceRatingFetchTokenIncrement();
     clearPriceRatingUi();
     startObserver();
+    resetTriggerState();
     resetSrpPageRefreshState();
+    resetVehicleResultsRefreshState();
     trigger(true);
     refreshMapsLinkBehavior();
     if (isSearchResultsPage()) {
       ensureSrpSortBehavior();
       handleSrpUrlChange();
       ensureSrpPriceRatingObserver();
-      scheduleSrpPageRefresh(true);
+      scheduleSrpPageRefresh({ force: true, fullScan: true });
       syncDebugLogCardsOnPage();
     } else {
       destroySrpSortBehavior();
@@ -7964,7 +8092,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         { label: "nur Favoriten", title: "Nur favorisierte Einträge anzeigen" },
         { label: "mit Verboten", title: "Nur Einträge mit verbotenen Begriffen" }
       ],
-      bulk: { onAll: (flag) => bulkAusAlle(flag) },
+      bulk: { onAll: (flag2) => bulkAusAlle(flag2) },
       onNeu: () => {
         aktuelleAusstattungsKonfig.unshift({ begriffe: [], anzeige: "", farbe: "#66ff66", aktiv: true });
         ausTb.search._input.value = "";
@@ -8236,14 +8364,14 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       });
       return ix;
     }
-    function bulkAusAlle(flag) {
+    function bulkAusAlle(flag2) {
       pushUndo({ kind: "ausstattung", data: snapshotAus() });
       aktuelleAusstattungsKonfig.forEach((i) => {
-        i.aktiv = flag;
+        i.aktiv = flag2;
       });
       markDirty();
       renderAusstattung();
-      showToast(flag ? "Alle Einträge aktiviert" : "Alle Einträge deaktiviert", "success");
+      showToast(flag2 ? "Alle Einträge aktiviert" : "Alle Einträge deaktiviert", "success");
     }
     function cardIssuesAus(idx, item) {
       const errs = [];
@@ -8665,6 +8793,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     }
     function renderAusstattungClassic() {
       sanitizeExpandedAusstattungIndex();
+      purgeListDragArtifacts();
       ausstattungContainer.innerHTML = "";
       const vis = getVisibleAusIndices();
       const { a, t } = countAusaktiv();
@@ -8718,7 +8847,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       onSearch: () => {
         renderTechData();
       },
-      bulk: { onAll: (flag) => bulkTechAlle(flag) },
+      bulk: { onAll: (flag2) => bulkTechAlle(flag2) },
       onNeu: () => {
         aktuelleTechKonfigurationen.push({ begriff: "", aktiv: true });
         selectedTechIndex = aktuelleTechKonfigurationen.length - 1;
@@ -8791,14 +8920,14 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       });
       return ix;
     }
-    function bulkTechAlle(flag) {
+    function bulkTechAlle(flag2) {
       pushUndo({ kind: "tech", data: snapshotTech() });
       aktuelleTechKonfigurationen.forEach((i) => {
-        i.aktiv = flag;
+        i.aktiv = flag2;
       });
       markDirty();
       renderTechData();
-      showToast("Alle Tech-Zeilen " + (flag ? "aktiviert" : "deaktiviert"), "success");
+      showToast("Alle Tech-Zeilen " + (flag2 ? "aktiviert" : "deaktiviert"), "success");
     }
     function cardIssuesTech(item) {
       const errs = [];
@@ -8974,12 +9103,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       updateTabBadges();
       refreshValidationUI();
     }
-    function purgeListDragArtifacts(container) {
-      if (!container) return;
-      container.querySelectorAll(".mc-drop-placeholder").forEach((el) => el.remove());
+    function purgeListDragArtifacts() {
+      document.querySelectorAll(".mc-drop-placeholder").forEach((el) => el.remove());
+      document.querySelectorAll(".mc-card--drop-target").forEach((el) => el.classList.remove("mc-card--drop-target"));
     }
     function renderTechDataClassic() {
-      purgeListDragArtifacts(techContainer);
+      purgeListDragArtifacts();
       techContainer.innerHTML = "";
       const vis = getVisibleTechIndices();
       const total = aktuelleTechKonfigurationen.length;
@@ -9093,7 +9222,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       filters: [
         { label: "nur aktive", title: "Nur aktive Merge-Gruppen anzeigen" }
       ],
-      bulk: { onAll: (flag) => bulkMergeAlle(flag) },
+      bulk: { onAll: (flag2) => bulkMergeAlle(flag2) },
       onNeu: () => {
         aktuelleMergeGruppen.push({ basis: "", order: [], aktiv: true });
         selectedMergeIndex = aktuelleMergeGruppen.length - 1;
@@ -9173,14 +9302,14 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       });
       return ix;
     }
-    function bulkMergeAlle(flag) {
+    function bulkMergeAlle(flag2) {
       pushUndo({ kind: "merge", data: snapshotMerge() });
       aktuelleMergeGruppen.forEach((g) => {
-        g.aktiv = flag;
+        g.aktiv = flag2;
       });
       markDirty();
       renderMergeConfig();
-      showToast("Alle Merge-Gruppen " + (flag ? "aktiviert" : "deaktiviert"), "success");
+      showToast("Alle Merge-Gruppen " + (flag2 ? "aktiviert" : "deaktiviert"), "success");
     }
     function cardIssuesMerge(g) {
       const errs = [];
@@ -9348,7 +9477,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       refreshValidationUI();
     }
     function renderMergeConfigClassic() {
-      purgeListDragArtifacts(mergeContainer);
+      purgeListDragArtifacts();
       mergeContainer.innerHTML = "";
       const vis = getVisibleMergeIndices();
       const total = aktuelleMergeGruppen.length;

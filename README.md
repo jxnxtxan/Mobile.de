@@ -19,12 +19,29 @@ Tampermonkey-Skript für **mobile.de**-Fahrzeugdetailseiten: definierte **Aussta
 
 ## Entwicklung (Build)
 
-Quellcode liegt unter `src/` — der Kern läuft noch über `src/legacy/monolith.js` (Preis, SRP, Popup). Ausgelagert: `src/config/`, `src/core/` (Match, DOM, Suche), `src/ui/results/`. Die installierbare Datei `mobile-ausstattungssuche.js` im Repo-Root wird per Build erzeugt:
+Quellcode liegt unter `src/`. Einstieg ist `src/main.js` → `src/app.js` (Verdrahtung).
+Aufteilung:
+
+| Verzeichnis | Inhalt |
+| --- | --- |
+| `src/config/` | Defaults, Persistenz, Feature-Flags, Migration, Laufzeit-State |
+| `src/core/` | Match-Engine, DOM-Selektoren, Suchpipeline, Automodus, Merge-Gruppen |
+| `src/lifecycle/` | Observer, Scheduler, URL-Wechsel, inkrementelle SRP-/Maps-Refreshes |
+| `src/features/` | Preisbewertung (VIP + SRP), SRP-Sortierung, Debug-Karten |
+| `src/ui/results/` | Ergebnis- und Tech-Rendering samt Render-Cache |
+| `src/popup/` | Konfigurations-Popup |
+
+Die installierbare Datei `mobile-ausstattungssuche.js` im Repo-Root wird per Build erzeugt:
 
 ```bash
 npm install
 npm run build
 ```
+
+- `npm run lint` prüft mit ESLint; `no-undef` ist scharf geschaltet und läuft auch
+  als Gate vor jedem `npm run build`. Beim Herauslösen der Module aus dem früheren
+  Monolithen sind mehrfach Bezeichner ohne Import stehengeblieben — das Bundle läuft
+  in `'use strict'`, solche Stellen werfen erst zur Laufzeit.
 
 - **Version** in `vite.config.js` (`USERSCRIPT_VERSION`) und `package.json` pflegen.
 - `npm run dev` startet den Vite-Dev-Server von vite-plugin-monkey (Tampermonkey-Test mit lokalem Build).

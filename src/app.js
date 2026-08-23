@@ -1,11 +1,10 @@
-'use strict';
-
-import { bootstrapConfig } from '../config/bootstrap.js';
-import { gmRegisterMenuCommand } from '../platform/gm.js';
-import { registerConfigPopupOpener, registerConfigButtonCreator } from '../core/search/popup-bridge.js';
-import { initApp } from '../lifecycle/init.js';
-import { oeffneKonfigPopup } from '../popup/open.js';
-import { erstelleKonfigButton } from '../popup/button.js';
+/** Verdrahtung des Userscripts: Konfiguration laden, Lifecycle starten, Popup registrieren. */
+import { bootstrapConfig } from './config/bootstrap.js';
+import { gmRegisterMenuCommand } from './platform/gm.js';
+import { registerConfigPopupOpener, registerConfigButtonCreator } from './core/search/popup-bridge.js';
+import { initApp } from './lifecycle/init.js';
+import { oeffneKonfigPopup } from './popup/open.js';
+import { erstelleKonfigButton } from './popup/button.js';
 
 bootstrapConfig();
 initApp();

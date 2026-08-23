@@ -1,15 +1,19 @@
 {
   "name": "mobile-ausstattungssuche",
-  "version": "2.16.19",
+  "version": "2.16.20",
   "private": true,
-  "description": "Tampermonkey-Skript für mobile.de Ausstattungssuche",
+  "description": "Tampermonkey-Skript f\u00fcr mobile.de Ausstattungssuche",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/postbuild-copy.js",
+    "lint": "eslint .",
+    "test": "node --test 'test/**/*.test.js'",
+    "build": "npm run lint && npm test && vite build && node scripts/postbuild-copy.js",
     "preview": "vite preview"
   },
   "devDependencies": {
+    "eslint": "^9.39.5",
+    "globals": "^17.11.0",
     "vite": "^6.3.5",
     "vite-plugin-monkey": "^7.1.0"
   }
