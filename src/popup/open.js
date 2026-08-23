@@ -71,6 +71,7 @@ import {
     readPriceDataStore,
     mergePriceDataStoreImport,
     notifyCohortCacheUpdated,
+    clearPriceRatingUi,
 } from '../features/price-rating/index.js';
 import {
     resetSrpSortOverrideAndApply,
@@ -5951,8 +5952,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         showToast('Popup teilweise fehlerhaft — siehe Browser-Konsole (F12)', 'error');
     }
 
-    if (runtimeState.pendingAusstattungPrefill && pendingAusstattungPrefill.label) {
-        const label = pendingAusstattungPrefill.label.trim();
+    if (runtimeState.pendingAusstattungPrefill && runtimeState.pendingAusstattungPrefill.label) {
+        const label = runtimeState.pendingAusstattungPrefill.label.trim();
         const cleaned = cleanText(label);
         const begriffe = [];
         if (cleaned) begriffe.push(cleaned);

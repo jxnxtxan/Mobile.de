@@ -17,7 +17,7 @@
 // @match        https://suchen.mobile.de/fahrzeuge/search.html*
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
-// @grant        GM_setValue  
+// @grant        GM_setValue
 // @grant        unsafeWindow
 // @run-at       document-idle
 // @noframes
@@ -342,6 +342,7 @@
   }
   const SRP_SORT_OVERRIDE_STORAGE_KEY = "mobilede_srp_sort_user_choice";
   const SRP_SORT_APPLIED_STORAGE_KEY = "mobilede_srp_sort_applied";
+  const SRP_FINGERPRINT_EXCLUDE = new Set(["sb", "od", "ref", "refId", "page", "pageNumber", "offset"]);
   function srpSortParamsEqual(a, b) {
     return a && b && a.sb === b.sb && a.od === b.od;
   }
@@ -864,7 +865,7 @@
   function escapeRegex(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
-  function getFeatureItems$1() {
+  function getFeatureItems() {
     return Array.from(document.querySelectorAll("ul[data-testid='vip-features-list'] li"));
   }
   function getDescriptionEl() {
@@ -894,7 +895,7 @@
   }
   function extractSources() {
     const sources = [];
-    const featureItems = getFeatureItems$1();
+    const featureItems = getFeatureItems();
     if (featureItems.length > 0) {
       const text = featureItems.map((li) => li.textContent.trim()).filter(Boolean).join(" | ");
       sources.push({ id: "features", confidence: "high", text, tokens: tokenize(text) });
@@ -1252,7 +1253,7 @@
         byKey.set(key, entry);
       }
     }
-    getFeatureItems$1().forEach((li) => add(li.textContent, "features", "high"));
+    getFeatureItems().forEach((li) => add(li.textContent, "features", "high"));
     const desc = getDescriptionEl();
     if (desc) {
       const rawText = desc.textContent.replace(/\s+/g, " ").trim();
@@ -1502,7 +1503,7 @@
   let entriesCacheSig = "";
   let committedInputSig = "";
   function computeResultsInputSignature() {
-    const items = getFeatureItems$1();
+    const items = getFeatureItems();
     const desc = getDescriptionEl();
     const tech = getTechDataDl();
     const descText = desc ? desc.textContent : "";
@@ -1596,7 +1597,7 @@
     const dtElements = techDataBereich.querySelectorAll("dt");
     const daten = [];
     const useManualOrder = isManualScope("tech") && shouldApplyOrderToVehicleResults();
-    const configs = useManualOrder ? runtimeState.techDataKonfigurationen : [...techDataKonfigurationen].sort((a, b) => (a.begriff || "").trim().localeCompare((b.begriff || "").trim(), "de"));
+    const configs = useManualOrder ? runtimeState.techDataKonfigurationen : [...runtimeState.techDataKonfigurationen].sort((a, b) => (a.begriff || "").trim().localeCompare((b.begriff || "").trim(), "de"));
     configs.forEach((cfg) => {
       if (!cfg.aktiv) return;
       for (const dt of dtElements) {
@@ -4197,7 +4198,7 @@ Kontext: …${item.snippet}…` : "";
   function scanSrpPriceBadges() {
     scanSrpPriceBadgesInRoots([document.body]);
   }
-  function clearPriceRatingUi$1() {
+  function clearPriceRatingUi() {
     document.querySelectorAll(".mobilede-price-rating, .mobilede-srp-price-badge").forEach((el) => el.remove());
     document.querySelectorAll("[data-mobilede-price-rated]").forEach((el) => {
       delete el.dataset.mobiledePriceRated;
@@ -5266,7 +5267,7 @@ Kontext: …${item.snippet}…` : "";
     resetVipRatingUiOnNavigation();
     clearResults();
     priceRatingFetchTokenIncrement();
-    clearPriceRatingUi$1();
+    clearPriceRatingUi();
     startObserver();
     resetSrpPageRefreshState();
     trigger(true);
@@ -10990,8 +10991,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       console.error("[mobilede] Konfig-Popup: Fehler beim Rendern", popupRenderErr);
       showToast("Popup teilweise fehlerhaft — siehe Browser-Konsole (F12)", "error");
     }
-    if (runtimeState.pendingAusstattungPrefill && pendingAusstattungPrefill.label) {
-      const label = pendingAusstattungPrefill.label.trim();
+    if (runtimeState.pendingAusstattungPrefill && runtimeState.pendingAusstattungPrefill.label) {
+      const label = runtimeState.pendingAusstattungPrefill.label.trim();
       const cleaned = cleanText(label);
       const begriffe = [];
       if (cleaned) begriffe.push(cleaned);

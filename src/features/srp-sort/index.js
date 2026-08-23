@@ -6,6 +6,7 @@ import {
     getStoredSrpUserChoice, setStoredSrpUserChoice, clearStoredSrpUserChoice,
     getStoredSrpSortApplied, markSrpSortApplied, clearStoredSrpSortApplied,
     srpSortParamsEqual, getPriceRating, getDebugConfig,
+    SRP_FINGERPRINT_EXCLUDE,
 } from '../../config/feature-flags/index.js';
 import { syncLastUrl } from '../../lifecycle/navigation-state.js';
 import {

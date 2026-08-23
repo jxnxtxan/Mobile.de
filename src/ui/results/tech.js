@@ -12,7 +12,7 @@ export function sucheTechnischeDaten() {
     const useManualOrder = isManualScope('tech') && shouldApplyOrderToVehicleResults();
     const configs = useManualOrder
         ? runtimeState.techDataKonfigurationen
-        : [...techDataKonfigurationen].sort((a, b) =>
+        : [...runtimeState.techDataKonfigurationen].sort((a, b) =>
             (a.begriff || '').trim().localeCompare((b.begriff || '').trim(), 'de'));
     configs.forEach(cfg => {
         if (!cfg.aktiv) return;

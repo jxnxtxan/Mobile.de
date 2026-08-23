@@ -10,7 +10,7 @@ import { getUnsafeWindow } from '../../platform/page-window.js';
 import { cleanText, tokenize, escapeRegex } from '../../core/text/normalize.js';
 import { collectConfigMatches } from '../../core/search/config-matches.js';
 import { extractSources, classifyDescription } from '../../core/dom/sources.js';
-import { getDescriptionEl, getTechDataDl } from '../../core/dom/selectors.js';
+import { getDescriptionEl, getFeatureItems, getTechDataDl } from '../../core/dom/selectors.js';
 import { extractRawEquipmentItems, findConfigEntryForRawLabel } from '../../core/search/automode.js';
 import { runtimeState } from '../../config/runtime-state.js';
 import { debugLog, getDebugConfig, isDebugEnabled, getPriceRating, isPriceRatingEnabled, getSrpSort, mergePriceRating } from '../../config/feature-flags/index.js';
