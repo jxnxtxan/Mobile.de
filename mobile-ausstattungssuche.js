@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.15
+// @version      2.16.19
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -17,7 +17,7 @@
 // @match        https://suchen.mobile.de/fahrzeuge/search.html*
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
-// @grant        GM_setValue
+// @grant        GM_setValue  
 // @grant        unsafeWindow
 // @run-at       document-idle
 // @noframes
@@ -1468,6 +1468,79 @@
     }
     return [...byAnzeige.values()];
   }
+  function hashString(str) {
+    let h = 0;
+    const s = String(str || "");
+    for (let i = 0; i < s.length; i++) {
+      h = (h << 5) - h + s.charCodeAt(i) | 0;
+    }
+    return String(h);
+  }
+  function fingerprintActiveConfigs(configs) {
+    if (!Array.isArray(configs) || !configs.length) return "0";
+    const parts = [];
+    for (const cfg of configs) {
+      if (!cfg || cfg.aktiv === false) continue;
+      parts.push((cfg.anzeige || cfg.begriff || "").trim().toLowerCase());
+      if (Array.isArray(cfg.begriffe)) {
+        parts.push(...cfg.begriffe.map((b) => String(b || "").trim().toLowerCase()));
+      }
+    }
+    parts.sort();
+    return hashString(parts.join(""));
+  }
+  function fingerprintMergeGroups(groups) {
+    if (!Array.isArray(groups) || !groups.length) return "0";
+    const parts = groups.filter((g) => g && g.aktiv !== false).map((g) => {
+      const order = Array.isArray(g.order) ? g.order.join(",") : "";
+      return `${(g.basis || "").trim().toLowerCase()}${order}`;
+    });
+    parts.sort();
+    return hashString(parts.join(""));
+  }
+  let entriesCache = null;
+  let entriesCacheSig = "";
+  let committedInputSig = "";
+  function computeResultsInputSignature() {
+    const items = getFeatureItems$1();
+    const desc = getDescriptionEl();
+    const tech = getTechDataDl();
+    const descText = desc ? desc.textContent : "";
+    const featureTexts = items.map((li) => (li.textContent || "").trim()).join("");
+    const parts = [
+      isAutoModeEnabled() ? "1" : "0",
+      String(items.length),
+      hashString(featureTexts),
+      String(descText.length),
+      hashString(descText),
+      tech ? hashString(tech.textContent) : "0",
+      fingerprintActiveConfigs(runtimeState.suchKonfigurationen),
+      fingerprintActiveConfigs(runtimeState.techDataKonfigurationen),
+      fingerprintMergeGroups(runtimeState.mergeGruppenConfig)
+    ];
+    return parts.join("");
+  }
+  function invalidateResultsCache() {
+    entriesCache = null;
+    entriesCacheSig = "";
+    committedInputSig = "";
+  }
+  function markResultsInputCommitted(sig) {
+    committedInputSig = sig || computeResultsInputSignature();
+  }
+  function shouldSkipResultsRender() {
+    const sig = computeResultsInputSignature();
+    if (sig !== committedInputSig) return false;
+    return !!document.querySelector(".mobilede-result-article");
+  }
+  function getCachedResultEntries(computeFn) {
+    const sig = computeResultsInputSignature();
+    if (entriesCache && sig === entriesCacheSig) return entriesCache;
+    const entries = computeFn();
+    entriesCache = entries;
+    entriesCacheSig = sig;
+    return entries;
+  }
   function collectRawConfigHits() {
     const sources = extractSources();
     if (sources.length === 0) return [];
@@ -1476,11 +1549,13 @@
     );
   }
   function getResultEntries() {
-    if (isAutoModeEnabled()) {
-      const rawItems = extractRawEquipmentItems();
-      return buildUnifiedResults(rawItems, collectRawConfigHits());
-    }
-    return sucheBegriffe();
+    return getCachedResultEntries(() => {
+      if (isAutoModeEnabled()) {
+        const rawItems = extractRawEquipmentItems();
+        return buildUnifiedResults(rawItems, collectRawConfigHits());
+      }
+      return sucheBegriffe();
+    });
   }
   function openLearnConfig(label, source) {
     const trimmed = (label || "").trim();
@@ -1618,10 +1693,16 @@ Kontext: …${item.snippet}…` : "";
     }
     columns.appendChild(el);
   }
-  function ergebnisHinzufuegen() {
-    document.querySelectorAll(".mobilede-result-article, .mobilede-tech-article").forEach((el) => el.remove());
+  function ergebnisHinzufuegen(force) {
     const zielBereich = document.querySelector("article[data-testid='vip-key-features-box']");
-    if (!zielBereich) return;
+    if (!zielBereich) {
+      if (document.querySelector(".mobilede-result-article, .mobilede-tech-article")) {
+        clearResults();
+      }
+      return;
+    }
+    if (!force && shouldSkipResultsRender()) return;
+    document.querySelectorAll(".mobilede-result-article, .mobilede-tech-article").forEach((el) => el.remove());
     injectResultStyles();
     const autoMode = isAutoModeEnabled();
     const gefundeneTexte = getResultEntries();
@@ -1678,9 +1759,11 @@ Kontext: …${item.snippet}…` : "";
     }
     zielBereich.parentNode.insertBefore(article, zielBereich.nextSibling);
     technischeDatenHinzufuegen(article);
+    markResultsInputCommitted(computeResultsInputSignature());
   }
   function clearResults() {
     document.querySelectorAll(".mobilede-result-article, .mobilede-tech-article").forEach((el) => el.remove());
+    invalidateResultsCache();
   }
   function getUnsafeWindow() {
     try {
@@ -4086,15 +4169,33 @@ Kontext: …${item.snippet}…` : "";
     }, { rootMargin: "120px" });
     scanSrpPriceBadges();
   }
-  function scanSrpPriceBadges() {
+  function listingRootsFromRoot(root) {
+    var _a;
+    const cards = new Set();
+    if (!root || root.nodeType !== 1) return cards;
+    const links = root === document.body ? root.querySelectorAll('a[href*="details.html?id="], a[href*="/auto-inserat/"]') : ((_a = root.matches) == null ? void 0 : _a.call(root, 'a[href*="details.html?id="], a[href*="/auto-inserat/"]')) ? [root] : root.querySelectorAll('a[href*="details.html?id="], a[href*="/auto-inserat/"]');
+    links.forEach((a) => {
+      const card = a.closest('article, li, [data-testid*="result"], [class*="result"]') || a.parentElement;
+      if (card) cards.add(card);
+    });
+    return cards;
+  }
+  function scanSrpPriceBadgesInRoots(roots) {
     const prCfg = getPriceRating(runtimeState.featureFlags);
     if (!isSearchResultsPage() || !isPriceRatingEnabled(prCfg) || !prCfg.enabledSrp) return;
     ensureSrpPriceRatingObserver();
-    findSrpListingRoots().forEach((card) => {
+    const cards = new Set();
+    (roots || [document.body]).forEach((root) => {
+      listingRootsFromRoot(root).forEach((card) => cards.add(card));
+    });
+    cards.forEach((card) => {
       if (card.dataset.mobiledePriceRated) return;
       if (srpPriceRatingIo) srpPriceRatingIo.observe(card);
       else enqueueSrpCard(card);
     });
+  }
+  function scanSrpPriceBadges() {
+    scanSrpPriceBadgesInRoots([document.body]);
   }
   function clearPriceRatingUi$1() {
     document.querySelectorAll(".mobilede-price-rating, .mobilede-srp-price-badge").forEach((el) => el.remove());
@@ -4755,32 +4856,217 @@ Kontext: …${item.snippet}…` : "";
     const overlay = document.querySelector("#mobilede-config-overlay");
     return !!(overlay && overlay.querySelector(".mc-popup"));
   }
+  const IGNORE_SELECTOR = [
+    ".mobilede-result-article",
+    ".mobilede-tech-article",
+    "#mobilede-config-btn-wrap",
+    "#mobilede-config-overlay",
+    "#mobilede-config-popup",
+    ".mobilede-srp-price-badge",
+    ".mobilede-price-rating",
+    "#mobilede-srp-debug-card",
+    ".mobilede-srp-debug-card"
+  ].join(", ");
+  const VIP_CONTENT_SELECTOR = [
+    '[data-testid*="vip"]',
+    '[data-testid*="features"]',
+    '[data-testid*="description"]',
+    '[data-testid*="technical"]',
+    "main"
+  ].join(", ");
+  const SRP_CONTENT_SELECTOR = [
+    '[data-testid*="result"]',
+    '[data-testid="search"]',
+    '[data-testid*="search"]',
+    "main"
+  ].join(", ");
+  function isIgnoredNode(node) {
+    var _a, _b;
+    if (!node || node.nodeType !== 1) return false;
+    if ((_a = node.matches) == null ? void 0 : _a.call(node, IGNORE_SELECTOR)) return true;
+    if ((_b = node.closest) == null ? void 0 : _b.call(node, IGNORE_SELECTOR)) return true;
+    const id = node.id || "";
+    if (id.startsWith("mobilede-")) return true;
+    return false;
+  }
+  function isRelevantContentElement(el) {
+    var _a, _b, _c;
+    if (!el || isIgnoredNode(el)) return false;
+    if (isSearchResultsPage()) return !!((_a = el.closest) == null ? void 0 : _a.call(el, SRP_CONTENT_SELECTOR));
+    if (isVehicleDetailPage()) return !!((_b = el.closest) == null ? void 0 : _b.call(el, VIP_CONTENT_SELECTOR));
+    return !!((_c = el.closest) == null ? void 0 : _c.call(el, "main, article"));
+  }
+  function collectRelevantAddedRoots(mutations) {
+    const roots = new Set();
+    for (const m of mutations) {
+      if (m.type === "characterData") {
+        const el = m.target.parentElement;
+        if (el && isRelevantContentElement(el)) roots.add(el);
+        continue;
+      }
+      for (const node of m.addedNodes) {
+        if (node.nodeType === 1 && !isIgnoredNode(node)) roots.add(node);
+      }
+    }
+    return roots;
+  }
+  function mutationAffectsPageContent(mutation) {
+    if (mutation.type === "characterData") {
+      const el2 = mutation.target.parentElement;
+      return isRelevantContentElement(el2);
+    }
+    if (isIgnoredNode(mutation.target)) return false;
+    for (const node of mutation.addedNodes) {
+      if (node.nodeType === 1 && !isIgnoredNode(node)) return true;
+    }
+    for (const node of mutation.removedNodes) {
+      if (node.nodeType === 1 && !isIgnoredNode(node)) return true;
+    }
+    const el = mutation.target.nodeType === 1 ? mutation.target : mutation.target.parentElement;
+    return isRelevantContentElement(el);
+  }
+  const SRP_DEBOUNCE_MS = 450;
+  const SRP_THROTTLE_MS = 1200;
+  let srpDebounceTimer = null;
+  let srpThrottleAt = 0;
+  let srpIdlePending = false;
+  let pendingSrpForce = false;
+  const pendingSrpRoots = new Set();
+  let lastCohortSyncSig = "";
+  function cohortListingFingerprint(items) {
+    const sample = (items || []).slice(0, 32).map((raw) => {
+      var _a, _b;
+      const ad = (raw == null ? void 0 : raw.ad) || ((_a = raw == null ? void 0 : raw.data) == null ? void 0 : _a.ad) || raw;
+      return String((ad == null ? void 0 : ad.id) || ((_b = ad == null ? void 0 : ad.price) == null ? void 0 : _b.grossAmount) || "").trim();
+    });
+    return hashString(sample.join(","));
+  }
+  function computeCohortSyncSignature() {
+    if (!isSearchResultsPage()) return "";
+    const state = getPageInitialState();
+    if (!state) return location.pathname + location.search;
+    const items = parseCohortItemsFromState(state, null);
+    return [
+      location.pathname,
+      location.search,
+      items.length,
+      cohortListingFingerprint(items)
+    ].join("|");
+  }
+  function scheduleSrpPageRefresh(force, addedRoot) {
+    if (!isSearchResultsPage()) return;
+    if (force) pendingSrpForce = true;
+    if (addedRoot && addedRoot.nodeType === 1 && addedRoot !== document.body) {
+      pendingSrpRoots.add(addedRoot);
+    }
+    clearTimeout(srpDebounceTimer);
+    const delay = pendingSrpForce ? 0 : SRP_DEBOUNCE_MS;
+    srpDebounceTimer = setTimeout(() => {
+      const now = Date.now();
+      if (!pendingSrpForce && now - srpThrottleAt < SRP_THROTTLE_MS) {
+        scheduleSrpPageRefresh(false);
+        return;
+      }
+      if (srpIdlePending) {
+        if (force) pendingSrpForce = true;
+        return;
+      }
+      srpIdlePending = true;
+      requestIdle(() => {
+        srpIdlePending = false;
+        srpThrottleAt = Date.now();
+        const runForce = pendingSrpForce;
+        pendingSrpForce = false;
+        runSrpPageRefresh(runForce);
+      }, 360);
+    }, delay);
+  }
+  function runSrpPageRefresh(force) {
+    if (!isSearchResultsPage()) return;
+    const cohortSig = computeCohortSyncSignature();
+    if (force || cohortSig !== lastCohortSyncSig) {
+      lastCohortSyncSig = cohortSig;
+      syncCohortCacheFromSearchPage();
+    }
+    const roots = pendingSrpRoots.size ? [...pendingSrpRoots] : [document.body];
+    pendingSrpRoots.clear();
+    scanSrpPriceBadgesInRoots(roots);
+  }
+  function resetSrpPageRefreshState() {
+    clearTimeout(srpDebounceTimer);
+    srpDebounceTimer = null;
+    srpIdlePending = false;
+    pendingSrpForce = false;
+    pendingSrpRoots.clear();
+    lastCohortSyncSig = "";
+  }
+  const RESULTS_DEBOUNCE_MS = 400;
+  const RESULTS_THROTTLE_MS = 900;
+  let resultsDebounceTimer = null;
+  let resultsThrottleAt = 0;
+  let resultsIdlePending = false;
+  let pendingResultsForce = false;
+  function invalidateAndRefreshVehicleResults() {
+    invalidateResultsCache();
+    scheduleVehicleResultsRefresh(true);
+  }
+  function scheduleVehicleResultsRefresh(force) {
+    if (!isVehicleDetailPage()) return;
+    if (force) pendingResultsForce = true;
+    clearTimeout(resultsDebounceTimer);
+    const delay = pendingResultsForce ? 0 : RESULTS_DEBOUNCE_MS;
+    resultsDebounceTimer = setTimeout(() => {
+      const now = Date.now();
+      if (!pendingResultsForce && now - resultsThrottleAt < RESULTS_THROTTLE_MS) {
+        scheduleVehicleResultsRefresh(false);
+        return;
+      }
+      if (resultsIdlePending) {
+        if (force) pendingResultsForce = true;
+        return;
+      }
+      resultsIdlePending = true;
+      requestIdle(() => {
+        resultsIdlePending = false;
+        resultsThrottleAt = Date.now();
+        const runForce = pendingResultsForce;
+        pendingResultsForce = false;
+        ergebnisHinzufuegen(runForce);
+      }, 320);
+    }, delay);
+  }
   let observer = null;
   let triggerTimer = null;
   function startObserver() {
     if (observer) observer.disconnect();
-    observer = new MutationObserver(() => trigger());
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer = new MutationObserver((mutations) => {
+      if (!mutations.some(mutationAffectsPageContent)) return;
+      const srpRoots = isSearchResultsPage() ? collectRelevantAddedRoots(mutations) : [];
+      trigger(false, srpRoots);
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
-  function trigger(immediate) {
+  function trigger(immediate, srpRoots) {
     clearTimeout(triggerTimer);
     const run = () => {
       if (hasActiveSelectionInsideResults()) return;
-      scheduleTask("ui:results", "ui", () => {
-        ergebnisHinzufuegen();
-        syncDebugLogCardsOnPage();
-        ensureConfigButton();
-      });
-      scheduleTask("network:cohort-sync", "network", () => syncCohortCacheFromSearchPage());
-      if (!isVehicleDetailPage()) {
+      if (isVehicleDetailPage()) {
+        scheduleVehicleResultsRefresh(!!immediate);
         scheduleTask("rating:vip-refresh", "rating", () => {
           preisBewertungAktualisieren();
         });
       }
-      scheduleTask("rating:srp-scan", "rating", () => scanSrpPriceBadges());
+      if (isSearchResultsPage()) {
+        for (const root of srpRoots || []) scheduleSrpPageRefresh(false, root);
+        scheduleSrpPageRefresh(!!immediate);
+      }
+      scheduleTask("ui:page-chrome", "ui", () => {
+        syncDebugLogCardsOnPage();
+        ensureConfigButton();
+      });
     };
     if (immediate) run();
-    else triggerTimer = setTimeout(run, 300);
+    else triggerTimer = setTimeout(() => run(), 300);
   }
   function hasActiveSelectionInsideResults() {
     const sel = window.getSelection ? window.getSelection() : null;
@@ -4908,6 +5194,10 @@ Kontext: …${item.snippet}…` : "";
   function matchesStandortCandidate(el) {
     return el && (el.tagName === "DIV" || el.tagName === "SPAN" || el.tagName === "P" || el.tagName === "ADDRESS");
   }
+  function enqueueMapsScanRoot(node) {
+    if (!node || node.nodeType !== 1 || isExcluded(node)) return;
+    pendingScanRoots.add(node);
+  }
   function flushPendingScans() {
     mapsIdlePending = false;
     if (!isMapsEnabled() || !pendingScanRoots.size) return;
@@ -4927,10 +5217,14 @@ Kontext: …${item.snippet}…` : "";
   function onMapsDomMutation(mutations) {
     if (!isMapsEnabled()) return;
     for (const m of mutations) {
+      if (m.type === "characterData") {
+        const parent = m.target.parentElement;
+        if (parent) enqueueMapsScanRoot(parent.closest("main, article") || parent);
+        continue;
+      }
       for (const node of m.addedNodes) {
         if (node.nodeType !== 1) continue;
-        if (isExcluded(node)) continue;
-        pendingScanRoots.add(node);
+        enqueueMapsScanRoot(node);
       }
     }
     if (pendingScanRoots.size) scheduleIncrementalScan();
@@ -4948,7 +5242,7 @@ Kontext: …${item.snippet}…` : "";
   function startMapsLinkObserver() {
     stopMapsLinkObserver();
     mapsMo = new MutationObserver(onMapsDomMutation);
-    mapsMo.observe(document.body, { childList: true, subtree: true });
+    mapsMo.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
   function verlinkeStandortAufGoogleMaps() {
     if (!isMapsEnabled()) {
@@ -4974,12 +5268,14 @@ Kontext: …${item.snippet}…` : "";
     priceRatingFetchTokenIncrement();
     clearPriceRatingUi$1();
     startObserver();
+    resetSrpPageRefreshState();
     trigger(true);
     refreshMapsLinkBehavior();
     if (isSearchResultsPage()) {
       ensureSrpSortBehavior();
       handleSrpUrlChange();
       ensureSrpPriceRatingObserver();
+      scheduleSrpPageRefresh(true);
       syncDebugLogCardsOnPage();
     } else {
       destroySrpSortBehavior();
@@ -5497,6 +5793,15 @@ Kontext: …${item.snippet}…` : "";
 .mc-config-split-root{
   display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;
 }
+/* Klassisch: Split-Shell nicht nur [hidden] — sonst bleiben leere Liste+Editor-Kästen sichtbar */
+.mc-panel:not(.mc-panel--split-host) > .mc-config-split-root{
+  display:none!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;border:none!important;overflow:hidden!important;
+}
+.mc-panel.mc-panel--split-host > .mc-aus-list-scroll,
+.mc-panel.mc-panel--split-host > .mc-tech-list-scroll,
+.mc-panel.mc-panel--split-host > .mc-merge-list-scroll{
+  display:none!important;
+}
 .mc-config-split{
   display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr);gap:12px;
   flex:1;min-height:0;min-width:0;align-items:start;
@@ -5779,7 +6084,7 @@ grid-template-rows:minmax(140px,1fr) auto;
 .mc-col-sort-header.mc-aus-grid{min-width:720px;}
 .mc-col-sort-header.mc-tech-grid{min-width:420px;}
 .mc-col-sort-header.mc-merge-grid{min-width:580px;}
-.mc-col-sort-spacer,.mc-col-sort-inert{display:block;min-height:1px;}
+.mc-col-sort-spacer,.mc-col-sort-inert{display:block;min-height:1px;min-width:0;overflow:hidden;pointer-events:none;}
 .mc-col-sort-btn{
   appearance:none;border:1px solid transparent;background:transparent;
   color:var(--mc-muted);font-size:11px;font-weight:600;line-height:1.2;
@@ -8668,7 +8973,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       updateTabBadges();
       refreshValidationUI();
     }
+    function purgeListDragArtifacts(container) {
+      if (!container) return;
+      container.querySelectorAll(".mc-drop-placeholder").forEach((el) => el.remove());
+    }
     function renderTechDataClassic() {
+      purgeListDragArtifacts(techContainer);
       techContainer.innerHTML = "";
       const vis = getVisibleTechIndices();
       const total = aktuelleTechKonfigurationen.length;
@@ -9037,6 +9347,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       refreshValidationUI();
     }
     function renderMergeConfigClassic() {
+      purgeListDragArtifacts(mergeContainer);
       mergeContainer.innerHTML = "";
       const vis = getVisibleMergeIndices();
       const total = aktuelleMergeGruppen.length;
@@ -10655,6 +10966,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       if (isSearchResultsPage()) resetSrpSortOverrideAndApply();
       clearResults();
       clearPriceRatingUi();
+      invalidateAndRefreshVehicleResults();
       renderAusstattung();
       renderTechData();
       renderMergeConfig();

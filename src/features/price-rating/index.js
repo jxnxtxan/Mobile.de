@@ -2650,15 +2650,39 @@ export function ensureSrpPriceRatingObserver() {
     scanSrpPriceBadges();
 }
 
-export function scanSrpPriceBadges() {
+function listingRootsFromRoot(root) {
+    const cards = new Set();
+    if (!root || root.nodeType !== 1) return cards;
+    const links = root === document.body
+        ? root.querySelectorAll('a[href*="details.html?id="], a[href*="/auto-inserat/"]')
+        : (root.matches?.('a[href*="details.html?id="], a[href*="/auto-inserat/"]')
+            ? [root]
+            : root.querySelectorAll('a[href*="details.html?id="], a[href*="/auto-inserat/"]'));
+    links.forEach(a => {
+        const card = a.closest('article, li, [data-testid*="result"], [class*="result"]')
+            || a.parentElement;
+        if (card) cards.add(card);
+    });
+    return cards;
+}
+
+export function scanSrpPriceBadgesInRoots(roots) {
     const prCfg = getPriceRating(runtimeState.featureFlags);
     if (!isSearchResultsPage() || !isPriceRatingEnabled(prCfg) || !prCfg.enabledSrp) return;
     ensureSrpPriceRatingObserver();
-    findSrpListingRoots().forEach(card => {
+    const cards = new Set();
+    (roots || [document.body]).forEach(root => {
+        listingRootsFromRoot(root).forEach(card => cards.add(card));
+    });
+    cards.forEach(card => {
         if (card.dataset.mobiledePriceRated) return;
         if (srpPriceRatingIo) srpPriceRatingIo.observe(card);
         else enqueueSrpCard(card);
     });
+}
+
+export function scanSrpPriceBadges() {
+    scanSrpPriceBadgesInRoots([document.body]);
 }
 
 export function clearPriceRatingUi() {

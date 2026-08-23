@@ -90,7 +90,6 @@ function linkStandortElement(el, txt) {
     }, opts);
 }
 
-/** Gleiche Logik wie zuvor, aber nur innerhalb von `root` (nicht die ganze Seite bei jedem Tick). */
 function scanStandortInRoot(root) {
     if (!root || root.nodeType !== 1 || !isMapsEnabled()) return;
     if (isExcluded(root)) return;
@@ -122,6 +121,11 @@ function matchesStandortCandidate(el) {
     return el && (el.tagName === 'DIV' || el.tagName === 'SPAN' || el.tagName === 'P' || el.tagName === 'ADDRESS');
 }
 
+function enqueueMapsScanRoot(node) {
+    if (!node || node.nodeType !== 1 || isExcluded(node)) return;
+    pendingScanRoots.add(node);
+}
+
 function flushPendingScans() {
     mapsIdlePending = false;
     if (!isMapsEnabled() || !pendingScanRoots.size) return;
@@ -143,10 +147,14 @@ function scheduleIncrementalScan() {
 function onMapsDomMutation(mutations) {
     if (!isMapsEnabled()) return;
     for (const m of mutations) {
+        if (m.type === 'characterData') {
+            const parent = m.target.parentElement;
+            if (parent) enqueueMapsScanRoot(parent.closest('main, article') || parent);
+            continue;
+        }
         for (const node of m.addedNodes) {
             if (node.nodeType !== 1) continue;
-            if (isExcluded(node)) continue;
-            pendingScanRoots.add(node);
+            enqueueMapsScanRoot(node);
         }
     }
     if (pendingScanRoots.size) scheduleIncrementalScan();
@@ -166,10 +174,10 @@ function stopMapsLinkObserver() {
 function startMapsLinkObserver() {
     stopMapsLinkObserver();
     mapsMo = new MutationObserver(onMapsDomMutation);
-    mapsMo.observe(document.body, { childList: true, subtree: true });
+    mapsMo.observe(document.body, { childList: true, subtree: true, characterData: true });
 }
 
-/** Vollständiger Erst-Scan (wie früher), per Idle — nicht bei jedem globalen Observer-Tick. */
+/** Vollständiger Erst-Scan wie zuvor — danach inkrementell bei DOM-/Textänderungen. */
 export function verlinkeStandortAufGoogleMaps() {
     if (!isMapsEnabled()) {
         removeAllMapsLinks();

@@ -64,6 +64,7 @@ import {
     orderIndicesByArrayPosition,
 } from '../config/ordering.js';
 import { clearResults } from '../ui/results/render.js';
+import { invalidateAndRefreshVehicleResults } from '../ui/results/refresh.js';
 import {
     pricePerfMarkStart,
     pricePerfMarkEnd,
@@ -497,6 +498,15 @@ export function oeffneKonfigPopup() {
 .mc-config-split-root{
   display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;
 }
+/* Klassisch: Split-Shell nicht nur [hidden] — sonst bleiben leere Liste+Editor-Kästen sichtbar */
+.mc-panel:not(.mc-panel--split-host) > .mc-config-split-root{
+  display:none!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;border:none!important;overflow:hidden!important;
+}
+.mc-panel.mc-panel--split-host > .mc-aus-list-scroll,
+.mc-panel.mc-panel--split-host > .mc-tech-list-scroll,
+.mc-panel.mc-panel--split-host > .mc-merge-list-scroll{
+  display:none!important;
+}
 .mc-config-split{
   display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr);gap:12px;
   flex:1;min-height:0;min-width:0;align-items:start;
@@ -779,7 +789,7 @@ grid-template-rows:minmax(140px,1fr) auto;
 .mc-col-sort-header.mc-aus-grid{min-width:720px;}
 .mc-col-sort-header.mc-tech-grid{min-width:420px;}
 .mc-col-sort-header.mc-merge-grid{min-width:580px;}
-.mc-col-sort-spacer,.mc-col-sort-inert{display:block;min-height:1px;}
+.mc-col-sort-spacer,.mc-col-sort-inert{display:block;min-height:1px;min-width:0;overflow:hidden;pointer-events:none;}
 .mc-col-sort-btn{
   appearance:none;border:1px solid transparent;background:transparent;
   color:var(--mc-muted);font-size:11px;font-weight:600;line-height:1.2;
@@ -3833,7 +3843,13 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         refreshValidationUI();
     }
 
+    function purgeListDragArtifacts(container) {
+        if (!container) return;
+        container.querySelectorAll('.mc-drop-placeholder').forEach(el => el.remove());
+    }
+
     function renderTechDataClassic() {
+        purgeListDragArtifacts(techContainer);
         techContainer.innerHTML = '';
         const vis = getVisibleTechIndices();
         const total = aktuelleTechKonfigurationen.length;
@@ -4224,6 +4240,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     }
 
     function renderMergeConfigClassic() {
+        purgeListDragArtifacts(mergeContainer);
         mergeContainer.innerHTML = '';
         const vis = getVisibleMergeIndices();
         const total = aktuelleMergeGruppen.length;
@@ -5908,6 +5925,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         if (isSearchResultsPage()) resetSrpSortOverrideAndApply();
         clearResults();
         clearPriceRatingUi();
+        invalidateAndRefreshVehicleResults();
         renderAusstattung();
         renderTechData();
         renderMergeConfig();

@@ -16,6 +16,7 @@ import {
     subsetDedup,
 } from './merge-groups.js';
 import { openConfigPopup } from './popup-bridge.js';
+import { getCachedResultEntries } from '../../ui/results/cache.js';
 
 export function collectRawConfigHits() {
     const sources = extractSources();
@@ -25,11 +26,13 @@ export function collectRawConfigHits() {
 }
 
 export function getResultEntries() {
-    if (isAutoModeEnabled()) {
-        const rawItems = extractRawEquipmentItems();
-        return buildUnifiedResults(rawItems, collectRawConfigHits());
-    }
-    return sucheBegriffe();
+    return getCachedResultEntries(() => {
+        if (isAutoModeEnabled()) {
+            const rawItems = extractRawEquipmentItems();
+            return buildUnifiedResults(rawItems, collectRawConfigHits());
+        }
+        return sucheBegriffe();
+    });
 }
 
 export function openLearnConfig(label, source) {

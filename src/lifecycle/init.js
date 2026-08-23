@@ -23,6 +23,7 @@ import { ensureConfigButton } from '../core/search/popup-bridge.js';
 import { lastUrl, syncLastUrl } from './navigation-state.js';
 import { startObserver, trigger } from './observer.js';
 import { refreshMapsLinkBehavior } from './maps-link.js';
+import { resetSrpPageRefreshState, scheduleSrpPageRefresh } from './srp-refresh.js';
 import { scheduleTask } from './scheduler.js';
 
 export { lastUrl, syncLastUrl };
@@ -35,12 +36,14 @@ export function onUrlChange() {
     priceRatingFetchTokenIncrement();
     clearPriceRatingUi();
     startObserver();
+    resetSrpPageRefreshState();
     trigger(true);
     refreshMapsLinkBehavior();
     if (isSearchResultsPage()) {
         ensureSrpSortBehavior();
         handleSrpUrlChange();
         ensureSrpPriceRatingObserver();
+        scheduleSrpPageRefresh(true);
         syncDebugLogCardsOnPage();
     } else {
         destroySrpSortBehavior();

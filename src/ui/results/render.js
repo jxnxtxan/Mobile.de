@@ -4,6 +4,12 @@ import { injectResultStyles } from '../styles/inject-result-styles.js';
 import { technischeDatenHinzufuegen } from './tech.js';
 import { runtimeState } from '../../config/runtime-state.js';
 import { isAutoModeEnabled } from '../../config/ordering.js';
+import {
+    computeResultsInputSignature,
+    invalidateResultsCache,
+    markResultsInputCommitted,
+    shouldSkipResultsRender,
+} from './cache.js';
 
 export function appendResultRow(columns, item, autoMode) {
     const el = document.createElement('div');
@@ -60,10 +66,18 @@ export function appendResultRow(columns, item, autoMode) {
     columns.appendChild(el);
 }
 
-export function ergebnisHinzufuegen() {
-    document.querySelectorAll('.mobilede-result-article, .mobilede-tech-article').forEach(el => el.remove());
+export function ergebnisHinzufuegen(force) {
     const zielBereich = document.querySelector("article[data-testid='vip-key-features-box']");
-    if (!zielBereich) return;
+    if (!zielBereich) {
+        if (document.querySelector('.mobilede-result-article, .mobilede-tech-article')) {
+            clearResults();
+        }
+        return;
+    }
+
+    if (!force && shouldSkipResultsRender()) return;
+
+    document.querySelectorAll('.mobilede-result-article, .mobilede-tech-article').forEach(el => el.remove());
 
     injectResultStyles();
     const autoMode = isAutoModeEnabled();
@@ -130,10 +144,12 @@ export function ergebnisHinzufuegen() {
 
     zielBereich.parentNode.insertBefore(article, zielBereich.nextSibling);
     technischeDatenHinzufuegen(article);
+    markResultsInputCommitted(computeResultsInputSignature());
 }
 
 export function clearResults() {
     document.querySelectorAll('.mobilede-result-article, .mobilede-tech-article').forEach(el => el.remove());
+    invalidateResultsCache();
 }
 
 // ============================================================
