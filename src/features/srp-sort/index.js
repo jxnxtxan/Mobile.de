@@ -26,6 +26,7 @@ import {
     readRatingCache,
     mergePriceDataStoreImport,
     notifyCohortCacheUpdated,
+    firstSrpListingCard,
 } from '../price-rating/index.js';
 
 export { isSearchResultsPage };
@@ -380,7 +381,11 @@ export function ensureSrpDebugLogCard() {
     const leftFilterSection = document.querySelector('section[data-testid="search-column-content-section"]');
     const topBtn = leftFilterSection && leftFilterSection.querySelector('button[data-testid="dsp-button-top"]');
     const fallbackParent = topBtn ? topBtn.parentElement : (leftFilterSection ? leftFilterSection.querySelector('[data-testid="search-column-content"]') : null);
-    if (!summarySection && !fallbackParent) return;
+    // Die Hash-Klassen oben und die Filterspalte sind mit dem Layoutwechsel
+    // verschwunden, damit blieb die Karte unsichtbar. Die erste Ergebniskarte
+    // ist der einzige Anker, den es auf jeder Ergebnisliste sicher gibt.
+    const firstCard = (!summarySection && !fallbackParent) ? firstSrpListingCard() : null;
+    if (!summarySection && !fallbackParent && !firstCard) return;
 
     let card = document.getElementById('mobilede-srp-debug-card');
     if (!card) {
@@ -438,6 +443,10 @@ export function ensureSrpDebugLogCard() {
         fallbackParent.prepend(card);
     } else if (fallbackParent) {
         if (card.parentElement !== fallbackParent) fallbackParent.appendChild(card);
+    } else if (firstCard) {
+        const shouldMove = card.parentElement !== firstCard.parentElement
+            || card.nextElementSibling !== firstCard;
+        if (shouldMove) firstCard.insertAdjacentElement('beforebegin', card);
     }
     renderSrpDebugLogCard();
     wireDebugCardCopyButtons();

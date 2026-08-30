@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.28
+// @version      2.16.29
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -129,6 +129,7 @@
   const PRICE_DATA_STORE_MAX_COHORTS = 500;
   const MAKE_MODEL_CACHE_PREFIX = "mobilede_mkmd_models_";
   const MAKE_MODEL_AD_CACHE_PREFIX = "mobilede_mkmd_ad_";
+  const MAKE_NAMES_CACHE_KEY = "mobilede_mkmd_make_names";
   const PRICE_COHORT_CACHE_TTL_MS = 20 * 60 * 1e3;
   const PRICE_RATING_UI_CACHE_TTL_MS = 3 * 60 * 1e3;
   const DEBUG_SCOPE_DEFINITIONS = [
@@ -2148,7 +2149,7 @@ Kontext: …${item.snippet}…` : "";
       profile.searchMs = formatMsParam(profile.makeId, profile.modelId, profile.modelGroupId) || profile.searchMs;
       return profile;
     }
-    let makeId = profile.makeId || matchSelectOptionValue(document.querySelector('select[name="mk"]'), profile.make);
+    let makeId = profile.makeId || matchSelectOptionValue(document.querySelector('select[name="mk"]'), profile.make) || getMakeIdByName(profile.make);
     if (!makeId) return profile;
     let modelId = profile.modelId || matchSelectOptionValue(document.querySelector('select[name="md"]'), profile.model);
     if (!modelId && profile.model) {
@@ -2185,7 +2186,7 @@ Kontext: …${item.snippet}…` : "";
     }
     const mk = document.querySelector('select[name="mk"]');
     const md = document.querySelector('select[name="md"]');
-    const makeId = matchSelectOptionValue(mk, profile.make);
+    const makeId = matchSelectOptionValue(mk, profile.make) || getMakeIdByName(profile.make);
     const modelId = matchSelectOptionValue(md, profile.model);
     if (makeId || modelId) {
       applyMakeModelIdsToProfile(profile, makeId || profile.makeId, modelId || profile.modelId, profile.modelGroupId);
@@ -2242,10 +2243,25 @@ Kontext: …${item.snippet}…` : "";
     }
     return queryVisible('[data-testid="vip-price-box"]') || document.querySelector('[data-testid="vip-price-box"]');
   }
+  function readVipTitleAndVariant(box) {
+    const makeNames = getSrpMakeNames();
+    const startsWithMake = (t) => makeNames.some((n) => t.toLowerCase().startsWith(n.toLowerCase() + " "));
+    const heads = [
+      box && box.querySelector("h1, h2, h3"),
+      document.querySelector("h1"),
+      document.querySelector("h2")
+    ].filter(Boolean);
+    const cands = heads.map((el) => ({ el, text: (el.textContent || "").replace(/\s+/g, " ").trim() })).filter((c) => c.text);
+    const pick = cands.find((c) => startsWithMake(c.text)) || cands[0];
+    if (!pick) return { title: "", subTitle: "" };
+    const sib = pick.el.nextElementSibling;
+    const sub = sib ? (sib.getAttribute("title") || sib.textContent || "").replace(/\s+/g, " ").trim() : "";
+    return { title: pick.text, subTitle: /€/.test(sub) ? "" : sub };
+  }
   function buildVehicleProfileDomFallback() {
     const id = getAdIdFromUrl();
-    const aside = document.querySelector("aside.iKWwq");
-    const priceEl = aside && aside.querySelector('[data-testid="vip-price-label"]') || document.querySelector('[data-testid="vip-price-label"]');
+    const box = queryVisible('article[data-testid="main-cta-box"]');
+    const priceEl = box && box.querySelector('[data-testid="vip-price-label"]') || queryVisible('[data-testid="vip-price-label"]') || document.querySelector('[data-testid="vip-price-label"]');
     const priceGross = priceEl ? parseEuroAmount(priceEl.textContent) : null;
     const techDl = getTechDataDl();
     const attrs = {};
@@ -2255,16 +2271,20 @@ Kontext: …${item.snippet}…` : "";
         if (dd) attrs[dt.textContent.trim()] = dd.textContent.trim();
       });
     }
-    const h = document.querySelector("h1, h2");
     const power = parsePower(attrs["Leistung"]);
+    const { title, subTitle } = readVipTitleAndVariant(box);
+    const fromTitle = splitMakeModelFromTitle(title);
+    const make = attrs["Marke"] || fromTitle.make;
+    const model = attrs["Modell"] || fromTitle.model;
+    priceRatingDebugLog("VIP-Profil aus Seiteninhalt", { title, subTitle, make, model });
     return {
       id: id || "",
-      make: "",
-      model: "",
+      make,
+      model,
       modelRange: attrs["Baureihe"] || "",
       trimLine: attrs["Ausstattungslinie"] || "",
-      title: h ? h.textContent.trim() : "",
-      subTitle: "",
+      title,
+      subTitle,
       priceGross,
       mileageKm: parseKm(attrs["Kilometerstand"]),
       firstRegistrationYear: parseYear(attrs["Erstzulassung"]),
@@ -2998,6 +3018,26 @@ Kontext: …${item.snippet}…` : "";
     const rawList = findSrpListingsInState(state);
     return rawList.map(normalizeComparableAd).filter(Boolean).filter((c) => !excludeId || String(c.id) !== String(excludeId));
   }
+  function cohortItemsFromSrpCards(excludeId) {
+    if (typeof document === "undefined") return [];
+    const items = [];
+    const seen = new Set();
+    listingRootsFromRoot(document.body).forEach((card) => {
+      const prof = profileFromSrpCard(card);
+      if (!prof || !prof.id || prof.priceGross == null) return;
+      const id = String(prof.id);
+      if (seen.has(id) || excludeId && id === String(excludeId)) return;
+      seen.add(id);
+      items.push(prof.equipment ? prof : attachEquipmentFingerprint(prof));
+    });
+    return items;
+  }
+  function cohortItemsFromSearchPage(excludeId) {
+    const state = getPageInitialState();
+    const fromState = state ? parseCohortItemsFromState(state, excludeId) : [];
+    if (fromState.length) return fromState;
+    return cohortItemsFromSrpCards(excludeId);
+  }
   function enrichCohortItemFromSearchContext(item, searchProfile) {
     if (!item || !searchProfile) return item;
     const out = { ...item };
@@ -3007,10 +3047,18 @@ Kontext: …${item.snippet}…` : "";
     return out;
   }
   function sameMakeModelForCohort(item, profile) {
-    const iMake = String(item && (item.makeId || item.make) || "").toLowerCase();
-    const iModel = String(item && (item.modelId || item.model) || "").toLowerCase();
-    const pMake = String(profile && (profile.makeId || profile.make) || "").toLowerCase();
-    const pModel = String(profile && (profile.modelId || profile.model) || "").toLowerCase();
+    const norm2 = (v) => String(v || "").trim().toLowerCase();
+    const iMakeId = norm2(item && item.makeId);
+    const iModelId = norm2(item && item.modelId);
+    const pMakeId = norm2(profile && profile.makeId);
+    const pModelId = norm2(profile && profile.modelId);
+    if (iMakeId && iModelId && pMakeId && pModelId) {
+      return iMakeId === pMakeId && iModelId === pModelId;
+    }
+    const iMake = norm2(item && item.make);
+    const iModel = norm2(item && item.model);
+    const pMake = norm2(profile && profile.make);
+    const pModel = norm2(profile && profile.model);
     return !!(iMake && iModel && pMake && pModel && iMake === pMake && iModel === pModel);
   }
   function itemMatchesCohortProfile(item, profile, prCfg) {
@@ -3042,12 +3090,7 @@ Kontext: …${item.snippet}…` : "";
   }
   function syncCohortCacheFromSearchPage() {
     if (!isSearchResultsPage()) return;
-    const state = getPageInitialState();
-    if (!state) {
-      priceRatingDebugLog("SRP-Cache-Sync übersprungen: kein __INITIAL_STATE__");
-      return;
-    }
-    const items = parseCohortItemsFromState(state, null);
+    const items = cohortItemsFromSearchPage(null);
     if (items.length < 3) {
       priceRatingDebugLog("SRP-Cache-Sync übersprungen: zu wenige SRP-Treffer", { count: items.length });
       return;
@@ -3203,14 +3246,7 @@ Kontext: …${item.snippet}…` : "";
     }
     return best;
   }
-  function normalizeComparableAd(raw) {
-    var _a;
-    const ad = (raw == null ? void 0 : raw.ad) || ((_a = raw == null ? void 0 : raw.data) == null ? void 0 : _a.ad) || raw;
-    if (!ad || !ad.price) return null;
-    const price = ad.price.grossAmount ?? parseEuroAmount(ad.price.gross);
-    if (price == null || price <= 0) return null;
-    const prof = buildVehicleProfileFromAd(ad, ad.id);
-    if (!prof) return null;
+  function attachEquipmentFingerprint(prof) {
     const cachedEquip = readVipEquipCache(prof.id);
     if (cachedEquip) {
       prof.equipment = cachedEquip;
@@ -3219,6 +3255,16 @@ Kontext: …${item.snippet}…` : "";
       prof.equipment = equipmentFingerprintFromProfile(prof);
     }
     return prof;
+  }
+  function normalizeComparableAd(raw) {
+    var _a;
+    const ad = (raw == null ? void 0 : raw.ad) || ((_a = raw == null ? void 0 : raw.data) == null ? void 0 : _a.ad) || raw;
+    if (!ad || !ad.price) return null;
+    const price = ad.price.grossAmount ?? parseEuroAmount(ad.price.gross);
+    if (price == null || price <= 0) return null;
+    const prof = buildVehicleProfileFromAd(ad, ad.id);
+    if (!prof) return null;
+    return attachEquipmentFingerprint(prof);
   }
   function countCohortVipDetailCount(items) {
     return (items || []).filter((c) => c && c.equipmentFromVipCache).length;
@@ -3317,7 +3363,6 @@ Kontext: …${item.snippet}…` : "";
       return out2;
     }
     if (isSearchResultsPage()) {
-      const state = getPageInitialState();
       const urlProf = profileFromSearchPageUrl(location.href);
       const urlHasMakeModel = urlProf && (urlProf.makeId || urlProf.make) && (urlProf.modelId || urlProf.model);
       if (urlHasMakeModel && !sameMakeModelForCohort(urlProf, profile)) {
@@ -3331,7 +3376,7 @@ Kontext: …${item.snippet}…` : "";
       } else {
         const enrichCtx = urlHasMakeModel && sameMakeModelForCohort(urlProf, profile) ? urlProf : profile;
         const fromPage = enrichCohortItemsWithVipCache(
-          parseCohortItemsFromState(state, profile.id)
+          cohortItemsFromSearchPage(profile.id)
         ).map((item) => enrichCohortItemFromSearchContext(item, enrichCtx)).filter((item) => itemMatchesCohortProfile(item, profile, prCfg));
         if (fromPage.length >= 3) {
           writeCohortCache(cacheKey, fromPage);
@@ -4112,21 +4157,49 @@ Kontext: …${item.snippet}…` : "";
       return null;
     }
   }
-  let srpMakeNamesCache = null;
-  function getSrpMakeNames() {
-    if (srpMakeNamesCache) return srpMakeNamesCache;
+  let srpMakesCache = null;
+  function readStoredMakes() {
+    try {
+      const arr = JSON.parse(sessionStorage.getItem(MAKE_NAMES_CACHE_KEY) || "null");
+      const makes = Array.isArray(arr) ? arr.filter((m) => m && m.name) : [];
+      if (makes.length) {
+        srpMakesCache = makes;
+        return makes;
+      }
+    } catch (e) {
+      priceRatingDebugLog("Markenliste nicht lesbar", { error: String(e) });
+    }
+    return [];
+  }
+  function getSrpMakes() {
+    if (srpMakesCache) return srpMakesCache;
     if (typeof document === "undefined") return [];
     const sel = document.querySelector('select[name="mk"]');
-    if (!sel) return [];
-    const names = [];
+    if (!sel) return readStoredMakes();
+    const makes = [];
     for (const opt of sel.options) {
       if (!opt.value) continue;
       const name = opt.textContent.trim();
-      if (name) names.push(name);
+      if (name) makes.push({ name, id: String(opt.value) });
     }
-    names.sort((a, b) => b.length - a.length);
-    if (names.length) srpMakeNamesCache = names;
-    return names;
+    makes.sort((a, b) => b.name.length - a.name.length);
+    if (!makes.length) return readStoredMakes();
+    srpMakesCache = makes;
+    try {
+      sessionStorage.setItem(MAKE_NAMES_CACHE_KEY, JSON.stringify(makes));
+    } catch (e) {
+      priceRatingDebugLog("Markenliste nicht speicherbar", { error: String(e) });
+    }
+    return makes;
+  }
+  function getSrpMakeNames() {
+    return getSrpMakes().map((m) => m.name);
+  }
+  function getMakeIdByName(name) {
+    const n = String(name || "").trim().toLowerCase();
+    if (!n) return "";
+    const hit = getSrpMakes().find((m) => m.name.toLowerCase() === n);
+    return hit ? String(hit.id) : "";
   }
   function splitMakeModelFromTitle(title, makeNames) {
     const text = String(title || "").replace(/\s+/g, " ").trim();
@@ -4324,6 +4397,16 @@ Kontext: …${item.snippet}…` : "";
   }
   const SRP_LISTING_LINK_SELECTOR = 'a[href*="details.html?id="], a[href*="/auto-inserat/"]';
   const SRP_LISTING_CARD_SELECTOR = 'article, li, [data-testid*="result"], [class*="result"]';
+  function firstSrpListingCard() {
+    if (typeof document === "undefined") return null;
+    for (const link of document.querySelectorAll(SRP_LISTING_LINK_SELECTOR)) {
+      const card = link.closest(SRP_LISTING_CARD_SELECTOR) || link.parentElement;
+      if (!card) continue;
+      const r = card.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) return card;
+    }
+    return null;
+  }
   function listingRootsFromRoot(root) {
     var _a;
     const cards = new Set();
@@ -4669,7 +4752,8 @@ Kontext: …${item.snippet}…` : "";
     const leftFilterSection = document.querySelector('section[data-testid="search-column-content-section"]');
     const topBtn = leftFilterSection && leftFilterSection.querySelector('button[data-testid="dsp-button-top"]');
     const fallbackParent = topBtn ? topBtn.parentElement : leftFilterSection ? leftFilterSection.querySelector('[data-testid="search-column-content"]') : null;
-    if (!summarySection && !fallbackParent) return;
+    const firstCard = !summarySection && !fallbackParent ? firstSrpListingCard() : null;
+    if (!summarySection && !fallbackParent && !firstCard) return;
     let card = document.getElementById("mobilede-srp-debug-card");
     if (!card) {
       card = document.createElement("div");
@@ -4722,6 +4806,9 @@ Kontext: …${item.snippet}…` : "";
       fallbackParent.prepend(card);
     } else if (fallbackParent) {
       if (card.parentElement !== fallbackParent) fallbackParent.appendChild(card);
+    } else if (firstCard) {
+      const shouldMove = card.parentElement !== firstCard.parentElement || card.nextElementSibling !== firstCard;
+      if (shouldMove) firstCard.insertAdjacentElement("beforebegin", card);
     }
     renderSrpDebugLogCard();
     wireDebugCardCopyButtons();

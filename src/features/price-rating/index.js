@@ -3,8 +3,8 @@ import {
     PRICE_COHORT_CACHE_PREFIX, PRICE_RATING_CACHE_PREFIX, PRICE_RATING_UI_CACHE_PREFIX,
     PRICE_VIP_EQUIP_CACHE_PREFIX, PRICE_DATA_STORE_KEY, PRICE_DATA_STORE_VERSION,
     PRICE_DATA_STORE_MAX_ADS, PRICE_DATA_STORE_MAX_COHORTS, MAKE_MODEL_CACHE_PREFIX,
-    MAKE_MODEL_AD_CACHE_PREFIX, PRICE_COHORT_CACHE_TTL_MS, PRICE_RATING_UI_CACHE_TTL_MS,
-    DEBUG_SCOPE_PREFIX,
+    MAKE_MODEL_AD_CACHE_PREFIX, MAKE_NAMES_CACHE_KEY, PRICE_COHORT_CACHE_TTL_MS,
+    PRICE_RATING_UI_CACHE_TTL_MS, DEBUG_SCOPE_PREFIX,
 } from '../../config/constants.js';
 import { getUnsafeWindow } from '../../platform/page-window.js';
 import { cleanText, tokenize } from '../../core/text/normalize.js';
@@ -365,7 +365,12 @@ async function resolveMakeModelIdsForProfile(profile) {
         return profile;
     }
 
-    let makeId = profile.makeId || matchSelectOptionValue(document.querySelector('select[name="mk"]'), profile.make);
+    // Auf der Detailseite gibt es die Auswahlfelder nicht; dort greift die in
+    // der Sitzung gemerkte Markenliste, sonst bliebe die Vergleichssuche ohne
+    // Marken- und Modellfilter und lieferte fremde Fahrzeuge.
+    let makeId = profile.makeId
+        || matchSelectOptionValue(document.querySelector('select[name="mk"]'), profile.make)
+        || getMakeIdByName(profile.make);
     if (!makeId) return profile;
 
     let modelId = profile.modelId
@@ -406,7 +411,7 @@ export function enrichProfileWithSearchMs(profile, adId) {
     }
     const mk = document.querySelector('select[name="mk"]');
     const md = document.querySelector('select[name="md"]');
-    const makeId = matchSelectOptionValue(mk, profile.make);
+    const makeId = matchSelectOptionValue(mk, profile.make) || getMakeIdByName(profile.make);
     const modelId = matchSelectOptionValue(md, profile.model);
     if (makeId || modelId) {
         applyMakeModelIdsToProfile(profile, makeId || profile.makeId, modelId || profile.modelId, profile.modelGroupId);
@@ -474,10 +479,37 @@ export function getVipPriceRatingAnchor() {
         || document.querySelector('[data-testid="vip-price-box"]');
 }
 
+/**
+ * Titel und Variante der Detailseite. Bevorzugt wird die Überschrift der
+ * Kontaktbox, weil sie wie auf den Ergebniskarten „Marke Modell“ ohne Variante
+ * enthält; passt eine Überschrift auf eine bekannte Marke, gilt sie als Treffer.
+ */
+function readVipTitleAndVariant(box) {
+    const makeNames = getSrpMakeNames();
+    const startsWithMake = t => makeNames.some(n => t.toLowerCase().startsWith(n.toLowerCase() + ' '));
+    const heads = [
+        box && box.querySelector('h1, h2, h3'),
+        document.querySelector('h1'),
+        document.querySelector('h2')
+    ].filter(Boolean);
+    const cands = heads
+        .map(el => ({ el, text: (el.textContent || '').replace(/\s+/g, ' ').trim() }))
+        .filter(c => c.text);
+    const pick = cands.find(c => startsWithMake(c.text)) || cands[0];
+    if (!pick) return { title: '', subTitle: '' };
+    const sib = pick.el.nextElementSibling;
+    const sub = sib
+        ? (sib.getAttribute('title') || sib.textContent || '').replace(/\s+/g, ' ').trim()
+        : '';
+    // Folgt auf den Titel direkt die Preiszeile, ist das keine Variante.
+    return { title: pick.text, subTitle: /€/.test(sub) ? '' : sub };
+}
+
 export function buildVehicleProfileDomFallback() {
     const id = getAdIdFromUrl();
-    const aside = document.querySelector('aside.iKWwq');
-    const priceEl = (aside && aside.querySelector('[data-testid="vip-price-label"]'))
+    const box = queryVisible('article[data-testid="main-cta-box"]');
+    const priceEl = (box && box.querySelector('[data-testid="vip-price-label"]'))
+        || queryVisible('[data-testid="vip-price-label"]')
         || document.querySelector('[data-testid="vip-price-label"]');
     const priceGross = priceEl ? parseEuroAmount(priceEl.textContent) : null;
     const techDl = getTechDataDl();
@@ -488,16 +520,22 @@ export function buildVehicleProfileDomFallback() {
             if (dd) attrs[dt.textContent.trim()] = dd.textContent.trim();
         });
     }
-    const h = document.querySelector('h1, h2');
     const power = parsePower(attrs['Leistung']);
+    const { title, subTitle } = readVipTitleAndVariant(box);
+    // Ohne Marke und Modell beginnt der Kohortenschlüssel mit „|||“, die
+    // Vergleichssuche läuft ohne Modellfilter und keine Zuordnung greift.
+    const fromTitle = splitMakeModelFromTitle(title);
+    const make = attrs['Marke'] || fromTitle.make;
+    const model = attrs['Modell'] || fromTitle.model;
+    priceRatingDebugLog('VIP-Profil aus Seiteninhalt', { title, subTitle, make, model });
     return {
         id: id || '',
-        make: '',
-        model: '',
+        make,
+        model,
         modelRange: attrs['Baureihe'] || '',
         trimLine: attrs['Ausstattungslinie'] || '',
-        title: h ? h.textContent.trim() : '',
-        subTitle: '',
+        title,
+        subTitle,
         priceGross,
         mileageKm: parseKm(attrs['Kilometerstand']),
         firstRegistrationYear: parseYear(attrs['Erstzulassung']),
@@ -1318,6 +1356,34 @@ export function parseCohortItemsFromState(state, excludeId) {
         .filter(c => !excludeId || String(c.id) !== String(excludeId));
 }
 
+/** Vergleichsfahrzeuge aus den gerenderten Karten der Ergebnisliste. */
+export function cohortItemsFromSrpCards(excludeId) {
+    if (typeof document === 'undefined') return [];
+    const items = [];
+    const seen = new Set();
+    listingRootsFromRoot(document.body).forEach(card => {
+        const prof = profileFromSrpCard(card);
+        if (!prof || !prof.id || prof.priceGross == null) return;
+        const id = String(prof.id);
+        if (seen.has(id) || (excludeId && id === String(excludeId))) return;
+        seen.add(id);
+        items.push(prof.equipment ? prof : attachEquipmentFingerprint(prof));
+    });
+    return items;
+}
+
+/**
+ * Vergleichsfahrzeuge der aktuellen Ergebnisliste. Seit mobile.de die Seiten
+ * über Next.js ausliefert, fehlt __INITIAL_STATE__; ohne den Kartenfallback
+ * käme nie eine Kohorte zustande und jede Bewertung blieb leer.
+ */
+export function cohortItemsFromSearchPage(excludeId) {
+    const state = getPageInitialState();
+    const fromState = state ? parseCohortItemsFromState(state, excludeId) : [];
+    if (fromState.length) return fromState;
+    return cohortItemsFromSrpCards(excludeId);
+}
+
 /** SRP-Treffer mit ms/URL-Kontext anreichern, damit Cache-Keys zu VIP (3500|335|…) passen. */
 export function enrichCohortItemFromSearchContext(item, searchProfile) {
     if (!item || !searchProfile) return item;
@@ -1329,10 +1395,21 @@ export function enrichCohortItemFromSearchContext(item, searchProfile) {
 }
 
 export function sameMakeModelForCohort(item, profile) {
-    const iMake = String((item && (item.makeId || item.make)) || '').toLowerCase();
-    const iModel = String((item && (item.modelId || item.model)) || '').toLowerCase();
-    const pMake = String((profile && (profile.makeId || profile.make)) || '').toLowerCase();
-    const pModel = String((profile && (profile.modelId || profile.model)) || '').toLowerCase();
+    const norm = v => String(v || '').trim().toLowerCase();
+    const iMakeId = norm(item && item.makeId);
+    const iModelId = norm(item && item.modelId);
+    const pMakeId = norm(profile && profile.makeId);
+    const pModelId = norm(profile && profile.modelId);
+    // IDs sind eindeutiger, taugen aber nur wenn beide Seiten sie kennen. Ohne
+    // __INITIAL_STATE__ hat die Detailseite keine IDs, die Karten der
+    // Ergebnisliste je nach Such-URL schon — dann zählen die Namen.
+    if (iMakeId && iModelId && pMakeId && pModelId) {
+        return iMakeId === pMakeId && iModelId === pModelId;
+    }
+    const iMake = norm(item && item.make);
+    const iModel = norm(item && item.model);
+    const pMake = norm(profile && profile.make);
+    const pModel = norm(profile && profile.model);
     return !!(iMake && iModel && pMake && pModel && iMake === pMake && iModel === pModel);
 }
 
@@ -1378,12 +1455,7 @@ export function cohortItemsForSearchProfile(items, searchProfile, prCfg) {
  */
 export function syncCohortCacheFromSearchPage() {
     if (!isSearchResultsPage()) return;
-    const state = getPageInitialState();
-    if (!state) {
-        priceRatingDebugLog('SRP-Cache-Sync übersprungen: kein __INITIAL_STATE__');
-        return;
-    }
-    const items = parseCohortItemsFromState(state, null);
+    const items = cohortItemsFromSearchPage(null);
     if (items.length < 3) {
         priceRatingDebugLog('SRP-Cache-Sync übersprungen: zu wenige SRP-Treffer', { count: items.length });
         return;
@@ -1544,13 +1616,11 @@ export function findSrpListingsInState(state) {
     return best;
 }
 
-export function normalizeComparableAd(raw) {
-    const ad = raw?.ad || raw?.data?.ad || raw;
-    if (!ad || !ad.price) return null;
-    const price = ad.price.grossAmount ?? parseEuroAmount(ad.price.gross);
-    if (price == null || price <= 0) return null;
-    const prof = buildVehicleProfileFromAd(ad, ad.id);
-    if (!prof) return null;
+/**
+ * Ausstattungswert eines Vergleichsfahrzeugs: bevorzugt die beim Besuch der
+ * Detailseite gespeicherten Angaben, sonst der Abgleich über Titel und Variante.
+ */
+function attachEquipmentFingerprint(prof) {
     const cachedEquip = readVipEquipCache(prof.id);
     if (cachedEquip) {
         prof.equipment = cachedEquip;
@@ -1559,6 +1629,16 @@ export function normalizeComparableAd(raw) {
         prof.equipment = equipmentFingerprintFromProfile(prof);
     }
     return prof;
+}
+
+export function normalizeComparableAd(raw) {
+    const ad = raw?.ad || raw?.data?.ad || raw;
+    if (!ad || !ad.price) return null;
+    const price = ad.price.grossAmount ?? parseEuroAmount(ad.price.gross);
+    if (price == null || price <= 0) return null;
+    const prof = buildVehicleProfileFromAd(ad, ad.id);
+    if (!prof) return null;
+    return attachEquipmentFingerprint(prof);
 }
 
 export function countCohortVipDetailCount(items) {
@@ -1671,7 +1751,6 @@ export function getCohortComparables(profile, prCfg) {
     }
 
     if (isSearchResultsPage()) {
-        const state = getPageInitialState();
         const urlProf = profileFromSearchPageUrl(location.href);
         const urlHasMakeModel = urlProf && (urlProf.makeId || urlProf.make) && (urlProf.modelId || urlProf.model);
         if (urlHasMakeModel && !sameMakeModelForCohort(urlProf, profile)) {
@@ -1685,7 +1764,7 @@ export function getCohortComparables(profile, prCfg) {
         } else {
             const enrichCtx = urlHasMakeModel && sameMakeModelForCohort(urlProf, profile) ? urlProf : profile;
             const fromPage = enrichCohortItemsWithVipCache(
-                parseCohortItemsFromState(state, profile.id)
+                cohortItemsFromSearchPage(profile.id)
             )
                 .map(item => enrichCohortItemFromSearchContext(item, enrichCtx))
                 .filter(item => itemMatchesCohortProfile(item, profile, prCfg));
@@ -2538,22 +2617,60 @@ export function extractAdIdFromHref(href) {
  * mehrteilige Marken („Alfa Romeo“, „Land Rover“, „DS Automobiles“) vom Modell
  * trennen; eine eigene Liste würde bei neuen Marken veralten.
  */
-let srpMakeNamesCache = null;
-export function getSrpMakeNames() {
-    if (srpMakeNamesCache) return srpMakeNamesCache;
+let srpMakesCache = null;
+
+/**
+ * Das Markenauswahlfeld steht nur auf der Suchseite, die Detailseite braucht es
+ * aber doppelt: um mehrteilige Marken abzutrennen („Alfa Romeo Giulia“ sonst
+ * als „Alfa“ + „Romeo Giulia“) und um die Marken-Kennnummer für die
+ * Vergleichssuche zu bekommen. Ohne sie sucht mobile.de über alle Marken.
+ */
+function readStoredMakes() {
+    try {
+        const arr = JSON.parse(sessionStorage.getItem(MAKE_NAMES_CACHE_KEY) || 'null');
+        const makes = Array.isArray(arr) ? arr.filter(m => m && m.name) : [];
+        if (makes.length) {
+            srpMakesCache = makes;
+            return makes;
+        }
+    } catch (e) {
+        priceRatingDebugLog('Markenliste nicht lesbar', { error: String(e) });
+    }
+    return [];
+}
+
+function getSrpMakes() {
+    if (srpMakesCache) return srpMakesCache;
     if (typeof document === 'undefined') return [];
     const sel = document.querySelector('select[name="mk"]');
-    if (!sel) return [];
-    const names = [];
+    if (!sel) return readStoredMakes();
+    const makes = [];
     for (const opt of sel.options) {
         if (!opt.value) continue;
         const name = opt.textContent.trim();
-        if (name) names.push(name);
+        if (name) makes.push({ name, id: String(opt.value) });
     }
     // Längste zuerst, damit „Alfa Romeo“ vor einem kürzeren Treffer greift.
-    names.sort((a, b) => b.length - a.length);
-    if (names.length) srpMakeNamesCache = names;
-    return names;
+    makes.sort((a, b) => b.name.length - a.name.length);
+    if (!makes.length) return readStoredMakes();
+    srpMakesCache = makes;
+    try {
+        sessionStorage.setItem(MAKE_NAMES_CACHE_KEY, JSON.stringify(makes));
+    } catch (e) {
+        priceRatingDebugLog('Markenliste nicht speicherbar', { error: String(e) });
+    }
+    return makes;
+}
+
+export function getSrpMakeNames() {
+    return getSrpMakes().map(m => m.name);
+}
+
+export function getMakeIdByName(name) {
+    const n = String(name || '').trim().toLowerCase();
+    if (!n) return '';
+    const hit = getSrpMakes().find(m => m.name.toLowerCase() === n);
+    return hit ? String(hit.id) : '';
 }
 
 export function splitMakeModelFromTitle(title, makeNames) {
@@ -2791,6 +2908,18 @@ export function ensureSrpPriceRatingObserver() {
 
 const SRP_LISTING_LINK_SELECTOR = 'a[href*="details.html?id="], a[href*="/auto-inserat/"]';
 const SRP_LISTING_CARD_SELECTOR = 'article, li, [data-testid*="result"], [class*="result"]';
+
+/** Erste sichtbare Ergebniskarte, als stabiler Anker für eigene Blöcke. */
+export function firstSrpListingCard() {
+    if (typeof document === 'undefined') return null;
+    for (const link of document.querySelectorAll(SRP_LISTING_LINK_SELECTOR)) {
+        const card = link.closest(SRP_LISTING_CARD_SELECTOR) || link.parentElement;
+        if (!card) continue;
+        const r = card.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) return card;
+    }
+    return null;
+}
 
 function listingRootsFromRoot(root) {
     const cards = new Set();

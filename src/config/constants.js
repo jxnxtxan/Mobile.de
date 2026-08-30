@@ -115,6 +115,7 @@ export const PRICE_DATA_STORE_MAX_ADS = 1500;
 export const PRICE_DATA_STORE_MAX_COHORTS = 500;
 export const MAKE_MODEL_CACHE_PREFIX = 'mobilede_mkmd_models_';
 export const MAKE_MODEL_AD_CACHE_PREFIX = 'mobilede_mkmd_ad_';
+export const MAKE_NAMES_CACHE_KEY = 'mobilede_mkmd_make_names';
 export const PRICE_COHORT_CACHE_TTL_MS = 20 * 60 * 1000;
 export const PRICE_RATING_UI_CACHE_TTL_MS = 3 * 60 * 1000;
 export const DEBUG_SCOPE_DEFINITIONS = [
