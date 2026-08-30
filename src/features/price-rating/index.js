@@ -480,29 +480,23 @@ export function getVipPriceRatingAnchor() {
 }
 
 /**
- * Titel und Variante der Detailseite. Bevorzugt wird die Überschrift der
- * Kontaktbox, weil sie wie auf den Ergebniskarten „Marke Modell“ ohne Variante
- * enthält; passt eine Überschrift auf eine bekannte Marke, gilt sie als Treffer.
+ * Die Variante steht in der Kontaktbox direkt unter dem Titel („Audi S6“ /
+ * „Avant 3.0 TDI, Matrix, Std-Hz., B&O“). Ein eigenes Merkmal hat sie nicht,
+ * und das Nachbarelement des Titels ist leer — deshalb über die Textzeilen.
  */
+export function readVipVariant(box, title) {
+    if (!box || !title) return '';
+    const lines = String(box.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const next = lines[lines.indexOf(title) + 1] || '';
+    return /€/.test(next) ? '' : next;
+}
+
 function readVipTitleAndVariant(box) {
-    const makeNames = getSrpMakeNames();
-    const startsWithMake = t => makeNames.some(n => t.toLowerCase().startsWith(n.toLowerCase() + ' '));
-    const heads = [
-        box && box.querySelector('h1, h2, h3'),
-        document.querySelector('h1'),
-        document.querySelector('h2')
-    ].filter(Boolean);
-    const cands = heads
-        .map(el => ({ el, text: (el.textContent || '').replace(/\s+/g, ' ').trim() }))
-        .filter(c => c.text);
-    const pick = cands.find(c => startsWithMake(c.text)) || cands[0];
-    if (!pick) return { title: '', subTitle: '' };
-    const sib = pick.el.nextElementSibling;
-    const sub = sib
-        ? (sib.getAttribute('title') || sib.textContent || '').replace(/\s+/g, ' ').trim()
-        : '';
-    // Folgt auf den Titel direkt die Preiszeile, ist das keine Variante.
-    return { title: pick.text, subTitle: /€/.test(sub) ? '' : sub };
+    const titleEl = queryVisible('[data-testid="vip-ad-title"]')
+        || (box && box.querySelector('h1, h2, h3'))
+        || document.querySelector('h1, h2');
+    const title = titleEl ? (titleEl.textContent || '').replace(/\s+/g, ' ').trim() : '';
+    return { title, subTitle: readVipVariant(box, title) };
 }
 
 export function buildVehicleProfileDomFallback() {
@@ -524,9 +518,7 @@ export function buildVehicleProfileDomFallback() {
     const { title, subTitle } = readVipTitleAndVariant(box);
     // Ohne Marke und Modell beginnt der Kohortenschlüssel mit „|||“, die
     // Vergleichssuche läuft ohne Modellfilter und keine Zuordnung greift.
-    const fromTitle = splitMakeModelFromTitle(title);
-    const make = attrs['Marke'] || fromTitle.make;
-    const model = attrs['Modell'] || fromTitle.model;
+    const { make, model } = splitMakeModelFromTitle(title);
     priceRatingDebugLog('VIP-Profil aus Seiteninhalt', { title, subTitle, make, model });
     return {
         id: id || '',
@@ -2032,6 +2024,20 @@ function cancelStaleRatingRetry() {
 }
 
 /**
+ * Ein verworfener Lauf plante bisher unbegrenzt einen neuen mit `force`. Der
+ * umgeht jede Bremse, erhöht den Token und verwirft dadurch den noch laufenden
+ * Nachbarlauf, der wieder einen Retry plante: zwei Läufe hielten sich endlos
+ * gegenseitig am Leben. Die Kette bricht nach wenigen Versuchen ab, ein regulär
+ * beendeter Lauf setzt sie zurück.
+ */
+const MAX_STALE_RATING_RETRIES = 3;
+let staleRatingRetryCount = 0;
+
+function resetStaleRatingRetries() {
+    staleRatingRetryCount = 0;
+}
+
+/**
  * Zentraler Invalidierungspunkt: wird bei SPA-Navigation und nach einem
  * Kohorten-Update aus dem Storage gerufen. Alles, was auf die vorige Seite
  * gehört, verliert hier seine Gültigkeit.
@@ -2048,6 +2054,14 @@ function scheduleStaleRatingRetry(profile) {
         renderVipPriceRatingWidget(null, false);
         return;
     }
+    if (staleRatingRetryCount >= MAX_STALE_RATING_RETRIES) {
+        priceRatingDebugLog('Kein weiterer Wiederholungslauf: Obergrenze erreicht', {
+            adId,
+            versuche: staleRatingRetryCount
+        });
+        return;
+    }
+    staleRatingRetryCount += 1;
     cancelStaleRatingRetry();
     const startToken = priceRatingFetchToken;
     staleRatingRetryTimer = setTimeout(() => {
@@ -2067,6 +2081,7 @@ export let vipRatingUiBootstrapped = false;
 
 export function resetVipRatingUiOnNavigation() {
     vipRatingUiBootstrapped = false;
+    resetStaleRatingRetries();
     invalidateVipRatingCacheForReload();
 }
 
@@ -2579,6 +2594,7 @@ export async function preisBewertungAktualisieren(opts) {
             return;
         }
         renderVipPriceRatingWidget(rating, false);
+        resetStaleRatingRetries();
         vipRatingLastRunSig = runSig;
         vipRatingLastRunTs = Date.now();
         priceRatingDebugLog('Preisbewertung neu berechnet und gerendert', {

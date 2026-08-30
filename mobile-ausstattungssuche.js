@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.29
+// @version      2.16.30
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -2243,20 +2243,16 @@ Kontext: …${item.snippet}…` : "";
     }
     return queryVisible('[data-testid="vip-price-box"]') || document.querySelector('[data-testid="vip-price-box"]');
   }
+  function readVipVariant(box, title) {
+    if (!box || !title) return "";
+    const lines = String(box.innerText || "").split("\n").map((s) => s.trim()).filter(Boolean);
+    const next = lines[lines.indexOf(title) + 1] || "";
+    return /€/.test(next) ? "" : next;
+  }
   function readVipTitleAndVariant(box) {
-    const makeNames = getSrpMakeNames();
-    const startsWithMake = (t) => makeNames.some((n) => t.toLowerCase().startsWith(n.toLowerCase() + " "));
-    const heads = [
-      box && box.querySelector("h1, h2, h3"),
-      document.querySelector("h1"),
-      document.querySelector("h2")
-    ].filter(Boolean);
-    const cands = heads.map((el) => ({ el, text: (el.textContent || "").replace(/\s+/g, " ").trim() })).filter((c) => c.text);
-    const pick = cands.find((c) => startsWithMake(c.text)) || cands[0];
-    if (!pick) return { title: "", subTitle: "" };
-    const sib = pick.el.nextElementSibling;
-    const sub = sib ? (sib.getAttribute("title") || sib.textContent || "").replace(/\s+/g, " ").trim() : "";
-    return { title: pick.text, subTitle: /€/.test(sub) ? "" : sub };
+    const titleEl = queryVisible('[data-testid="vip-ad-title"]') || box && box.querySelector("h1, h2, h3") || document.querySelector("h1, h2");
+    const title = titleEl ? (titleEl.textContent || "").replace(/\s+/g, " ").trim() : "";
+    return { title, subTitle: readVipVariant(box, title) };
   }
   function buildVehicleProfileDomFallback() {
     const id = getAdIdFromUrl();
@@ -2273,9 +2269,7 @@ Kontext: …${item.snippet}…` : "";
     }
     const power = parsePower(attrs["Leistung"]);
     const { title, subTitle } = readVipTitleAndVariant(box);
-    const fromTitle = splitMakeModelFromTitle(title);
-    const make = attrs["Marke"] || fromTitle.make;
-    const model = attrs["Modell"] || fromTitle.model;
+    const { make, model } = splitMakeModelFromTitle(title);
     priceRatingDebugLog("VIP-Profil aus Seiteninhalt", { title, subTitle, make, model });
     return {
       id: id || "",
@@ -3614,6 +3608,11 @@ Kontext: …${item.snippet}…` : "";
     clearTimeout(staleRatingRetryTimer);
     staleRatingRetryTimer = null;
   }
+  const MAX_STALE_RATING_RETRIES = 3;
+  let staleRatingRetryCount = 0;
+  function resetStaleRatingRetries() {
+    staleRatingRetryCount = 0;
+  }
   function priceRatingFetchTokenIncrement() {
     priceRatingFetchToken++;
     cancelStaleRatingRetry();
@@ -3625,6 +3624,14 @@ Kontext: …${item.snippet}…` : "";
       renderVipPriceRatingWidget(null, false);
       return;
     }
+    if (staleRatingRetryCount >= MAX_STALE_RATING_RETRIES) {
+      priceRatingDebugLog("Kein weiterer Wiederholungslauf: Obergrenze erreicht", {
+        adId,
+        versuche: staleRatingRetryCount
+      });
+      return;
+    }
+    staleRatingRetryCount += 1;
     cancelStaleRatingRetry();
     const startToken = priceRatingFetchToken;
     staleRatingRetryTimer = setTimeout(() => {
@@ -3642,6 +3649,7 @@ Kontext: …${item.snippet}…` : "";
   let vipRatingUiBootstrapped = false;
   function resetVipRatingUiOnNavigation() {
     vipRatingUiBootstrapped = false;
+    resetStaleRatingRetries();
     invalidateVipRatingCacheForReload();
   }
   function disconnectSrpPriceRatingObserver() {
@@ -4127,6 +4135,7 @@ Kontext: …${item.snippet}…` : "";
         return;
       }
       renderVipPriceRatingWidget(rating, false);
+      resetStaleRatingRetries();
       vipRatingLastRunSig = runSig;
       vipRatingLastRunTs = Date.now();
       priceRatingDebugLog("Preisbewertung neu berechnet und gerendert", {
