@@ -1,3 +1,30 @@
+/**
+ * mobile.de rendert Desktop-, Mobil- und Sticky-Varianten derselben Box
+ * parallel ins DOM und blendet alle bis auf eine aus. `querySelector` trifft
+ * dabei oft die unsichtbare Kopie — deshalb wird hier nach Layout gefiltert.
+ */
+export function queryVisible(selector, root) {
+    const scope = root || document;
+    for (const el of scope.querySelectorAll(selector)) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) return el;
+    }
+    return null;
+}
+
+/**
+ * Karten-Optik für eigene Blöcke. mobile.de vergibt seinen Inhaltskarten
+ * obfuskierte Hash-Klassen, die sich mit jedem Deploy ändern; früher waren
+ * sie hier fest verdrahtet und die Blöcke verloren beim Umbau ihren Rahmen.
+ * Jetzt werden sie von einer echten Karte übernommen, mit eigener Notoptik.
+ */
+export function getCardShellClassName() {
+    const ref = queryVisible("article[data-testid='vip-technical-data-box']")
+        || queryVisible("article[data-testid='vip-key-features-box']");
+    const cls = ref ? String(ref.className || '').trim() : '';
+    return cls || 'mobilede-card-shell';
+}
+
 export function getFeatureItems() {
     return Array.from(document.querySelectorAll("ul[data-testid='vip-features-list'] li"));
 }

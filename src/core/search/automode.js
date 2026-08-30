@@ -38,11 +38,12 @@ export function splitDescriptionIntoFeatures(rawText) {
     const parts = normalized.split(/,/).map(s => s.trim()).filter(Boolean);
     if (parts.length === 0) return [];
     const merged = [];
+    // Nur die aufgezählten Anhängsel dürfen an den Vorgänger wandern. Eine
+    // zusätzliche Längenregel (früher: part.length <= 8) verschluckte
+    // eigenständige Kurznamen wie ABS, ESP, AHK, LED oder Navi.
     const orphanOnly = /^(beide|links|rechts|vorn|hinten|optional)$/i;
     for (const part of parts) {
-        const words = part.split(/\s+/).filter(Boolean);
-        const isOrphan = words.length <= 2 && orphanOnly.test(part);
-        if (merged.length > 0 && (isOrphan || part.length <= 8)) {
+        if (merged.length > 0 && orphanOnly.test(part)) {
             merged[merged.length - 1] = merged[merged.length - 1] + ', ' + part;
         } else {
             merged.push(part);

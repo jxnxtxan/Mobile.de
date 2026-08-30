@@ -30,6 +30,20 @@ export function priceRatingDefault() {
     return JSON.parse(JSON.stringify(PRICE_RATING_DEFAULT));
 }
 
+/**
+ * `parseInt(x) || fallback` verwarf eine eingegebene 0 und setzte den Default.
+ * Bei den Toleranzen ist 0 aber ein gültiger Wert („exakte Übereinstimmung“).
+ */
+function intOr(value, fallback) {
+    const n = parseInt(value, 10);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function numOr(value, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
 export function mergePriceRating(stored) {
     const d = priceRatingDefault();
     if (!stored || typeof stored !== 'object') return d;
@@ -49,16 +63,16 @@ export function mergePriceRating(stored) {
     out.keyUseMileage = stored.keyUseMileage !== false;
     out.keyUseYear = stored.keyUseYear !== false;
     out.keyUsePower = stored.keyUsePower !== false;
-    out.keyKmBucket = Math.max(500, Math.min(50000, parseInt(out.keyKmBucket, 10) || d.keyKmBucket));
-    out.keyYearBucket = Math.max(1, Math.min(5, parseInt(out.keyYearBucket, 10) || d.keyYearBucket));
-    out.keyPowerBucket = Math.max(1, Math.min(50, parseInt(out.keyPowerBucket, 10) || d.keyPowerBucket));
+    out.keyKmBucket = Math.max(500, Math.min(50000, intOr(out.keyKmBucket, d.keyKmBucket)));
+    out.keyYearBucket = Math.max(1, Math.min(5, intOr(out.keyYearBucket, d.keyYearBucket)));
+    out.keyPowerBucket = Math.max(1, Math.min(50, intOr(out.keyPowerBucket, d.keyPowerBucket)));
     out.onlyFavoriteWeights = stored.onlyFavoriteWeights === true;
-    out.minComparables = Math.max(5, Math.min(50, parseInt(out.minComparables, 10) || d.minComparables));
-    out.punktZuEuro = Math.max(100, parseInt(out.punktZuEuro, 10) || d.punktZuEuro);
-    out.maxAdjustPct = Math.max(0.05, Math.min(0.25, Number(out.maxAdjustPct) || d.maxAdjustPct));
-    out.kmToleranceAbs = Math.max(0, Math.min(200000, parseInt(out.kmToleranceAbs, 10) || d.kmToleranceAbs));
-    out.yearTolerance = Math.max(0, Math.min(3, parseInt(out.yearTolerance, 10) || d.yearTolerance));
-    out.powerToleranceKw = Math.max(0, Math.min(80, parseInt(out.powerToleranceKw, 10) || d.powerToleranceKw));
+    out.minComparables = Math.max(5, Math.min(50, intOr(out.minComparables, d.minComparables)));
+    out.punktZuEuro = Math.max(100, intOr(out.punktZuEuro, d.punktZuEuro));
+    out.maxAdjustPct = Math.max(0.05, Math.min(0.25, numOr(out.maxAdjustPct, d.maxAdjustPct)));
+    out.kmToleranceAbs = Math.max(0, Math.min(200000, intOr(out.kmToleranceAbs, d.kmToleranceAbs)));
+    out.yearTolerance = Math.max(0, Math.min(3, intOr(out.yearTolerance, d.yearTolerance)));
+    out.powerToleranceKw = Math.max(0, Math.min(80, intOr(out.powerToleranceKw, d.powerToleranceKw)));
     // Backward compatibility for previous %-based settings.
     if (stored.kmToleranceAbs == null && typeof stored.kmTolerancePct === 'number') {
         out.kmToleranceAbs = d.kmToleranceAbs;

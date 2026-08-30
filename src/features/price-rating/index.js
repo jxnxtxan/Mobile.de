@@ -10,7 +10,7 @@ import { getUnsafeWindow } from '../../platform/page-window.js';
 import { cleanText, tokenize } from '../../core/text/normalize.js';
 import { collectConfigMatches } from '../../core/search/config-matches.js';
 import { classifyDescription } from '../../core/dom/sources.js';
-import { getDescriptionEl, getFeatureItems, getTechDataDl } from '../../core/dom/selectors.js';
+import { getDescriptionEl, getFeatureItems, getTechDataDl, queryVisible } from '../../core/dom/selectors.js';
 import { extractRawEquipmentItems, findConfigEntryForRawLabel } from '../../core/search/automode.js';
 import { runtimeState } from '../../config/runtime-state.js';
 import { debugLog, isDebugEnabled, getPriceRating, isPriceRatingEnabled } from '../../config/feature-flags/index.js';
@@ -102,9 +102,15 @@ export function parsePower(str) {
     if (str == null || str === '') return { kw: null, ps: null };
     const s = String(str);
     const kwM = s.match(/([\d.,]+)\s*kW/i);
-    const psM = s.match(/(\d+)\s*PS/i);
-    let kw = kwM ? parseInt(kwM[1].replace(/[.,]/g, ''), 10) : null;
-    let ps = psM ? parseInt(psM[1], 10) : null;
+    const psM = s.match(/([\d.,]+)\s*PS/i);
+    // Deutsche Notation wie in `parseEuroAmount`: Punkt trennt Tausender,
+    // Komma ist das Dezimalzeichen. Beide zu entfernen machte aus „150,5 kW“
+    // 1505 kW; `(\d+)` ohne Punkt las „736 kW (1.001 PS)“ als 1 PS, weil nur
+    // die Ziffern hinter dem Tausenderpunkt übrig blieben.
+    const kwRaw = kwM ? parseFloat(kwM[1].replace(/\./g, '').replace(',', '.')) : NaN;
+    const psRaw = psM ? parseFloat(psM[1].replace(/\./g, '').replace(',', '.')) : NaN;
+    let kw = Number.isFinite(kwRaw) ? Math.round(kwRaw) : null;
+    let ps = Number.isFinite(psRaw) ? Math.round(psRaw) : null;
     if (kw == null && ps != null) kw = Math.round(ps * PS_TO_KW);
     if (ps == null && kw != null) ps = Math.round(kw / PS_TO_KW);
     return {
@@ -282,8 +288,16 @@ export function loadModelOptionsForMakeId(makeId) {
         }
         mk.value = String(makeId);
         mk.dispatchEvent(new Event('change', { bubbles: true }));
+        const startToken = priceRatingFetchToken;
         let tries = 0;
         const poll = () => {
+            // Ohne diesen Abbruch lief der Poll nach einer SPA-Navigation bis
+            // zu vier Sekunden weiter und schrieb die Modell-Liste einer
+            // fremden Seite unter `makeId` in den Cache.
+            if (priceRatingFetchToken !== startToken) {
+                resolve(null);
+                return;
+            }
             const map = collect();
             if (map) {
                 resolve(map);
@@ -436,6 +450,17 @@ export function buildVehicleProfileFromAd(ad, adId) {
  * nicht die ausführliche Preis-Box weiter unten mit Finanzierung.
  */
 export function getVipPriceRatingAnchor() {
+    // Sichtbare Sidebar-Box zuerst: `main-cta-box` enthält Preiszeile, Händler
+    // und Aktionen. Ohne diesen Pfad blieb nur die `vip-price-box` weiter unten
+    // im Inhalt übrig — also genau die Finanzierungs-Box, die hier nicht
+    // gemeint ist.
+    const cta = queryVisible('article[data-testid="main-cta-box"]');
+    if (cta) {
+        const label = cta.querySelector('[data-testid="vip-price-label"]');
+        if (label) return label.parentElement || label;
+        const area = cta.querySelector('[data-testid="main-price-area"]');
+        if (area) return area;
+    }
     const aside = document.querySelector('aside.iKWwq');
     if (aside) {
         const row = aside.querySelector('.wNWsk');
@@ -445,7 +470,8 @@ export function getVipPriceRatingAnchor() {
             return label.closest('.wNWsk') || label.parentElement || label;
         }
     }
-    return document.querySelector('[data-testid="vip-price-box"]');
+    return queryVisible('[data-testid="vip-price-box"]')
+        || document.querySelector('[data-testid="vip-price-box"]');
 }
 
 export function buildVehicleProfileDomFallback() {
@@ -517,6 +543,13 @@ export function buildVehicleProfile(adId) {
     if (ad) profile = buildVehicleProfileFromAd(ad, id);
     else if (isVehicleDetailPage()) profile = buildVehicleProfileDomFallback();
     const enriched = enrichProfileWithSearchMs(profile, id);
+    // Ein Profil ohne Preis stammt aus noch nicht fertig gerendertem DOM.
+    // Memoisiert hätte es den fehlenden Preis für bis zu 1,2 s festgeschrieben
+    // und die Bewertung wäre auf dem alten Stand stehengeblieben.
+    if (enriched && enriched.priceGross == null) {
+        vehicleProfileMemo = { key: '', ts: 0, profile: null };
+        return enriched;
+    }
     vehicleProfileMemo = { key: memoKey, ts: now, profile: enriched ? { ...enriched } : null };
     return enriched;
 }
@@ -690,7 +723,10 @@ export function buildCohortSearchUrl(profile, prCfg) {
         u.searchParams.set('ml', min + ':' + max);
     }
     if (profile.firstRegistrationYear != null) {
-        const yTol = prCfg.yearTolerance || 1;
+        // Gleiche Auswertung wie bei Laufleistung und Leistung oben und wie in
+        // `itemMatchesCohortProfile`. Ein `|| 1` würde bei Toleranz 0 eine
+        // Suche über ±1 Jahr bauen, deren Treffer der Filter danach verwirft.
+        const yTol = Math.max(0, parseInt(prCfg.yearTolerance, 10) || 0);
         const yMin = profile.firstRegistrationYear - yTol;
         const yMax = profile.firstRegistrationYear + yTol;
         u.searchParams.set('fr', yMin + ':' + yMax);
@@ -1908,7 +1944,24 @@ export function writeRatingCache(adId, rating) {
 
 export let priceRatingFetchToken = 0;
 
-export function priceRatingFetchTokenIncrement() { priceRatingFetchToken++; }
+let staleRatingRetryTimer = null;
+
+function cancelStaleRatingRetry() {
+    if (staleRatingRetryTimer === null) return;
+    clearTimeout(staleRatingRetryTimer);
+    staleRatingRetryTimer = null;
+}
+
+/**
+ * Zentraler Invalidierungspunkt: wird bei SPA-Navigation und nach einem
+ * Kohorten-Update aus dem Storage gerufen. Alles, was auf die vorige Seite
+ * gehört, verliert hier seine Gültigkeit.
+ */
+export function priceRatingFetchTokenIncrement() {
+    priceRatingFetchToken++;
+    cancelStaleRatingRetry();
+    vehicleProfileMemo = { key: '', ts: 0, profile: null };
+}
 
 function scheduleStaleRatingRetry(profile) {
     const adId = profile && profile.id ? String(profile.id) : '';
@@ -1916,7 +1969,11 @@ function scheduleStaleRatingRetry(profile) {
         renderVipPriceRatingWidget(null, false);
         return;
     }
-    setTimeout(() => {
+    cancelStaleRatingRetry();
+    const startToken = priceRatingFetchToken;
+    staleRatingRetryTimer = setTimeout(() => {
+        staleRatingRetryTimer = null;
+        if (priceRatingFetchToken !== startToken) return;
         if (!isVehicleDetailPage()) return;
         const current = buildVehicleProfile();
         if (!current || String(current.id) !== adId) return;
@@ -2476,6 +2533,82 @@ export function extractAdIdFromHref(href) {
     }
 }
 
+/**
+ * Markennamen aus dem Marken-Filter der Ergebnisseite. Nur damit lassen sich
+ * mehrteilige Marken („Alfa Romeo“, „Land Rover“, „DS Automobiles“) vom Modell
+ * trennen; eine eigene Liste würde bei neuen Marken veralten.
+ */
+let srpMakeNamesCache = null;
+export function getSrpMakeNames() {
+    if (srpMakeNamesCache) return srpMakeNamesCache;
+    if (typeof document === 'undefined') return [];
+    const sel = document.querySelector('select[name="mk"]');
+    if (!sel) return [];
+    const names = [];
+    for (const opt of sel.options) {
+        if (!opt.value) continue;
+        const name = opt.textContent.trim();
+        if (name) names.push(name);
+    }
+    // Längste zuerst, damit „Alfa Romeo“ vor einem kürzeren Treffer greift.
+    names.sort((a, b) => b.length - a.length);
+    if (names.length) srpMakeNamesCache = names;
+    return names;
+}
+
+export function splitMakeModelFromTitle(title, makeNames) {
+    const text = String(title || '').replace(/\s+/g, ' ').trim();
+    if (!text) return { make: '', model: '' };
+    const lower = text.toLowerCase();
+    for (const name of (makeNames || getSrpMakeNames())) {
+        if (!lower.startsWith(name.toLowerCase())) continue;
+        return { make: name, model: text.slice(name.length).trim() };
+    }
+    const sp = text.indexOf(' ');
+    if (sp === -1) return { make: text, model: '' };
+    return { make: text.slice(0, sp), model: text.slice(sp + 1).trim() };
+}
+
+/**
+ * Attributzeile einer Ergebniskarte, etwa
+ * „Unfallfrei • EZ 10/2020 • 74.335 km • 110 kW (150 PS) • Benzin“.
+ * Bei Neu- und Vorführwagen hängt die Verbrauchsangabe am Kraftstoff
+ * („Benzin6,1 l/100km (komb.) • 139 g CO₂/km“), deshalb wird pro Abschnitt
+ * verankert geprüft: eine freie Suche nach „km“ las „4,0 l/100km“ als
+ * Kilometerstand 100 und „18,5 kWh/100km“ als Leistung.
+ */
+export function parseSrpAttributeLine(text) {
+    const out = { firstRegistrationYear: null, mileageKm: null, powerKw: null, powerPs: null, fuel: '' };
+    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!clean) return out;
+    let afterPower = false;
+    for (const raw of clean.split('•')) {
+        const part = raw.trim();
+        if (!part) continue;
+        const ez = part.match(/EZ\s*(?:\d{1,2}\s*\/\s*)?((?:19|20)\d{2})/i);
+        if (ez) {
+            out.firstRegistrationYear = parseInt(ez[1], 10);
+            continue;
+        }
+        const km = part.match(/^([\d.]+)\s*km$/i);
+        if (km) {
+            out.mileageKm = parseKm(km[1]);
+            continue;
+        }
+        if (/^[\d.,]+\s*kW\b/i.test(part)) {
+            const power = parsePower(part);
+            out.powerKw = power.kw;
+            out.powerPs = power.ps;
+            afterPower = true;
+            continue;
+        }
+        if (afterPower && !out.fuel) {
+            out.fuel = part.replace(/[\d.,]+\s*(?:l|kWh|kg|m³)\s*\/\s*100\s*km.*$/i, '').trim();
+        }
+    }
+    return out;
+}
+
 export function profileFromSrpCard(card) {
     const link = card.querySelector('a[href*="details.html?id="], a[href*="/auto-inserat/"]');
     if (!link) return null;
@@ -2495,22 +2628,37 @@ export function profileFromSrpCard(card) {
         }
     }
 
-    const title = link.textContent.trim() || card.textContent.trim().slice(0, 200);
-    const priceMatch = card.textContent.replace(/\s/g, ' ').match(/([\d.]+)\s*€/);
-    const priceGross = priceMatch ? parseEuroAmount(priceMatch[1] + ' €') : null;
-    const kmMatch = card.textContent.match(/([\d.]+)\s*km/i);
-    const yearMatch = card.textContent.match(/\b(19|20)\d{2}\b/);
+    // Der Titel steht in einem eigenen Span, direkt gefolgt von der Variante mit
+    // den Ausstattungskürzeln. Der Linktext umfasst dagegen auch Preis,
+    // Preisbewertung und Händler und verrauscht damit den Ausstattungsabgleich.
+    const titleEl = card.querySelector('[data-testid="listing-title-card-view"]');
+    const variantEl = titleEl ? titleEl.nextElementSibling : null;
+    const cardText = card.textContent.replace(/\s+/g, ' ').trim();
+    const title = titleEl
+        ? (titleEl.getAttribute('title') || titleEl.textContent).trim()
+        : (link.textContent.trim() || cardText.slice(0, 200));
+    const subTitle = variantEl
+        ? (variantEl.getAttribute('title') || variantEl.textContent).trim()
+        : '';
+    const { make, model } = splitMakeModelFromTitle(title);
+
+    const priceEl = card.querySelector('[data-testid="main-price-label"], [data-testid="price-label"]');
+    const priceText = priceEl ? priceEl.textContent : (cardText.match(/([\d.]+)\s*€/) || [])[0];
+    const attrEl = card.querySelector('[data-testid="listing-details-attributes"], [data-testid="listing-details"]');
+    const attrs = parseSrpAttributeLine(attrEl ? attrEl.textContent : cardText);
+
     return {
         id,
-        make: '',
-        model: '',
+        make,
+        model,
         title,
-        subTitle: '',
-        priceGross,
-        mileageKm: kmMatch ? parseKm(kmMatch[0]) : null,
-        firstRegistrationYear: yearMatch ? parseInt(yearMatch[0], 10) : null,
-        powerPs: null,
-        fuel: '',
+        subTitle,
+        priceGross: parseEuroAmount(priceText),
+        mileageKm: attrs.mileageKm,
+        firstRegistrationYear: attrs.firstRegistrationYear,
+        powerKw: attrs.powerKw,
+        powerPs: attrs.powerPs,
+        fuel: attrs.fuel,
         transmission: '',
         features: [],
         priceRating: null,

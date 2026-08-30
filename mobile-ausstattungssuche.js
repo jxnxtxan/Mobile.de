@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.20
+// @version      2.16.28
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -293,6 +293,14 @@
   function priceRatingDefault() {
     return JSON.parse(JSON.stringify(PRICE_RATING_DEFAULT));
   }
+  function intOr(value, fallback) {
+    const n = parseInt(value, 10);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  function numOr(value, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
   function mergePriceRating(stored) {
     const d = priceRatingDefault();
     if (!stored || typeof stored !== "object") return d;
@@ -312,16 +320,16 @@
     out.keyUseMileage = stored.keyUseMileage !== false;
     out.keyUseYear = stored.keyUseYear !== false;
     out.keyUsePower = stored.keyUsePower !== false;
-    out.keyKmBucket = Math.max(500, Math.min(5e4, parseInt(out.keyKmBucket, 10) || d.keyKmBucket));
-    out.keyYearBucket = Math.max(1, Math.min(5, parseInt(out.keyYearBucket, 10) || d.keyYearBucket));
-    out.keyPowerBucket = Math.max(1, Math.min(50, parseInt(out.keyPowerBucket, 10) || d.keyPowerBucket));
+    out.keyKmBucket = Math.max(500, Math.min(5e4, intOr(out.keyKmBucket, d.keyKmBucket)));
+    out.keyYearBucket = Math.max(1, Math.min(5, intOr(out.keyYearBucket, d.keyYearBucket)));
+    out.keyPowerBucket = Math.max(1, Math.min(50, intOr(out.keyPowerBucket, d.keyPowerBucket)));
     out.onlyFavoriteWeights = stored.onlyFavoriteWeights === true;
-    out.minComparables = Math.max(5, Math.min(50, parseInt(out.minComparables, 10) || d.minComparables));
-    out.punktZuEuro = Math.max(100, parseInt(out.punktZuEuro, 10) || d.punktZuEuro);
-    out.maxAdjustPct = Math.max(0.05, Math.min(0.25, Number(out.maxAdjustPct) || d.maxAdjustPct));
-    out.kmToleranceAbs = Math.max(0, Math.min(2e5, parseInt(out.kmToleranceAbs, 10) || d.kmToleranceAbs));
-    out.yearTolerance = Math.max(0, Math.min(3, parseInt(out.yearTolerance, 10) || d.yearTolerance));
-    out.powerToleranceKw = Math.max(0, Math.min(80, parseInt(out.powerToleranceKw, 10) || d.powerToleranceKw));
+    out.minComparables = Math.max(5, Math.min(50, intOr(out.minComparables, d.minComparables)));
+    out.punktZuEuro = Math.max(100, intOr(out.punktZuEuro, d.punktZuEuro));
+    out.maxAdjustPct = Math.max(0.05, Math.min(0.25, numOr(out.maxAdjustPct, d.maxAdjustPct)));
+    out.kmToleranceAbs = Math.max(0, Math.min(2e5, intOr(out.kmToleranceAbs, d.kmToleranceAbs)));
+    out.yearTolerance = Math.max(0, Math.min(3, intOr(out.yearTolerance, d.yearTolerance)));
+    out.powerToleranceKw = Math.max(0, Math.min(80, intOr(out.powerToleranceKw, d.powerToleranceKw)));
     if (stored.kmToleranceAbs == null && typeof stored.kmTolerancePct === "number") {
       out.kmToleranceAbs = d.kmToleranceAbs;
     }
@@ -770,6 +778,37 @@
     });
     return fav.concat(rest);
   }
+  function queryVisible(selector, root) {
+    const scope = document;
+    for (const el of scope.querySelectorAll(selector)) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) return el;
+    }
+    return null;
+  }
+  function getCardShellClassName() {
+    const ref = queryVisible("article[data-testid='vip-technical-data-box']") || queryVisible("article[data-testid='vip-key-features-box']");
+    const cls = ref ? String(ref.className || "").trim() : "";
+    return cls || "mobilede-card-shell";
+  }
+  function getFeatureItems() {
+    return Array.from(document.querySelectorAll("ul[data-testid='vip-features-list'] li"));
+  }
+  function getDescriptionEl() {
+    return document.querySelector("div[data-testid='vip-vehicle-description-text']");
+  }
+  function getTechDataDl() {
+    return document.querySelector("article[data-testid='vip-technical-data-box'] dl");
+  }
+  function getZusatzEl() {
+    const desc = getDescriptionEl();
+    if (!desc) return null;
+    const candidate = desc.parentElement && desc.parentElement.nextElementSibling;
+    if (candidate && candidate.textContent && candidate.textContent.trim().length > 20) {
+      return candidate;
+    }
+    return null;
+  }
   function isAutoModeEnabled() {
     return !!(runtimeState.featureFlags && runtimeState.featureFlags.autoMode === true);
   }
@@ -855,7 +894,7 @@
   }
   function cleanText(text) {
     if (!text) return "";
-    return text.replace(/ä/g, "ae").replace(/Ä/g, "Ae").replace(/ö/g, "oe").replace(/Ö/g, "Oe").replace(/ü/g, "ue").replace(/Ü/g, "Ue").replace(/ß/g, "ss").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[–—\-]+/g, " ").replace(/[\n\r\t]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[,;:|()\[\]"']/g, " ").replace(/\s{2,}/g, " ").trim().toLowerCase();
+    return String(text).normalize("NFC").replace(/([a-zäöüß])([A-ZÄÖÜ])/g, "$1 $2").replace(/ä/g, "ae").replace(/Ä/g, "Ae").replace(/ö/g, "oe").replace(/Ö/g, "Oe").replace(/ü/g, "ue").replace(/Ü/g, "Ue").replace(/ß/g, "ss").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[–—\-]+/g, " ").replace(/[\n\r\t]+/g, " ").replace(/[,;:|()\[\]"'\/+]/g, " ").replace(/\s{2,}/g, " ").trim().toLowerCase();
   }
   function tokenize(text) {
     const cleaned = cleanText(text);
@@ -864,24 +903,6 @@
   }
   function escapeRegex(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
-  function getFeatureItems() {
-    return Array.from(document.querySelectorAll("ul[data-testid='vip-features-list'] li"));
-  }
-  function getDescriptionEl() {
-    return document.querySelector("div[data-testid='vip-vehicle-description-text']");
-  }
-  function getTechDataDl() {
-    return document.querySelector("article[data-testid='vip-technical-data-box'] dl");
-  }
-  function getZusatzEl() {
-    const desc = getDescriptionEl();
-    if (!desc) return null;
-    const candidate = desc.parentElement && desc.parentElement.nextElementSibling;
-    if (candidate && candidate.textContent && candidate.textContent.trim().length > 20) {
-      return candidate;
-    }
-    return null;
   }
   function classifyDescription(rawText) {
     if (!rawText) return "low";
@@ -1228,9 +1249,7 @@
     const merged = [];
     const orphanOnly = /^(beide|links|rechts|vorn|hinten|optional)$/i;
     for (const part of parts) {
-      const words = part.split(/\s+/).filter(Boolean);
-      const isOrphan = words.length <= 2 && orphanOnly.test(part);
-      if (merged.length > 0 && (isOrphan || part.length <= 8)) {
+      if (merged.length > 0 && orphanOnly.test(part)) {
         merged[merged.length - 1] = merged[merged.length - 1] + ", " + part;
       } else {
         merged.push(part);
@@ -1625,7 +1644,7 @@
     debugLog("ausstattung", "Gefundene Begriffe", unique.map((i) => `${i.anzeige} [${i.source}]`));
     return unique;
   }
-  const resultCss = "article.mobilede-tech-article,article.mobilede-result-article,#mobilede-config-btn-wrap{position:relative;z-index:2147483000;box-sizing:border-box}article.mobilede-tech-article,article.mobilede-result-article{margin:0;padding:12px 16px}.mobilede-tech-article+.mobilede-result-article{margin-top:8px}.mobilede-result-card,.mobilede-tech-card{--mdr-text:inherit;--mdr-muted:rgba(255,255,255,.65);--mdr-divider:rgba(255,255,255,.12);box-sizing:border-box;width:100%;padding:0;margin:0;background:transparent;color:var(--mdr-text);font-size:14px;line-height:1.45;text-align:left}.mobilede-section-title{margin:0 0 8px;font-size:15px;font-weight:600;line-height:1.3;color:inherit}.mobilede-subsection-title{grid-column:1/-1;margin:0 0 4px;font-size:13px;font-weight:600;line-height:1.3;color:var(--mdr-muted)}.mobilede-result-grid{display:grid;grid-template-columns:1fr;gap:4px 0;align-items:start}@media(min-width:560px){.mobilede-result-grid{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px}}.mobilede-result-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-width:0}.mobilede-result-hit{flex:1;min-width:0;overflow-wrap:anywhere;display:inline-block;padding-left:.6em;text-indent:-.6em}.mobilede-result-hit--help{cursor:help}.mobilede-result-fav-divider{grid-column:1/-1;border-top:1px solid rgba(255,255,255,.22);margin:8px 0 6px;height:0}.mobilede-result-legend{width:100%;margin-top:10px;font-size:11px;line-height:1.4;opacity:.7;color:var(--mdr-muted)}.mobilede-result-empty{color:var(--mdr-muted)}.mobilede-learn-btn{flex-shrink:0;cursor:pointer;font-size:11px;padding:2px 6px;border:1px solid rgba(255,255,255,.25);border-radius:4px;background:#ffffff14;color:#e0e0e0;font-family:inherit}.mobilede-learn-btn:hover{background:#ffffff24}.mobilede-tech-list{display:flex;flex-direction:column;gap:8px}.mobilede-tech-row{display:grid;grid-template-columns:1fr;gap:2px 0;align-items:start}@media(min-width:560px){.mobilede-tech-row{grid-template-columns:minmax(8rem,38%) 1fr;column-gap:16px}}.mobilede-tech-label{font-weight:500;color:var(--mdr-muted)}.mobilede-tech-value{overflow-wrap:anywhere}";
+  const resultCss = "article.mobilede-tech-article,article.mobilede-result-article,#mobilede-config-btn-wrap{position:relative;z-index:2147483000;box-sizing:border-box}article.mobilede-tech-article,article.mobilede-result-article{margin:0 0 16px;padding:12px 16px}.mobilede-card-shell{background:#7f7f7f1a;border:1px solid rgba(127,127,127,.28);border-radius:12px}.mobilede-result-card,.mobilede-tech-card{--mdr-text:inherit;--mdr-muted:rgba(255,255,255,.65);--mdr-divider:rgba(255,255,255,.12);box-sizing:border-box;width:100%;padding:0;margin:0;background:transparent;color:var(--mdr-text);font-size:14px;line-height:1.45;text-align:left}.mobilede-section-title{margin:0 0 8px;font-size:15px;font-weight:600;line-height:1.3;color:inherit}.mobilede-subsection-title{grid-column:1/-1;margin:0 0 4px;font-size:13px;font-weight:600;line-height:1.3;color:var(--mdr-muted)}.mobilede-result-grid{display:grid;grid-template-columns:1fr;gap:4px 0;align-items:start}@media(min-width:560px){.mobilede-result-grid{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px}}.mobilede-result-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-width:0}.mobilede-result-hit{flex:1;min-width:0;overflow-wrap:anywhere;display:inline-block;padding-left:.6em;text-indent:-.6em}.mobilede-result-hit--help{cursor:help}.mobilede-result-fav-divider{grid-column:1/-1;border-top:1px solid rgba(255,255,255,.22);margin:8px 0 6px;height:0}.mobilede-result-legend{width:100%;margin-top:10px;font-size:11px;line-height:1.4;opacity:.7;color:var(--mdr-muted)}.mobilede-result-empty{color:var(--mdr-muted)}.mobilede-learn-btn{flex-shrink:0;cursor:pointer;font-size:11px;padding:2px 6px;border:1px solid rgba(255,255,255,.25);border-radius:4px;background:#ffffff14;color:#e0e0e0;font-family:inherit}.mobilede-learn-btn:hover{background:#ffffff24}.mobilede-tech-list{display:flex;flex-direction:column;gap:8px}.mobilede-tech-row{display:grid;grid-template-columns:1fr;gap:2px 0;align-items:start}@media(min-width:560px){.mobilede-tech-row{grid-template-columns:minmax(8rem,38%) 1fr;column-gap:16px}}.mobilede-tech-label{font-weight:500;color:var(--mdr-muted)}.mobilede-tech-value{overflow-wrap:anywhere}";
   function injectResultStyles() {
     if (document.getElementById("mobilede-result-style")) return;
     const st = document.createElement("style");
@@ -1641,9 +1660,11 @@
     const useManualOrder = isManualScope("tech") && shouldApplyOrderToVehicleResults();
     const configs = useManualOrder ? runtimeState.techDataKonfigurationen : [...runtimeState.techDataKonfigurationen].sort((a, b) => (a.begriff || "").trim().localeCompare((b.begriff || "").trim(), "de"));
     configs.forEach((cfg) => {
-      if (!cfg.aktiv) return;
+      if (!cfg || !cfg.aktiv) return;
+      const gesucht = (cfg.begriff || "").trim().toLowerCase();
+      if (!gesucht) return;
       for (const dt of dtElements) {
-        if (dt.textContent.trim().toLowerCase() === cfg.begriff.toLowerCase()) {
+        if ((dt.textContent || "").trim().toLowerCase() === gesucht) {
           const dd = dt.nextElementSibling;
           if (dd && dd.tagName.toLowerCase() === "dd") {
             daten.push({ title: cfg.begriff, value: dd.textContent.trim() });
@@ -1663,7 +1684,7 @@
     debugLog("tech", "Technische Daten gerendert", { count: technischeDaten.length });
     injectResultStyles();
     const techArticle = document.createElement("article");
-    techArticle.className = "A3G6X lAeeF vTKPY HaBLt ku0Os mobilede-tech-article";
+    techArticle.className = getCardShellClassName() + " mobilede-tech-article";
     const techContainer = document.createElement("div");
     techContainer.className = "mobilede-tech-card";
     const title = document.createElement("div");
@@ -1751,7 +1772,7 @@ Kontext: …${item.snippet}…` : "";
     const autoMode = isAutoModeEnabled();
     const gefundeneTexte = getResultEntries(inputSignature);
     const article = document.createElement("article");
-    article.className = "A3G6X lAeeF vTKPY HaBLt ku0Os mobilede-result-article";
+    article.className = getCardShellClassName() + " mobilede-result-article";
     const ergebnisBereich = document.createElement("div");
     ergebnisBereich.id = "ergebnisBereich";
     ergebnisBereich.className = "mobilede-result-card";
@@ -1895,9 +1916,11 @@ Kontext: …${item.snippet}…` : "";
     if (str == null || str === "") return { kw: null, ps: null };
     const s = String(str);
     const kwM = s.match(/([\d.,]+)\s*kW/i);
-    const psM = s.match(/(\d+)\s*PS/i);
-    let kw = kwM ? parseInt(kwM[1].replace(/[.,]/g, ""), 10) : null;
-    let ps = psM ? parseInt(psM[1], 10) : null;
+    const psM = s.match(/([\d.,]+)\s*PS/i);
+    const kwRaw = kwM ? parseFloat(kwM[1].replace(/\./g, "").replace(",", ".")) : NaN;
+    const psRaw = psM ? parseFloat(psM[1].replace(/\./g, "").replace(",", ".")) : NaN;
+    let kw = Number.isFinite(kwRaw) ? Math.round(kwRaw) : null;
+    let ps = Number.isFinite(psRaw) ? Math.round(psRaw) : null;
     if (kw == null && ps != null) kw = Math.round(ps * PS_TO_KW);
     if (ps == null && kw != null) ps = Math.round(kw / PS_TO_KW);
     return {
@@ -2057,8 +2080,13 @@ Kontext: …${item.snippet}…` : "";
       }
       mk.value = String(makeId);
       mk.dispatchEvent(new Event("change", { bubbles: true }));
+      const startToken = priceRatingFetchToken;
       let tries = 0;
       const poll = () => {
+        if (priceRatingFetchToken !== startToken) {
+          resolve(null);
+          return;
+        }
         const map = collect();
         if (map) {
           resolve(map);
@@ -2196,6 +2224,13 @@ Kontext: …${item.snippet}…` : "";
     };
   }
   function getVipPriceRatingAnchor() {
+    const cta = queryVisible('article[data-testid="main-cta-box"]');
+    if (cta) {
+      const label = cta.querySelector('[data-testid="vip-price-label"]');
+      if (label) return label.parentElement || label;
+      const area = cta.querySelector('[data-testid="main-price-area"]');
+      if (area) return area;
+    }
     const aside = document.querySelector("aside.iKWwq");
     if (aside) {
       const row = aside.querySelector(".wNWsk");
@@ -2205,7 +2240,7 @@ Kontext: …${item.snippet}…` : "";
         return label.closest(".wNWsk") || label.parentElement || label;
       }
     }
-    return document.querySelector('[data-testid="vip-price-box"]');
+    return queryVisible('[data-testid="vip-price-box"]') || document.querySelector('[data-testid="vip-price-box"]');
   }
   function buildVehicleProfileDomFallback() {
     const id = getAdIdFromUrl();
@@ -2270,6 +2305,10 @@ Kontext: …${item.snippet}…` : "";
     if (ad) profile = buildVehicleProfileFromAd(ad, id);
     else if (isVehicleDetailPage()) profile = buildVehicleProfileDomFallback();
     const enriched = enrichProfileWithSearchMs(profile, id);
+    if (enriched && enriched.priceGross == null) {
+      vehicleProfileMemo = { key: "", ts: 0, profile: null };
+      return enriched;
+    }
     vehicleProfileMemo = { key: memoKey, ts: now, profile: enriched ? { ...enriched } : null };
     return enriched;
   }
@@ -2433,7 +2472,7 @@ Kontext: …${item.snippet}…` : "";
       u.searchParams.set("ml", min + ":" + max);
     }
     if (profile.firstRegistrationYear != null) {
-      const yTol = prCfg.yearTolerance || 1;
+      const yTol = Math.max(0, parseInt(prCfg.yearTolerance, 10) || 0);
       const yMin = profile.firstRegistrationYear - yTol;
       const yMax = profile.firstRegistrationYear + yTol;
       u.searchParams.set("fr", yMin + ":" + yMax);
@@ -3524,8 +3563,16 @@ Kontext: …${item.snippet}…` : "";
     }
   }
   let priceRatingFetchToken = 0;
+  let staleRatingRetryTimer = null;
+  function cancelStaleRatingRetry() {
+    if (staleRatingRetryTimer === null) return;
+    clearTimeout(staleRatingRetryTimer);
+    staleRatingRetryTimer = null;
+  }
   function priceRatingFetchTokenIncrement() {
     priceRatingFetchToken++;
+    cancelStaleRatingRetry();
+    vehicleProfileMemo = { key: "", ts: 0, profile: null };
   }
   function scheduleStaleRatingRetry(profile) {
     const adId = profile && profile.id ? String(profile.id) : "";
@@ -3533,7 +3580,11 @@ Kontext: …${item.snippet}…` : "";
       renderVipPriceRatingWidget(null, false);
       return;
     }
-    setTimeout(() => {
+    cancelStaleRatingRetry();
+    const startToken = priceRatingFetchToken;
+    staleRatingRetryTimer = setTimeout(() => {
+      staleRatingRetryTimer = null;
+      if (priceRatingFetchToken !== startToken) return;
       if (!isVehicleDetailPage()) return;
       const current = buildVehicleProfile();
       if (!current || String(current.id) !== adId) return;
@@ -4061,6 +4112,65 @@ Kontext: …${item.snippet}…` : "";
       return null;
     }
   }
+  let srpMakeNamesCache = null;
+  function getSrpMakeNames() {
+    if (srpMakeNamesCache) return srpMakeNamesCache;
+    if (typeof document === "undefined") return [];
+    const sel = document.querySelector('select[name="mk"]');
+    if (!sel) return [];
+    const names = [];
+    for (const opt of sel.options) {
+      if (!opt.value) continue;
+      const name = opt.textContent.trim();
+      if (name) names.push(name);
+    }
+    names.sort((a, b) => b.length - a.length);
+    if (names.length) srpMakeNamesCache = names;
+    return names;
+  }
+  function splitMakeModelFromTitle(title, makeNames) {
+    const text = String(title || "").replace(/\s+/g, " ").trim();
+    if (!text) return { make: "", model: "" };
+    const lower = text.toLowerCase();
+    for (const name of getSrpMakeNames()) {
+      if (!lower.startsWith(name.toLowerCase())) continue;
+      return { make: name, model: text.slice(name.length).trim() };
+    }
+    const sp = text.indexOf(" ");
+    if (sp === -1) return { make: text, model: "" };
+    return { make: text.slice(0, sp), model: text.slice(sp + 1).trim() };
+  }
+  function parseSrpAttributeLine(text) {
+    const out = { firstRegistrationYear: null, mileageKm: null, powerKw: null, powerPs: null, fuel: "" };
+    const clean = String(text || "").replace(/\s+/g, " ").trim();
+    if (!clean) return out;
+    let afterPower = false;
+    for (const raw of clean.split("•")) {
+      const part = raw.trim();
+      if (!part) continue;
+      const ez = part.match(/EZ\s*(?:\d{1,2}\s*\/\s*)?((?:19|20)\d{2})/i);
+      if (ez) {
+        out.firstRegistrationYear = parseInt(ez[1], 10);
+        continue;
+      }
+      const km = part.match(/^([\d.]+)\s*km$/i);
+      if (km) {
+        out.mileageKm = parseKm(km[1]);
+        continue;
+      }
+      if (/^[\d.,]+\s*kW\b/i.test(part)) {
+        const power = parsePower(part);
+        out.powerKw = power.kw;
+        out.powerPs = power.ps;
+        afterPower = true;
+        continue;
+      }
+      if (afterPower && !out.fuel) {
+        out.fuel = part.replace(/[\d.,]+\s*(?:l|kWh|kg|m³)\s*\/\s*100\s*km.*$/i, "").trim();
+      }
+    }
+    return out;
+  }
   function profileFromSrpCard(card) {
     const link = card.querySelector('a[href*="details.html?id="], a[href*="/auto-inserat/"]');
     if (!link) return null;
@@ -4079,22 +4189,28 @@ Kontext: …${item.snippet}…` : "";
         if (prof) return prof;
       }
     }
-    const title = link.textContent.trim() || card.textContent.trim().slice(0, 200);
-    const priceMatch = card.textContent.replace(/\s/g, " ").match(/([\d.]+)\s*€/);
-    const priceGross = priceMatch ? parseEuroAmount(priceMatch[1] + " €") : null;
-    const kmMatch = card.textContent.match(/([\d.]+)\s*km/i);
-    const yearMatch = card.textContent.match(/\b(19|20)\d{2}\b/);
+    const titleEl = card.querySelector('[data-testid="listing-title-card-view"]');
+    const variantEl = titleEl ? titleEl.nextElementSibling : null;
+    const cardText = card.textContent.replace(/\s+/g, " ").trim();
+    const title = titleEl ? (titleEl.getAttribute("title") || titleEl.textContent).trim() : link.textContent.trim() || cardText.slice(0, 200);
+    const subTitle = variantEl ? (variantEl.getAttribute("title") || variantEl.textContent).trim() : "";
+    const { make, model } = splitMakeModelFromTitle(title);
+    const priceEl = card.querySelector('[data-testid="main-price-label"], [data-testid="price-label"]');
+    const priceText = priceEl ? priceEl.textContent : (cardText.match(/([\d.]+)\s*€/) || [])[0];
+    const attrEl = card.querySelector('[data-testid="listing-details-attributes"], [data-testid="listing-details"]');
+    const attrs = parseSrpAttributeLine(attrEl ? attrEl.textContent : cardText);
     return {
       id,
-      make: "",
-      model: "",
+      make,
+      model,
       title,
-      subTitle: "",
-      priceGross,
-      mileageKm: kmMatch ? parseKm(kmMatch[0]) : null,
-      firstRegistrationYear: yearMatch ? parseInt(yearMatch[0], 10) : null,
-      powerPs: null,
-      fuel: "",
+      subTitle,
+      priceGross: parseEuroAmount(priceText),
+      mileageKm: attrs.mileageKm,
+      firstRegistrationYear: attrs.firstRegistrationYear,
+      powerKw: attrs.powerKw,
+      powerPs: attrs.powerPs,
+      fuel: attrs.fuel,
       transmission: "",
       features: [],
       priceRating: null,
@@ -5587,7 +5703,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.11.17";
+    const SCRIPT_UI_VERSION = "2.11.18";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -6123,8 +6239,12 @@ grid-template-rows:minmax(140px,1fr) auto;
 }
 .mc-icon-btn{background:transparent;border:none;color:var(--mc-muted);padding:6px;cursor:pointer;border-radius:8px;line-height:0;}
 .mc-icon-btn:hover{color:#fff;background:var(--mc-elevated);}
+/* overflow-x:auto laesst den Browser auch senkrecht clippen (sichtbares
+   overflow-y wird dadurch zu auto). Die 4px Innenabstand geben dem Fokusring
+   der Tabs Platz, die negativen Aussenabstaende halten die Tabs trotzdem am
+   bisherigen Platz. */
 .mc-tabs-strip{
-  display:flex;flex-wrap:nowrap;gap:6px;margin-top:10px;margin-bottom:0;padding-bottom:10px;
+  display:flex;flex-wrap:nowrap;gap:6px;margin:6px -4px 0;padding:4px 4px 10px;
   overflow-x:auto;-webkit-overflow-scrolling:touch;
 }
 @media(max-width:699px){.mc-tabs-strip{scrollbar-width:thin}}
@@ -7241,6 +7361,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       h.draggable = false;
       return h;
     }
+    const activeDragCancels = new Set();
+    const cleanupOnClose = new Set();
     function setupListDragReorder(opts) {
       const {
         container,
@@ -7476,7 +7598,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const lastIdx = cardIndex(cards[cards.length - 1]);
         return lastIdx + 1;
       }
-      function endPointerDrag() {
+      function detachDragListeners() {
+        activeDragCancels.delete(abortPointerDrag);
         stopAutoScroll();
         document.removeEventListener("pointermove", onPointerMove, true);
         document.removeEventListener("pointerup", onPointerUp, true);
@@ -7486,6 +7609,14 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           handle.releasePointerCapture(activePointerId);
         } catch (_e) {
         }
+      }
+      function abortPointerDrag() {
+        detachDragListeners();
+        if (dragFrom === null) return;
+        clearDragUi();
+      }
+      function endPointerDrag() {
+        detachDragListeners();
         if (dragFrom === null) return;
         const from = dragFrom;
         const to = computeToIndex();
@@ -7525,6 +7656,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           handle.setPointerCapture(e.pointerId);
         } catch (_e) {
         }
+        activeDragCancels.add(abortPointerDrag);
         handle.addEventListener("pointermove", onPointerMove);
         document.addEventListener("pointermove", onPointerMove, true);
         document.addEventListener("pointerup", onPointerUp, true);
@@ -7871,6 +8003,16 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     }
     document.addEventListener("keydown", escListener);
     function removeOverlay() {
+      for (const cancel of [...activeDragCancels]) cancel();
+      activeDragCancels.clear();
+      for (const fn of cleanupOnClose) {
+        try {
+          fn();
+        } catch (_e) {
+        }
+      }
+      cleanupOnClose.clear();
+      purgeListDragArtifacts();
       document.removeEventListener("keydown", escListener);
       document.body.style.overflow = prevBodyOverflow;
       try {
@@ -9767,6 +9909,10 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           );
           aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
           aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
+          aktuelleFeatureFlags.priceRating = mergePriceRating(aktuelleFeatureFlags.priceRating);
+          aktuelleFeatureFlags.debug = mergeDebugConfig(aktuelleFeatureFlags.debug, aktuelleFeatureFlags);
+          aktuelleFeatureFlags.priceRatingDebug = aktuelleFeatureFlags.debug.enabled && aktuelleFeatureFlags.debug.scopes.price === true;
+          aktuelleFeatureFlags.priceRatingPerfDebug = aktuelleFeatureFlags.debug.enabled && aktuelleFeatureFlags.debug.scopes.perf === true;
         }
         let mergeInfo = "";
         if (obj.priceDataStore && typeof obj.priceDataStore === "object") {
@@ -10000,6 +10146,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     let configDebugUnlockClicks = 0;
     let configDebugUnlockTimer = null;
     let configDebugUiUnlocked = !!getDebugConfig(aktuelleFeatureFlags).enabled;
+    cleanupOnClose.add(() => clearTimeout(configDebugUnlockTimer));
     configIntro.addEventListener("click", () => {
       configDebugUnlockClicks++;
       clearTimeout(configDebugUnlockTimer);
@@ -11155,7 +11302,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     if (document.querySelector("#mobilede-config-btn")) return;
     const orphanWrap = document.querySelector("#mobilede-config-btn-wrap");
     if (orphanWrap && !orphanWrap.querySelector("#mobilede-config-btn")) orphanWrap.remove();
-    const targetDiv = document.querySelector(".Va7Gr") || document.querySelector("article[data-testid='vip-key-features-box']");
+    const targetDiv = queryVisible('[data-testid="main-actions"]') || queryVisible('article[data-testid="main-cta-box"]') || document.querySelector(".Va7Gr") || queryVisible("article[data-testid='vip-key-features-box']") || document.querySelector("article[data-testid='vip-key-features-box']");
     if (!targetDiv) return;
     const wrap = document.createElement("div");
     wrap.id = "mobilede-config-btn-wrap";

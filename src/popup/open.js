@@ -119,7 +119,7 @@ export function oeffneKonfigPopup() {
     const konfigHelpPanels = {};
     /** Hilfe-Panel je Tab (Ausstattung, Tech, Merge, Import/Export, Config) — vermeidet Zustandsverlust beim Tab-Wechsel. */
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = '2.11.17';
+    const SCRIPT_UI_VERSION = '2.11.18';
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: 'config', dir: 'asc' };
     let techSort = { key: 'config', dir: 'asc' };
@@ -678,8 +678,12 @@ grid-template-rows:minmax(140px,1fr) auto;
 }
 .mc-icon-btn{background:transparent;border:none;color:var(--mc-muted);padding:6px;cursor:pointer;border-radius:8px;line-height:0;}
 .mc-icon-btn:hover{color:#fff;background:var(--mc-elevated);}
+/* overflow-x:auto laesst den Browser auch senkrecht clippen (sichtbares
+   overflow-y wird dadurch zu auto). Die 4px Innenabstand geben dem Fokusring
+   der Tabs Platz, die negativen Aussenabstaende halten die Tabs trotzdem am
+   bisherigen Platz. */
 .mc-tabs-strip{
-  display:flex;flex-wrap:nowrap;gap:6px;margin-top:10px;margin-bottom:0;padding-bottom:10px;
+  display:flex;flex-wrap:nowrap;gap:6px;margin:6px -4px 0;padding:4px 4px 10px;
   overflow-x:auto;-webkit-overflow-scrolling:touch;
 }
 @media(max-width:699px){.mc-tabs-strip{scrollbar-width:thin}}
@@ -1873,6 +1877,22 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         return h;
     }
 
+    /**
+     * Abbruchfunktionen laufender Drags. Ein Drag registriert seine globalen
+     * Listener erst bei `pointerdown` und räumt sie in `endPointerDrag` weg.
+     * Wird das Popup währenddessen geschlossen (Escape greift, weil ein noch
+     * nicht abgelegter Drag `dirty` nicht setzt), bleiben sonst drei
+     * document-Listener und der Auto-Scroll-Loop auf abgetrennten Knoten übrig.
+     */
+    const activeDragCancels = new Set();
+
+    /**
+     * Aufräumarbeiten für `removeOverlay`. Als Registry, damit Blöcke weiter
+     * unten im Aufbau ihre Timer selbst anmelden können, ohne dass
+     * `removeOverlay` deren Variablen vorwärts referenzieren muss.
+     */
+    const cleanupOnClose = new Set();
+
     /** Vertikales Pointer-Sortieren mit Snap-Platzhalter (kein HTML5-Drag-Ghost). */
     function setupListDragReorder(opts) {
         const {
@@ -2134,13 +2154,25 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             return lastIdx + 1;
         }
 
-        function endPointerDrag() {
+        function detachDragListeners() {
+            activeDragCancels.delete(abortPointerDrag);
             stopAutoScroll();
             document.removeEventListener('pointermove', onPointerMove, true);
             document.removeEventListener('pointerup', onPointerUp, true);
             document.removeEventListener('pointercancel', onPointerUp, true);
             handle.removeEventListener('pointermove', onPointerMove);
             try { handle.releasePointerCapture(activePointerId); } catch (_e) { /* ignore */ }
+        }
+
+        /** Beendet den Drag ohne `onDrop` — die Ablage gilt als verworfen. */
+        function abortPointerDrag() {
+            detachDragListeners();
+            if (dragFrom === null) return;
+            clearDragUi();
+        }
+
+        function endPointerDrag() {
+            detachDragListeners();
             if (dragFrom === null) return;
             const from = dragFrom;
             const to = computeToIndex();
@@ -2180,6 +2212,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             updatePlaceholderAtY(e.clientY);
             startDragScrollLoop();
             try { handle.setPointerCapture(e.pointerId); } catch (_e) { /* ignore */ }
+            activeDragCancels.add(abortPointerDrag);
             handle.addEventListener('pointermove', onPointerMove);
             document.addEventListener('pointermove', onPointerMove, true);
             document.addEventListener('pointerup', onPointerUp, true);
@@ -2531,6 +2564,13 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     document.addEventListener('keydown', escListener);
 
     function removeOverlay() {
+        for (const cancel of [...activeDragCancels]) cancel();
+        activeDragCancels.clear();
+        for (const fn of cleanupOnClose) {
+            try { fn(); } catch (_e) { /* Aufräumen darf das Schließen nicht blockieren */ }
+        }
+        cleanupOnClose.clear();
+        purgeListDragArtifacts();
         document.removeEventListener('keydown', escListener);
         document.body.style.overflow = prevBodyOverflow;
         try { delete pageWindow.__mobiledeDragDiag; } catch (_e) { pageWindow.__mobiledeDragDiag = undefined; }
@@ -4526,6 +4566,15 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                 );
                 aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
                 aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
+                // Dieselbe Kette wie beim Popup-Start. Fehlte sie, konnte eine
+                // Datei mit unvollständigem `priceRating` (z. B. ohne
+                // thresholds) das folgende renderConfig() abbrechen lassen.
+                aktuelleFeatureFlags.priceRating = mergePriceRating(aktuelleFeatureFlags.priceRating);
+                aktuelleFeatureFlags.debug = mergeDebugConfig(aktuelleFeatureFlags.debug, aktuelleFeatureFlags);
+                aktuelleFeatureFlags.priceRatingDebug = aktuelleFeatureFlags.debug.enabled
+                    && aktuelleFeatureFlags.debug.scopes.price === true;
+                aktuelleFeatureFlags.priceRatingPerfDebug = aktuelleFeatureFlags.debug.enabled
+                    && aktuelleFeatureFlags.debug.scopes.perf === true;
             }
             let mergeInfo = '';
             if (obj.priceDataStore && typeof obj.priceDataStore === 'object') {
@@ -4756,6 +4805,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     let configDebugUnlockClicks = 0;
     let configDebugUnlockTimer = null;
     let configDebugUiUnlocked = !!getDebugConfig(aktuelleFeatureFlags).enabled;
+    cleanupOnClose.add(() => clearTimeout(configDebugUnlockTimer));
     configIntro.addEventListener('click', () => {
         configDebugUnlockClicks++;
         clearTimeout(configDebugUnlockTimer);

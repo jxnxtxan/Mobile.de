@@ -1,4 +1,5 @@
 import { getFavoriteAnzeigeKeys } from '../../config/list-helpers.js';
+import { getCardShellClassName } from '../../core/dom/selectors.js';
 import { getResultEntries, openLearnConfig } from '../../core/search/pipeline.js';
 import { injectResultStyles } from '../styles/inject-result-styles.js';
 import { technischeDatenHinzufuegen } from './tech.js';
@@ -85,7 +86,7 @@ export function ergebnisHinzufuegen(force) {
     const gefundeneTexte = getResultEntries(inputSignature);
 
     const article = document.createElement('article');
-    article.className = 'A3G6X lAeeF vTKPY HaBLt ku0Os mobilede-result-article';
+    article.className = getCardShellClassName() + ' mobilede-result-article';
     const ergebnisBereich = document.createElement('div');
     ergebnisBereich.id = 'ergebnisBereich';
     ergebnisBereich.className = 'mobilede-result-card';

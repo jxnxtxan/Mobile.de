@@ -1,7 +1,7 @@
 import { debugLog } from '../../config/feature-flags/index.js';
 import { isManualScope, shouldApplyOrderToVehicleResults } from '../../config/ordering.js';
 import { runtimeState } from '../../config/runtime-state.js';
-import { getTechDataDl } from '../../core/dom/selectors.js';
+import { getCardShellClassName, getTechDataDl } from '../../core/dom/selectors.js';
 import { injectResultStyles } from '../styles/inject-result-styles.js';
 
 export function sucheTechnischeDaten() {
@@ -15,9 +15,13 @@ export function sucheTechnischeDaten() {
         : [...runtimeState.techDataKonfigurationen].sort((a, b) =>
             (a.begriff || '').trim().localeCompare((b.begriff || '').trim(), 'de'));
     configs.forEach(cfg => {
-        if (!cfg.aktiv) return;
+        if (!cfg || !cfg.aktiv) return;
+        // Ohne Guard wirft eine importierte Config ohne `begriff` hier und der
+        // gesamte Ergebnisblock wird nicht gerendert.
+        const gesucht = (cfg.begriff || '').trim().toLowerCase();
+        if (!gesucht) return;
         for (const dt of dtElements) {
-            if (dt.textContent.trim().toLowerCase() === cfg.begriff.toLowerCase()) {
+            if ((dt.textContent || '').trim().toLowerCase() === gesucht) {
                 const dd = dt.nextElementSibling;
                 if (dd && dd.tagName.toLowerCase() === 'dd') {
                     daten.push({ title: cfg.begriff, value: dd.textContent.trim() });
@@ -38,7 +42,7 @@ export function technischeDatenHinzufuegen(parentElement) {
     debugLog('tech', 'Technische Daten gerendert', { count: technischeDaten.length });
     injectResultStyles();
     const techArticle = document.createElement('article');
-    techArticle.className = 'A3G6X lAeeF vTKPY HaBLt ku0Os mobilede-tech-article';
+    techArticle.className = getCardShellClassName() + ' mobilede-tech-article';
     const techContainer = document.createElement('div');
     techContainer.className = 'mobilede-tech-card';
     const title = document.createElement('div');

@@ -1,6 +1,7 @@
 'use strict';
 
 import { PAGE_UI_Z_INDEX } from '../config/constants.js';
+import { queryVisible } from '../core/dom/selectors.js';
 import { oeffneKonfigPopup } from './open.js';
 
 export function erstelleKonfigButton() {
@@ -9,7 +10,14 @@ export function erstelleKonfigButton() {
     // Wrapper ohne Button stehen bleibt (z.B. nach SPA-Re-Render).
     const orphanWrap = document.querySelector('#mobilede-config-btn-wrap');
     if (orphanWrap && !orphanWrap.querySelector('#mobilede-config-btn')) orphanWrap.remove();
-    const targetDiv = document.querySelector('.Va7Gr')
+    // Ziel ist die Aktionsleiste der Sidebar-Box (E-Mail, Parken, Teilen), damit
+    // der Button darunter sitzt. Die frühere Hash-Klasse `.Va7Gr` existiert nach
+    // dem mobile.de-Umbau nicht mehr, wodurch der Button in den Fallback rutschte
+    // und mitten im Inhaltsbereich landete.
+    const targetDiv = queryVisible('[data-testid="main-actions"]')
+        || queryVisible('article[data-testid="main-cta-box"]')
+        || document.querySelector('.Va7Gr')
+        || queryVisible("article[data-testid='vip-key-features-box']")
         || document.querySelector("article[data-testid='vip-key-features-box']");
     if (!targetDiv) return;
 
