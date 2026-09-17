@@ -30,3 +30,6 @@ node_modules/
 dist/
 
 docs/
+
+# graphify (generiertes Knowledge-Graph-Tooling, lokal reproduzierbar)
+graphify-out/

@@ -1,0 +1,4 @@
+# Gebündelter Build-Output, byte-identisch mit dist/mobile-ausstattungssuche.user.js
+# (von scripts/postbuild-copy.js dorthin kopiert). Kein Source-File - src/ ist die
+# eigentliche Quelle und wird bereits analysiert.
+mobile-ausstattungssuche.js
