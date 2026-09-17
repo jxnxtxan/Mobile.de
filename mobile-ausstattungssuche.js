@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.30
+// @version      2.16.31
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -2227,10 +2227,10 @@ Kontext: …${item.snippet}…` : "";
   function getVipPriceRatingAnchor() {
     const cta = queryVisible('article[data-testid="main-cta-box"]');
     if (cta) {
-      const label = cta.querySelector('[data-testid="vip-price-label"]');
-      if (label) return label.parentElement || label;
       const area = cta.querySelector('[data-testid="main-price-area"]');
       if (area) return area;
+      const label = cta.querySelector('[data-testid="vip-price-label"]');
+      if (label) return label.parentElement || label;
     }
     const aside = document.querySelector("aside.iKWwq");
     if (aside) {
@@ -2246,13 +2246,52 @@ Kontext: …${item.snippet}…` : "";
   function readVipVariant(box, title) {
     if (!box || !title) return "";
     const lines = String(box.innerText || "").split("\n").map((s) => s.trim()).filter(Boolean);
-    const next = lines[lines.indexOf(title) + 1] || "";
+    const idx = lines.indexOf(title);
+    if (idx === -1) return "";
+    const next = lines[idx + 1] || "";
     return /€/.test(next) ? "" : next;
   }
   function readVipTitleAndVariant(box) {
     const titleEl = queryVisible('[data-testid="vip-ad-title"]') || box && box.querySelector("h1, h2, h3") || document.querySelector("h1, h2");
     const title = titleEl ? (titleEl.textContent || "").replace(/\s+/g, " ").trim() : "";
     return { title, subTitle: readVipVariant(box, title) };
+  }
+  function extractNativePriceRatingFromScriptText(text, adId) {
+    if (!text || !adId) return null;
+    const needle = '\\"priceRating\\":{';
+    let searchFrom = 0;
+    while (true) {
+      const start = text.indexOf(needle, searchFrom);
+      if (start === -1) return null;
+      const openBrace = start + needle.length - 1;
+      const closeBrace = text.indexOf("}", openBrace);
+      if (closeBrace === -1) return null;
+      const idMatch = text.slice(closeBrace, closeBrace + 400).match(/\\"id\\":(\d+)/);
+      if (idMatch && idMatch[1] === String(adId)) {
+        const raw = text.slice(openBrace, closeBrace + 1).replace(/\\"/g, '"');
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed.thresholdLabels) && typeof parsed.vehiclePriceOffset === "number") {
+            return parsed;
+          }
+          return null;
+        } catch (e) {
+          return null;
+        }
+      }
+      searchFrom = closeBrace + 1;
+    }
+  }
+  function readNativePriceRatingFromDom(adId) {
+    if (!adId) return null;
+    const scripts = document.querySelectorAll("script");
+    for (const script of scripts) {
+      const text = script.textContent;
+      if (!text || !text.includes("priceRating")) continue;
+      const rating = extractNativePriceRatingFromScriptText(text, adId);
+      if (rating) return rating;
+    }
+    return null;
   }
   function buildVehicleProfileDomFallback() {
     const id = getAdIdFromUrl();
@@ -2288,7 +2327,7 @@ Kontext: …${item.snippet}…` : "";
       transmission: attrs["Getriebe"] || "",
       category: attrs["Kategorie"] || "",
       features: getFeatureItems().map((li) => li.textContent.trim()),
-      priceRating: null,
+      priceRating: readNativePriceRatingFromDom(id),
       attributes: []
     };
   }
@@ -4097,6 +4136,7 @@ Kontext: …${item.snippet}…` : "";
         if (cohortRes.items.length || !cached.usedMobileFallback) {
           const rating2 = enrichRatingWithCohortMeta({ ...cached }, cohortRes);
           renderVipPriceRatingWidget(rating2, false);
+          resetStaleRatingRetries();
           vipRatingLastRunSig = runSig;
           vipRatingLastRunTs = Date.now();
           priceRatingDebugLog("Preisbewertung aus Session-Cache gerendert", {

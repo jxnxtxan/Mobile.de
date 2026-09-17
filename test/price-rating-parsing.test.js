@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
     buildCohortSearchUrl,
+    extractNativePriceRatingFromScriptText,
     parseEuroAmount,
     parseKm,
     parsePower,
@@ -88,4 +89,43 @@ test('Kohorten-Suche lässt Jahr und Kilometer weg, wenn das Profil sie nicht ke
     const params = new URL(buildCohortSearchUrl(profile, mergePriceRating({}))).searchParams;
     assert.equal(params.get('fr'), null);
     assert.equal(params.get('ml'), null);
+});
+
+/**
+ * Live auf mobile.de gefunden: window.__INITIAL_STATE__ liefert die eigene
+ * Preisbewertung nicht mehr, sie steckt escapt in den Next.js-Flight-Skripten
+ * der Seite. Dieselben Skripte tragen auch die priceRating-Blöcke der
+ * "Ähnliche Fahrzeuge"-Karten — nur die folgende Ad-ID entscheidet, welcher
+ * Block zur aktuellen Anzeige gehört.
+ */
+function scriptChunk(adId, ratingLabel, offset) {
+    return `1:{...},\\"priceRating\\":{\\"rating\\":\\"GOOD_PRICE\\",\\"ratingLabel\\":\\"${ratingLabel}\\",`
+        + `\\"thresholdLabels\\":[\\"39.200 €\\",\\"51.000 €\\",\\"54.900 €\\",\\"61.000 €\\",\\"65.500 €\\",\\"72.800 €\\"],`
+        + `\\"vehiclePriceOffset\\":${offset}},\\"segment\\":\\"Car\\",\\"title\\":\\"Audi S6\\",\\"id\\":${adId},\\"price\\":{...`;
+}
+
+test('liest die Preisbewertung des passenden Ad-Blocks aus dem Flight-Skript', () => {
+    const text = scriptChunk('461888344', 'Guter Preis', 22);
+    const rating = extractNativePriceRatingFromScriptText(text, '461888344');
+    assert.deepEqual(rating, {
+        rating: 'GOOD_PRICE',
+        ratingLabel: 'Guter Preis',
+        thresholdLabels: ['39.200 €', '51.000 €', '54.900 €', '61.000 €', '65.500 €', '72.800 €'],
+        vehiclePriceOffset: 22
+    });
+});
+
+test('überspringt den priceRating-Block einer Ähnliche-Fahrzeuge-Karte und findet den eigenen', () => {
+    const text = scriptChunk('999111', 'Fairer Preis', 55) + scriptChunk('461888344', 'Guter Preis', 22);
+    const rating = extractNativePriceRatingFromScriptText(text, '461888344');
+    assert.equal(rating.ratingLabel, 'Guter Preis');
+    assert.equal(rating.vehiclePriceOffset, 22);
+});
+
+test('liefert null ohne Treffer, ohne Ad-ID oder bei fehlenden Schwellenwerten', () => {
+    assert.equal(extractNativePriceRatingFromScriptText('', '461888344'), null);
+    assert.equal(extractNativePriceRatingFromScriptText(scriptChunk('461888344', 'Guter Preis', 22), ''), null);
+    assert.equal(extractNativePriceRatingFromScriptText(scriptChunk('123', 'Guter Preis', 22), '461888344'), null);
+    const malformed = '\\"priceRating\\":{\\"ratingLabel\\":\\"Guter Preis\\"},\\"id\\":461888344,';
+    assert.equal(extractNativePriceRatingFromScriptText(malformed, '461888344'), null);
 });

@@ -459,12 +459,18 @@ export function getVipPriceRatingAnchor() {
     // und Aktionen. Ohne diesen Pfad blieb nur die `vip-price-box` weiter unten
     // im Inhalt übrig — also genau die Finanzierungs-Box, die hier nicht
     // gemeint ist.
+    //
+    // `main-price-area` ist ein normaler Block; direktes Kind `label.parentElement`
+    // dagegen eine flex-row (nowrap) mit genau Preis + nativem mobile.de-Badge als
+    // einzigen zwei Kindern. Ein drittes, eigenes Kind quetscht dort Preis und Badge
+    // zusammen — sichtbar als vertikal umbrechende Preisziffern. `area` verträgt das
+    // zusätzliche Kind als neue Zeile, ohne die bestehenden zu stauchen.
     const cta = queryVisible('article[data-testid="main-cta-box"]');
     if (cta) {
-        const label = cta.querySelector('[data-testid="vip-price-label"]');
-        if (label) return label.parentElement || label;
         const area = cta.querySelector('[data-testid="main-price-area"]');
         if (area) return area;
+        const label = cta.querySelector('[data-testid="vip-price-label"]');
+        if (label) return label.parentElement || label;
     }
     const aside = document.querySelector('aside.iKWwq');
     if (aside) {
@@ -487,7 +493,11 @@ export function getVipPriceRatingAnchor() {
 export function readVipVariant(box, title) {
     if (!box || !title) return '';
     const lines = String(box.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
-    const next = lines[lines.indexOf(title) + 1] || '';
+    const idx = lines.indexOf(title);
+    // -1 (Titel taucht nicht wortgleich in der Box auf) darf nicht auf
+    // lines[0] zurückfallen — das wäre die Titelzeile selbst, keine Variante.
+    if (idx === -1) return '';
+    const next = lines[idx + 1] || '';
     return /€/.test(next) ? '' : next;
 }
 
@@ -497,6 +507,53 @@ function readVipTitleAndVariant(box) {
         || document.querySelector('h1, h2');
     const title = titleEl ? (titleEl.textContent || '').replace(/\s+/g, ' ').trim() : '';
     return { title, subTitle: readVipVariant(box, title) };
+}
+
+/**
+ * mobile.de liefert seine eigene Preisbewertung nicht mehr über
+ * window.__INITIAL_STATE__, sondern serverseitig eingebettet in den
+ * Next.js-Flight-Skripten der Seite — als JSON-Zeichenkette mit escapten
+ * Anführungszeichen (\"priceRating\":{...}). Dieselben Skripte enthalten auch
+ * die Karten der „Ähnliche Fahrzeuge"-Liste mit eigenem priceRating-Block,
+ * deshalb zählt erst die direkt folgende Ad-ID als Treffer.
+ */
+export function extractNativePriceRatingFromScriptText(text, adId) {
+    if (!text || !adId) return null;
+    const needle = '\\"priceRating\\":{';
+    let searchFrom = 0;
+    while (true) {
+        const start = text.indexOf(needle, searchFrom);
+        if (start === -1) return null;
+        const openBrace = start + needle.length - 1;
+        const closeBrace = text.indexOf('}', openBrace);
+        if (closeBrace === -1) return null;
+        const idMatch = text.slice(closeBrace, closeBrace + 400).match(/\\"id\\":(\d+)/);
+        if (idMatch && idMatch[1] === String(adId)) {
+            const raw = text.slice(openBrace, closeBrace + 1).replace(/\\"/g, '"');
+            try {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed.thresholdLabels) && typeof parsed.vehiclePriceOffset === 'number') {
+                    return parsed;
+                }
+                return null;
+            } catch (e) {
+                return null;
+            }
+        }
+        searchFrom = closeBrace + 1;
+    }
+}
+
+export function readNativePriceRatingFromDom(adId) {
+    if (!adId) return null;
+    const scripts = document.querySelectorAll('script');
+    for (const script of scripts) {
+        const text = script.textContent;
+        if (!text || !text.includes('priceRating')) continue;
+        const rating = extractNativePriceRatingFromScriptText(text, adId);
+        if (rating) return rating;
+    }
+    return null;
 }
 
 export function buildVehicleProfileDomFallback() {
@@ -537,7 +594,7 @@ export function buildVehicleProfileDomFallback() {
         transmission: attrs['Getriebe'] || '',
         category: attrs['Kategorie'] || '',
         features: getFeatureItems().map(li => li.textContent.trim()),
-        priceRating: null,
+        priceRating: readNativePriceRatingFromDom(id),
         attributes: []
     };
 }
@@ -2555,6 +2612,7 @@ export async function preisBewertungAktualisieren(opts) {
             if (cohortRes.items.length || !cached.usedMobileFallback) {
                 const rating = enrichRatingWithCohortMeta({ ...cached }, cohortRes);
                 renderVipPriceRatingWidget(rating, false);
+                resetStaleRatingRetries();
                 vipRatingLastRunSig = runSig;
                 vipRatingLastRunTs = Date.now();
                 priceRatingDebugLog('Preisbewertung aus Session-Cache gerendert', {

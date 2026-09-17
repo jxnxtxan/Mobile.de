@@ -71,6 +71,16 @@ test('Variante bleibt leer ohne Box oder ohne Titel', () => {
     assert.equal(readVipVariant(boxAudi, ''), '');
 });
 
+/**
+ * Taucht der Titel nicht wortgleich als eigene Zeile in der Box auf, lieferte
+ * indexOf() -1; das +1 landete dann bei lines[0] statt bei "kein Treffer" —
+ * die erste Zeile der Box wurde faelschlich als Variante gelesen.
+ */
+test('Titel ohne Zeilentreffer liefert leere Variante statt der ersten Zeile', () => {
+    const box = { innerText: 'Audi S6 Sonderangebot\nAvant 3.0 TDI, Matrix\n31.499 €\nGuter Preis' };
+    assert.equal(readVipVariant(box, 'Audi S6'), '');
+});
+
 test('Titel der Detailseite ergibt Marke und Modell', () => {
     assert.deepEqual(splitMakeModelFromTitle('Audi S6', []), { make: 'Audi', model: 'S6' });
     assert.deepEqual(
