@@ -382,10 +382,15 @@ export function ensureSrpDebugLogCard() {
     const topBtn = leftFilterSection && leftFilterSection.querySelector('button[data-testid="dsp-button-top"]');
     const fallbackParent = topBtn ? topBtn.parentElement : (leftFilterSection ? leftFilterSection.querySelector('[data-testid="search-column-content"]') : null);
     // Die Hash-Klassen oben und die Filterspalte sind mit dem Layoutwechsel
-    // verschwunden, damit blieb die Karte unsichtbar. Die erste Ergebniskarte
-    // ist der einzige Anker, den es auf jeder Ergebnisliste sicher gibt.
-    const firstCard = (!summarySection && !fallbackParent) ? firstSrpListingCard() : null;
-    if (!summarySection && !fallbackParent && !firstCard) return;
+    // verschwunden. Die Kopfzeile über der Trefferliste (Trefferzahl, Suche,
+    // Sortierung) ist der stabile Anker direkt über der ersten Anzeige — ohne
+    // sie in die Nähe eines "TOP"-Ribbons zu setzen, das sonst hineinbluten
+    // würde. Die erste Ergebniskarte bleibt der letzte Rückfall.
+    const resultListHeader = (!summarySection && !fallbackParent)
+        ? document.querySelector('article[data-testid="result-list-header"]')
+        : null;
+    const firstCard = (!summarySection && !fallbackParent && !resultListHeader) ? firstSrpListingCard() : null;
+    if (!summarySection && !fallbackParent && !resultListHeader && !firstCard) return;
 
     let card = document.getElementById('mobilede-srp-debug-card');
     if (!card) {
@@ -443,10 +448,19 @@ export function ensureSrpDebugLogCard() {
         fallbackParent.prepend(card);
     } else if (fallbackParent) {
         if (card.parentElement !== fallbackParent) fallbackParent.appendChild(card);
+    } else if (resultListHeader) {
+        const shouldMove = card.parentElement !== resultListHeader.parentElement
+            || card.previousElementSibling !== resultListHeader;
+        if (shouldMove) resultListHeader.insertAdjacentElement('afterend', card);
     } else if (firstCard) {
+        // Ein "TOP"-Ribbon auf gesponserten Treffern ragt per negativem Versatz
+        // über den eigenen Kartenrand hinaus nach oben und blutet dadurch in
+        // alles, was direkt davor steht — unabhängig davon, ob es wirklich
+        // verschachtelt ist. Direkt davor sitzt deshalb keine sichere Position;
+        // nach der ersten Karte ist der Versatz ohne Wirkung.
         const shouldMove = card.parentElement !== firstCard.parentElement
-            || card.nextElementSibling !== firstCard;
-        if (shouldMove) firstCard.insertAdjacentElement('beforebegin', card);
+            || card.previousElementSibling !== firstCard;
+        if (shouldMove) firstCard.insertAdjacentElement('afterend', card);
     }
     renderSrpDebugLogCard();
     wireDebugCardCopyButtons();

@@ -2225,7 +2225,11 @@ export function injectPriceRatingStyles() {
 .mobilede-srp-price-badge__bar--on{background:#3ddc84;}
 .mobilede-srp-price-badge__text{opacity:.9;font-weight:500;}
 .mobilede-srp-debug-card{
-  margin-top:10px;padding:10px 12px;border:1px solid rgba(255,255,255,.10);border-radius:10px;
+  /* Ein natives "TOP"-Ribbon ragt per Rotation ca. 14-20px über den eigenen
+     Kartenrand nach oben heraus und blutet dadurch in das direkt davor
+     liegende Element, unabhängig davon, ob es wirklich verschachtelt ist.
+     margin-bottom haelt dagegen ausreichend Abstand zur folgenden Karte. */
+  margin:10px 0 36px;padding:10px 12px;border:1px solid rgba(255,255,255,.10);border-radius:10px;
   background:linear-gradient(180deg,rgba(64,68,79,.55),rgba(52,56,66,.45));
   box-shadow:inset 0 1px 0 rgba(255,255,255,.04);color:#f0f1f3;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   width:100%;box-sizing:border-box;
@@ -2983,11 +2987,32 @@ export function ensureSrpPriceRatingObserver() {
 const SRP_LISTING_LINK_SELECTOR = 'a[href*="details.html?id="], a[href*="/auto-inserat/"]';
 const SRP_LISTING_CARD_SELECTOR = 'article, li, [data-testid*="result"], [class*="result"]';
 
+/**
+ * Der Link selbst trägt oft ein data-testid wie "top-result-listing-1-link",
+ * das [data-testid*="result"] bereits erfüllt — closest() vom Link aus stoppte
+ * dadurch direkt am Link, statt zur wirklichen Karten-Wrapper-Div hochzulaufen.
+ * Eigene Blöcke landeten so als Kind der Anzeige statt als Geschwister davor.
+ * Die Suche beginnt deshalb erst beim Elternelement des Links.
+ *
+ * Die innere Wrapper-Div (z. B. "top-result-listing-1") matcht ebenfalls schon
+ * [data-testid*="result"] und lässt closest() dort stoppen — die eigentliche
+ * Kartengrenze ist aber das umschließende <article>, das bei gesponserten
+ * Treffern zusätzlich das "TOP"-Ribbon trägt. Landet ein eigener Block als
+ * erstes Kind in diesem <article> (weil er nur vor die innere Div gesetzt
+ * wurde), zeichnet sich das Ribbon über den eigenen Block statt über die
+ * Anzeige. Ein vorhandenes <article> hat deshalb Vorrang vor der Wrapper-Div.
+ */
+function closestListingCard(link) {
+    const parent = link.parentElement;
+    if (!parent) return link;
+    return parent.closest('article') || parent.closest(SRP_LISTING_CARD_SELECTOR) || parent;
+}
+
 /** Erste sichtbare Ergebniskarte, als stabiler Anker für eigene Blöcke. */
 export function firstSrpListingCard() {
     if (typeof document === 'undefined') return null;
     for (const link of document.querySelectorAll(SRP_LISTING_LINK_SELECTOR)) {
-        const card = link.closest(SRP_LISTING_CARD_SELECTOR) || link.parentElement;
+        const card = closestListingCard(link);
         if (!card) continue;
         const r = card.getBoundingClientRect();
         if (r.width > 0 && r.height > 0) return card;
@@ -2999,7 +3024,7 @@ function listingRootsFromRoot(root) {
     const cards = new Set();
     if (!root || root.nodeType !== 1) return cards;
     const addCard = a => {
-        const card = a.closest(SRP_LISTING_CARD_SELECTOR) || a.parentElement;
+        const card = closestListingCard(a);
         if (card) cards.add(card);
     };
     if (root.matches?.(SRP_LISTING_LINK_SELECTOR)) addCard(root);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.31
+// @version      2.16.33
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -3773,7 +3773,11 @@ Kontext: …${item.snippet}…` : "";
 .mobilede-srp-price-badge__bar--on{background:#3ddc84;}
 .mobilede-srp-price-badge__text{opacity:.9;font-weight:500;}
 .mobilede-srp-debug-card{
-  margin-top:10px;padding:10px 12px;border:1px solid rgba(255,255,255,.10);border-radius:10px;
+  /* Ein natives "TOP"-Ribbon ragt per Rotation ca. 14-20px über den eigenen
+     Kartenrand nach oben heraus und blutet dadurch in das direkt davor
+     liegende Element, unabhängig davon, ob es wirklich verschachtelt ist.
+     margin-bottom haelt dagegen ausreichend Abstand zur folgenden Karte. */
+  margin:10px 0 36px;padding:10px 12px;border:1px solid rgba(255,255,255,.10);border-radius:10px;
   background:linear-gradient(180deg,rgba(64,68,79,.55),rgba(52,56,66,.45));
   box-shadow:inset 0 1px 0 rgba(255,255,255,.04);color:#f0f1f3;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   width:100%;box-sizing:border-box;
@@ -4446,10 +4450,15 @@ Kontext: …${item.snippet}…` : "";
   }
   const SRP_LISTING_LINK_SELECTOR = 'a[href*="details.html?id="], a[href*="/auto-inserat/"]';
   const SRP_LISTING_CARD_SELECTOR = 'article, li, [data-testid*="result"], [class*="result"]';
+  function closestListingCard(link) {
+    const parent = link.parentElement;
+    if (!parent) return link;
+    return parent.closest("article") || parent.closest(SRP_LISTING_CARD_SELECTOR) || parent;
+  }
   function firstSrpListingCard() {
     if (typeof document === "undefined") return null;
     for (const link of document.querySelectorAll(SRP_LISTING_LINK_SELECTOR)) {
-      const card = link.closest(SRP_LISTING_CARD_SELECTOR) || link.parentElement;
+      const card = closestListingCard(link);
       if (!card) continue;
       const r = card.getBoundingClientRect();
       if (r.width > 0 && r.height > 0) return card;
@@ -4461,7 +4470,7 @@ Kontext: …${item.snippet}…` : "";
     const cards = new Set();
     if (!root || root.nodeType !== 1) return cards;
     const addCard = (a) => {
-      const card = a.closest(SRP_LISTING_CARD_SELECTOR) || a.parentElement;
+      const card = closestListingCard(a);
       if (card) cards.add(card);
     };
     if ((_a = root.matches) == null ? void 0 : _a.call(root, SRP_LISTING_LINK_SELECTOR)) addCard(root);
@@ -4801,8 +4810,9 @@ Kontext: …${item.snippet}…` : "";
     const leftFilterSection = document.querySelector('section[data-testid="search-column-content-section"]');
     const topBtn = leftFilterSection && leftFilterSection.querySelector('button[data-testid="dsp-button-top"]');
     const fallbackParent = topBtn ? topBtn.parentElement : leftFilterSection ? leftFilterSection.querySelector('[data-testid="search-column-content"]') : null;
-    const firstCard = !summarySection && !fallbackParent ? firstSrpListingCard() : null;
-    if (!summarySection && !fallbackParent && !firstCard) return;
+    const resultListHeader = !summarySection && !fallbackParent ? document.querySelector('article[data-testid="result-list-header"]') : null;
+    const firstCard = !summarySection && !fallbackParent && !resultListHeader ? firstSrpListingCard() : null;
+    if (!summarySection && !fallbackParent && !resultListHeader && !firstCard) return;
     let card = document.getElementById("mobilede-srp-debug-card");
     if (!card) {
       card = document.createElement("div");
@@ -4855,9 +4865,12 @@ Kontext: …${item.snippet}…` : "";
       fallbackParent.prepend(card);
     } else if (fallbackParent) {
       if (card.parentElement !== fallbackParent) fallbackParent.appendChild(card);
+    } else if (resultListHeader) {
+      const shouldMove = card.parentElement !== resultListHeader.parentElement || card.previousElementSibling !== resultListHeader;
+      if (shouldMove) resultListHeader.insertAdjacentElement("afterend", card);
     } else if (firstCard) {
-      const shouldMove = card.parentElement !== firstCard.parentElement || card.nextElementSibling !== firstCard;
-      if (shouldMove) firstCard.insertAdjacentElement("beforebegin", card);
+      const shouldMove = card.parentElement !== firstCard.parentElement || card.previousElementSibling !== firstCard;
+      if (shouldMove) firstCard.insertAdjacentElement("afterend", card);
     }
     renderSrpDebugLogCard();
     wireDebugCardCopyButtons();
