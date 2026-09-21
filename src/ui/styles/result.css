@@ -1,7 +1,10 @@
 article.mobilede-tech-article,article.mobilede-result-article,
 #mobilede-config-btn-wrap{
   position:relative;
-  z-index:2147483000;
+  /* Hoch genug um mobile.de-Karten zu ueberlagen (max. beobachteter Wert dort ~1000),
+     aber deutlich unter mobile.de's eigenen Vollbild-Overlays wie der Bildergalerie
+     (dort ab ~5.000.000), damit die Lightbox nicht verdeckt wird. */
+  z-index:10000;
   box-sizing:border-box;
 }
 /* 16px ist der Abstand, den mobile.de zwischen allen Karten des Hauptbereichs
