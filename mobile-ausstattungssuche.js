@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.47
+// @version      2.16.48
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -6061,7 +6061,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.47";
+    const SCRIPT_UI_VERSION = "2.16.48";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -6986,6 +6986,14 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
   background:var(--mc-elevated);color:var(--mc-text);font-size:13px;font-family:inherit;
 }
 .mc-srp-select:focus-visible{outline:2px solid var(--mc-accent);outline-offset:2px;}
+/* Eigener Pfeil statt Browser-Standard: der klebte mit 8px Innenabstand fast am Rand. */
+#mobilede-config-overlay .mc-popup select{
+  -webkit-appearance:none;appearance:none;padding-right:32px;
+  background-color:var(--mc-elevated);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23aeb0ba' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;background-size:12px 12px;cursor:pointer;
+}
+#mobilede-config-overlay .mc-popup select:disabled{cursor:not-allowed;opacity:.6;}
 .mc-lo-veh{
   display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;
   border:1px dashed var(--mc-border);background:rgba(0,0,0,.08);
