@@ -14,6 +14,7 @@ export default [
             globals: {
                 ...globals.browser,
                 ...globals.greasemonkey,
+                __USERSCRIPT_VERSION__: 'readonly',
             },
         },
         linterOptions: {

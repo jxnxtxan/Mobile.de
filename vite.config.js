@@ -1,11 +1,14 @@
 import { defineConfig } from 'vite';
 import monkey from 'vite-plugin-monkey';
 
-const USERSCRIPT_VERSION = '2.16.34';
+const USERSCRIPT_VERSION = '2.16.35';
 const RAW_BASE =
   'https://raw.githubusercontent.com/jxnxtxan/Mobile.de/main/mobile-ausstattungssuche.js';
 
 export default defineConfig({
+  define: {
+    __USERSCRIPT_VERSION__: JSON.stringify(USERSCRIPT_VERSION),
+  },
   plugins: [
     monkey({
       entry: 'src/main.js',

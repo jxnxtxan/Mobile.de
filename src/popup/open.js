@@ -119,7 +119,7 @@ export function oeffneKonfigPopup() {
     const konfigHelpPanels = {};
     /** Hilfe-Panel je Tab (Ausstattung, Tech, Merge, Import/Export, Config) — vermeidet Zustandsverlust beim Tab-Wechsel. */
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = '2.11.18';
+    const SCRIPT_UI_VERSION = __USERSCRIPT_VERSION__;
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: 'config', dir: 'asc' };
     let techSort = { key: 'config', dir: 'asc' };

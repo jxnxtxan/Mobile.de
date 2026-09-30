@@ -10,7 +10,19 @@ Tampermonkey-Skript für **mobile.de**-Fahrzeugdetailseiten: definierte **Aussta
 - **SPA-tauglich** (Observer + gedrosseltes Nachladen nach DOM-/URL-Wechsel).
 - Unter **Konfiguration → Config**: z.&nbsp;B. **Standort als Google-Maps-Link** (PLZ/Stadt klickbar), optional **Automodus**, **Listen-Reihenfolge** (alphabetisch oder manuell per Drag&nbsp;&amp;&nbsp;Drop, Bereiche wählbar) und **Standard-Sortierung** für die PKW-Suchergebnisseite (z.&nbsp;B. Preis aufsteigend; manuelle Änderung im Dropdown bleibt bis zur nächsten Suche erhalten).
 - **Automodus** (Config-Tab, standardmäßig aus): Zeigt alle Einträge aus der Ausstattungsliste und strukturierter Komma-Beschreibung in einer Liste. Treffer aus deiner Ausstattungs-Konfiguration werden **farbig** hervorgehoben; übrige Zeilen erscheinen grau. Per **+ Konfig** lässt sich ein unbekannter Eintrag im Popup vorausgefüllt anlegen. Ausgeschaltet verhält sich das Skript wie bisher (nur konfigurierte Suchbegriffe).
+- **Preisbewertung** (siehe [eigener Abschnitt](#preisbewertung)): ausstattungsbereinigte Einordnung des Preises auf Detailseite und Suchergebnisliste.
 - Popup mit Filter, Bulk-Aktionen, Drag-and-Drop (sichtbare Zeilen-Vorschau), konfigurierbarer Listen-Reihenfolge, Undo, Hilfe-Tabs und Validierungshinweisen.
+
+## Preisbewertung
+
+Auf der Fahrzeugdetailseite (neben dem Preis) und in der Suchergebnisliste zeigt das Skript eine **ausstattungsbereinigte Preisbewertung** als Balkenanzeige mit Label.
+
+- **Vergleichsbasis (Kohorte):** ähnliche Fahrzeuge (Marke/Modell, optional Baureihe, Kilometerstand, Erstzulassung und Leistung innerhalb konfigurierbarer Toleranzen). Die Daten stammen aus besuchten Suchergebnisseiten; ohne ausreichend Vergleichsfahrzeuge erscheint „zu wenig Vergleichsdaten“ bzw. ein Hinweis, die Vergleichssuche manuell zu öffnen (ⓘ).
+- **Ausstattungsbereinigung:** Unterschiede in der Ausstattung werden anhand deiner Ausstattungs-Konfiguration (Gewichte, optional nur Favoriten) in den Vergleichspreis eingerechnet; die maximale Korrektur ist begrenzt.
+- **Fallback:** Ohne Kohorte kann der native mobile.de-Marktpreis herangezogen werden.
+- **Stufen:** Sehr guter, Guter, Fairer, Erhöhter und Hoher Preis (Schwellen im Popup anpassbar).
+- **Caching:** Die fertige Bewertung wird kurz im `localStorage` (ca. 3&nbsp;Minuten, tabübergreifend) und im `sessionStorage` gehalten; Kohorten- und Ausstattungsdaten bleiben ca. 20&nbsp;Minuten im `localStorage`. Nach einem Browser-Neustart wird die Bewertung daher in der Regel neu berechnet.
+- **Konfiguration und Debug:** Schwellen, Toleranzen, €/Punkt, Mindestanzahl Vergleiche, Cache-Schritte sowie Debug-Karten/Log sind im Popup einstellbar; Änderungen mit starker Auswirkung fragen vorher nach.
 
 ## Installation
 
@@ -38,6 +50,7 @@ npm install
 npm run build
 ```
 
+- `npm test` führt die Node-Tests in `test/` aus (`node --test`): Parsing-, Match-Engine- und Preisbewertungslogik ohne DOM (kein jsdom). `npm run build` läuft nur durch, wenn **Lint und Tests** grün sind (`lint && test && vite build`).
 - `npm run lint` prüft mit ESLint; `no-undef` ist scharf geschaltet und läuft auch
   als Gate vor jedem `npm run build`. Beim Herauslösen der Module aus dem früheren
   Monolithen sind mehrfach Bezeichner ohne Import stehengeblieben — das Bundle läuft
@@ -63,7 +76,7 @@ Der Button **Konfiguration** sitzt zusammen mit „E-Mail schreiben“, „Gepar
 
 ### Popup: Ausstattung & weitere Tabs
 
-Filter, Schalter für jeden Eintrag, Farbwahl (Hex oder Schlüsselwort), Optionen „Nur Ausstattungsliste“ / „Wortteil-Suche“, aufklappbare **Details** (Suchbegriffe, Verbotene), sowie Tabs für Tech-Daten, Merge-Gruppen, Import/Export und einen Config-Tab.
+Links die Liste aller Einträge mit Schalter, Favoriten-Stern und Farbmarkierung, rechts der **Detail-Editor** (Anzeigetext, Suchbegriffe als Chips, Verbotene Begriffe). Oben Filter (nur aktive / nur Favoriten / mit Verboten), Sortierung, **Duplizieren** und **+ Neu**; Optionen „Nur Ausstattungsliste“ / „Wortteil-Suche“ sowie Tabs für Tech-Daten, Merge-Gruppen, Import/Export und Config. Die Kopfzeile zeigt die Skript-Version und das Schema.
 
 ![Konfigurations-Popup, Tab Ausstattung](./assets/popup-ausstattung.png)
 
