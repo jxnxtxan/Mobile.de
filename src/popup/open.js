@@ -30,13 +30,14 @@ import {
     debugLog,
     persistDebugConfig,
     persistDebugMaster,
-    persistDebugScope,
-    persistShowSrpLogCard,
+    persistDebugDerived,
     featureFlagsDefault,
     ladeFeatureFlags,
     findSrpSortOption,
     mergeSrpSort,
     mergePriceRating,
+    clampInt,
+    clampNum,
     getPriceRating,
     getSrpSort,
 } from '../config/feature-flags/index.js';
@@ -105,6 +106,20 @@ export function oeffneKonfigPopup() {
         baselineFlags.srpSort = mergeSrpSort(baselineFlags.srpSort);
         baselineFlags.priceRating = mergePriceRating(baselineFlags.priceRating);
         baselineFlags.configListUi = getConfigListUi(baselineFlags);
+    }
+
+    /**
+     * Debug-Schalter speichern sofort. Danach nur den Debug-Teil aus dem Speicher
+     * übernehmen — in Arbeitsstand und Baseline —, statt alle Flags neu zu laden:
+     * das hatte offene, ungespeicherte Änderungen still verworfen.
+     */
+    function syncDebugFromStorage() {
+        const stored = ladeFeatureFlags();
+        [aktuelleFeatureFlags, baselineFlags].forEach(target => {
+            target.debug = JSON.parse(JSON.stringify(stored.debug));
+            target.priceRatingDebug = stored.priceRatingDebug;
+            target.priceRatingPerfDebug = stored.priceRatingPerfDebug;
+        });
     }
 
     let dirty = false;
@@ -2578,12 +2593,21 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         overlay.remove();
     }
 
-    function tryCloseFromUser() {
-        if (dirty) {
-            showToast('Ungespeicherte Änderungen – bitte Speichern oder Abbrechen.', 'warn');
+    /** Abbrechen, Escape, ✕ und Klick daneben: gleicher Pfad, bei offenen Änderungen mit Rückfrage. */
+    let closeConfirmOpen = false;
+    async function tryCloseFromUser() {
+        if (!dirty) {
+            removeOverlay();
             return;
         }
-        removeOverlay();
+        if (closeConfirmOpen) return;
+        closeConfirmOpen = true;
+        try {
+            const ok = await confirmAsync('Ungespeicherte Änderungen verwerfen und schließen?');
+            if (ok) removeOverlay();
+        } finally {
+            closeConfirmOpen = false;
+        }
     }
 
     overlay.addEventListener('click', e => {
@@ -2599,6 +2623,9 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function snapshotAus() { return JSON.parse(JSON.stringify(aktuelleAusstattungsKonfig)); }
     function snapshotTech() { return JSON.parse(JSON.stringify(aktuelleTechKonfigurationen)); }
     function snapshotMerge() { return JSON.parse(JSON.stringify(aktuelleMergeGruppen)); }
+    function snapshotFlags() { return JSON.parse(JSON.stringify(aktuelleFeatureFlags)); }
+    /** Vor jeder Änderung im Config-Reiter — Debug ist davon ausgenommen (wirkt sofort). */
+    function pushFlagsUndo() { pushUndo({ kind: 'flags', data: snapshotFlags() }); }
 
     let undoBtnRef = null;
     function syncUndoBtn() {
@@ -2615,9 +2642,21 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         } else if (u.kind === 'ausstattung') aktuelleAusstattungsKonfig = u.data;
         else if (u.kind === 'tech') aktuelleTechKonfigurationen = u.data;
         else if (u.kind === 'merge') aktuelleMergeGruppen = u.data;
+        else if (u.kind === 'flags') {
+            const restored = u.data;
+            restored.priceRating = mergePriceRating(restored.priceRating);
+            restored.listOrder = mergeListOrder(restored.listOrder);
+            restored.srpSort = mergeSrpSort(restored.srpSort);
+            restored.debug = aktuelleFeatureFlags.debug;
+            restored.priceRatingDebug = aktuelleFeatureFlags.priceRatingDebug;
+            restored.priceRatingPerfDebug = aktuelleFeatureFlags.priceRatingPerfDebug;
+            aktuelleFeatureFlags = restored;
+        }
+        markDirty();
         renderAusstattung();
         renderTechData();
         renderMergeConfig();
+        renderConfig();
         refreshExportArea();
         refreshValidationUI();
         updateTabBadges();
@@ -2713,7 +2752,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         btnResetTab.classList.toggle('mc-foot-reset--visible', !!fn);
         btnResetTab.disabled = !fn;
     }
-    const cancelBtn = mkBtn('ghost', 'Abbrechen', () => removeOverlay());
+    const cancelBtn = mkBtn('ghost', 'Abbrechen', () => tryCloseFromUser());
     const saveBtn = mkBtn('primary', 'Speichern', null);
     saveBtnRef = saveBtn;
     syncSaveBtn();
@@ -4815,8 +4854,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         configDebugUiUnlocked = true;
         const currentDebug = getDebugConfig(aktuelleFeatureFlags);
         const next = !currentDebug.enabled;
-        aktuelleFeatureFlags.debug = { ...currentDebug, enabled: next };
         persistDebugMaster(next);
+        syncDebugFromStorage();
         renderConfig();
         showToast(
             next
@@ -4829,7 +4868,14 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     footerResetHandlers[4] = async () => {
         const ok = await confirmAsync('Alle Feature-Flags auf Standard zurücksetzen?');
         if (!ok) return;
-        aktuelleFeatureFlags = featureFlagsDefault();
+        pushFlagsUndo();
+        const keepDebug = {
+            debug: aktuelleFeatureFlags.debug,
+            priceRatingDebug: aktuelleFeatureFlags.priceRatingDebug,
+            priceRatingPerfDebug: aktuelleFeatureFlags.priceRatingPerfDebug
+        };
+        // Debug wirkt sofort und ist nicht Teil von „Speichern“ — beim Zurücksetzen behalten.
+        aktuelleFeatureFlags = { ...featureFlagsDefault(), ...keepDebug };
         markDirty();
         onConfigListUiChanged();
         renderConfig();
@@ -4906,6 +4952,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                 statusLbl.className = 'mc-feature-status' + ((current !== false) ? ' mc-feature-status--on' : '');
                 statusLbl.textContent = (current !== false) ? 'Aktiv' : 'Aus';
                 const toggleEl = mkToggle(current !== false, v => {
+                    pushFlagsUndo();
                     aktuelleFeatureFlags[def.key] = v;
                     markDirty();
                     statusLbl.textContent = v ? 'Aktiv' : 'Aus';
@@ -4977,6 +5024,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             btn.textContent = lab;
             btn.setAttribute('role', 'radio');
             btn.addEventListener('click', () => {
+                pushFlagsUndo();
                 aktuelleFeatureFlags.configListUi = val;
                 syncUiLayoutBtns();
                 markDirty();
@@ -5029,6 +5077,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             btn.textContent = lab;
             btn.setAttribute('role', 'radio');
             btn.addEventListener('click', () => {
+                pushFlagsUndo();
                 lo.mode = val;
                 syncListOrderUi();
                 onListOrderChanged();
@@ -5057,6 +5106,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.addEventListener('change', () => {
+                pushFlagsUndo();
                 lo.scopes[key] = cb.checked;
                 syncListOrderUi();
                 onListOrderChanged();
@@ -5089,6 +5139,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const vehCb = document.createElement('input');
         vehCb.type = 'checkbox';
         vehCb.addEventListener('change', () => {
+            pushFlagsUndo();
             lo.applyToVehicleResults = vehCb.checked;
             syncListOrderUi();
             onListOrderChanged();
@@ -5154,6 +5205,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         srpEnableStatus.className = 'mc-feature-status' + (srp.enabled ? ' mc-feature-status--on' : '');
         srpEnableStatus.textContent = srp.enabled ? 'Aktiv' : 'Aus';
         const srpEnableToggle = mkToggle(!!srp.enabled, v => {
+            pushFlagsUndo();
             srp.enabled = v;
             aktuelleFeatureFlags.srpSort = srp;
             markDirty();
@@ -5183,6 +5235,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         });
         srpSelect.value = srp.sortId;
         srpSelect.addEventListener('change', () => {
+            pushFlagsUndo();
             srp.sortId = srpSelect.value;
             aktuelleFeatureFlags.srpSort = srp;
             markDirty();
@@ -5305,6 +5358,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         prBody.className = 'mc-srp-body';
 
         function syncPrFlags() {
+            // aktuelleFeatureFlags.priceRating hält hier noch den alten Stand (pr ist eine Kopie).
+            pushFlagsUndo();
             aktuelleFeatureFlags.priceRating = mergePriceRating(pr);
             markDirty();
         }
@@ -5314,7 +5369,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             prBody.classList.toggle('mc-pr-body--disabled', !on);
         }
 
-        function mkPrToggleRow(label, getVal, setVal, impactMsg, confirmFn) {
+        function mkPrToggleRow(label, getVal, setVal, impactMsg) {
             const row = document.createElement('div');
             row.className = 'mc-card__main-row mc-card__main-row--feature';
             const txt = document.createElement('div');
@@ -5331,11 +5386,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             const tog = mkToggle(getVal(), async v => {
                 if (v !== getVal()) {
                     let ok = true;
-                    if (confirmFn) {
-                        ok = await confirmFn(v);
-                    } else if (impactMsg) {
-                        ok = await confirmPrImpact(impactMsg);
-                    }
+                    if (impactMsg) ok = await confirmPrImpact(impactMsg);
                     if (!ok) {
                         tog.querySelector('input').checked = getVal();
                         return;
@@ -5367,12 +5418,15 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             inp.max = String(max);
             if (opts && opts.step) inp.step = String(opts.step);
             const display = opts && opts.display ? opts.display : v => v;
-            const parse = opts && opts.parse ? opts.parse : v => v;
+            // Standard: ganze Zahl in [min, max]; 0 bleibt 0, Unlesbares → alter Wert.
+            const parse = opts && opts.parse ? opts.parse : v => clampInt(v, min, max, pr[key]);
             inp.value = String(display(pr[key]));
             inp.addEventListener('change', async () => {
                 const prev = pr[key];
                 const next = parse(inp.value);
-                if (next === prev || (Number.isNaN(next) && Number.isNaN(prev))) return;
+                // Geklemmten Wert sofort zeigen, nicht den getippten.
+                inp.value = String(display(next));
+                if (next === prev) return;
                 if (opts && opts.impact) {
                     const ok = await confirmPrImpact(
                         opts.warn || (label + ': ' + display(prev) + ' → ' + display(next))
@@ -5444,13 +5498,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             impact: true,
             step: 1,
             display: v => Math.round(v * 100),
-            parse: v => Math.max(0.05, Math.min(0.25, parseInt(v, 10) / 100 || pr.maxAdjustPct)),
+            parse: v => clampInt(v, 5, 25, Math.round(pr.maxAdjustPct * 100)) / 100,
             warn: 'Deckelt, wie stark die Ausstattung den erwarteten Preis nach oben/unten schieben darf.'
         }));
         prGrid.appendChild(mkPrNumberField('km-Toleranz Suche (± km)', 'kmToleranceAbs', 0, 200000, {
             impact: true,
             step: 500,
-            parse: v => Math.max(0, Math.min(200000, parseInt(v, 10) || pr.kmToleranceAbs)),
             warn: 'Abweichung in Kilometer (±) für die Vergleichssuche.'
         }));
         prGrid.appendChild(mkPrNumberField('EZ-Toleranz (± Jahre)', 'yearTolerance', 0, 3, {
@@ -5460,25 +5513,21 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         prGrid.appendChild(mkPrNumberField('Leistung-Toleranz (± kW)', 'powerToleranceKw', 0, 80, {
             impact: true,
             step: 1,
-            parse: v => Math.max(0, Math.min(80, parseInt(v, 10) || pr.powerToleranceKw)),
             warn: 'Abweichung in kW (±) für die Vergleichssuche.'
         }));
         prGrid.appendChild(mkPrNumberField('Cache-Key km-Schritt', 'keyKmBucket', 500, 50000, {
             impact: true,
             step: 500,
-            parse: v => Math.max(500, Math.min(50000, parseInt(v, 10) || pr.keyKmBucket)),
             warn: 'Rundet km im Cache-Key auf diesen Schritt (größer = tolerantere Cache-Treffer).'
         }));
         prGrid.appendChild(mkPrNumberField('Cache-Key EZ-Schritt (Jahre)', 'keyYearBucket', 1, 5, {
             impact: true,
             step: 1,
-            parse: v => Math.max(1, Math.min(5, parseInt(v, 10) || pr.keyYearBucket)),
             warn: 'Rundet Erstzulassung im Cache-Key auf diesen Schritt.'
         }));
         prGrid.appendChild(mkPrNumberField('Cache-Key kW-Schritt', 'keyPowerBucket', 1, 50, {
             impact: true,
             step: 1,
-            parse: v => Math.max(1, Math.min(50, parseInt(v, 10) || pr.keyPowerBucket)),
             warn: 'Rundet Leistung im Cache-Key auf diesen Schritt (größer = toleranter).'
         }));
         prBody.appendChild(prGrid);
@@ -5512,8 +5561,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                     return;
                 }
                 if (i === 0 && next > -0.02) next = -0.02;
-                if (i > 0 && next <= pr.thresholds[i - 1].maxPct) {
-                    next = pr.thresholds[i - 1].maxPct + 0.01;
+                const lower = i > 0 ? pr.thresholds[i - 1].maxPct : -Infinity;
+                const upper = i < 3 ? pr.thresholds[i + 1].maxPct : Infinity;
+                if (!(next > lower && next < upper)) {
+                    showToast('Grenze muss zwischen der vorherigen und der nächsten Stufe liegen.', 'warn');
+                    inp.value = String(Math.round(prev * 100));
+                    return;
                 }
                 if (next === prev) return;
                 const ok = await confirmPrImpact(
@@ -5576,6 +5629,10 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         let wtFilteredIndices = [];
         let wtRenderRaf = 0;
         let wtSearchDebounce = 0;
+        cleanupOnClose.add(() => {
+            clearTimeout(wtSearchDebounce);
+            if (wtRenderRaf) cancelAnimationFrame(wtRenderRaf);
+        });
 
         function renderWeightRows() {
             const t0 = pricePerfMarkStart();
@@ -5643,8 +5700,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             const item = aktuelleAusstattungsKonfig[idx];
             if (!item) return;
             const prev = Number(item.preisGewicht) || 0;
-            let next = parseFloat(inp.value);
-            if (Number.isNaN(next) || next < 0) next = 0;
+            const next = clampNum(inp.value, 0, 10, 0);
+            inp.value = String(next);
             if (next === prev) return;
             const impactful = next >= 2.5 || prev >= 2.5 || (prev === 0 && next > 0) || Math.abs(next - prev) >= 1.5;
             if (impactful) {
@@ -5657,6 +5714,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                     return;
                 }
             }
+            pushUndo({ kind: 'ausstattung', data: snapshotAus() });
             item.preisGewicht = next;
             markDirty();
         });
@@ -5715,21 +5773,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                 const scopes = (cfg && cfg.scopes) || {};
                 return DEBUG_SCOPE_DEFINITIONS.every(def => scopes[def.key] === true);
             };
-            const applyScopesFromPreset = (scopes, enabled) => {
-                const mergedScopes = {};
-                DEBUG_SCOPE_DEFINITIONS.forEach(def => {
-                    mergedScopes[def.key] = scopes[def.key] === true;
-                });
-                const nextEnabled = enabled !== false && Object.values(mergedScopes).some(Boolean);
-                const prevDbg = getDebugConfig(aktuelleFeatureFlags);
-                aktuelleFeatureFlags.debug = {
-                    enabled: nextEnabled,
-                    scopes: mergedScopes,
-                    showSrpLogCard: prevDbg.showSrpLogCard === true,
-                };
-                persistDebugConfig(aktuelleFeatureFlags.debug);
-                aktuelleFeatureFlags = ladeFeatureFlags();
+            /** Debug wirkt sofort, übernimmt aber nur den Debug-Teil — offene Änderungen bleiben. */
+            const afterDebugPersist = (toastMsg) => {
+                syncDebugFromStorage();
                 renderConfig();
+                if (toastMsg) showToast(toastMsg, 'success');
             };
             const dbgSec = document.createElement('div');
             dbgSec.className = 'mc-config-section';
@@ -5748,45 +5796,50 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             dbgRow.className = 'mc-pr-actions';
             dbgRow.style.marginTop = '10px';
             const dbgOff = mkBtn('dbg-off', 'Debug ausschalten', () => {
-                persistDebugMaster(false);
-                aktuelleFeatureFlags = ladeFeatureFlags();
-                renderConfig();
-                showToast('Debug-Modus deaktiviert', 'success');
+                const scopes = {};
+                DEBUG_SCOPE_DEFINITIONS.forEach(def => { scopes[def.key] = false; });
+                persistDebugConfig({ enabled: false, showSrpLogCard: false, scopes });
+                syncDebugLogCardsOnPage();
+                afterDebugPersist('Debug-Modus deaktiviert');
             });
-            const dbgAllOn = mkBtn('dbg-all-on', 'Alle Module an', () => {
-                const curr = getDebugConfig(aktuelleFeatureFlags);
-                const nextAllOn = !areAllScopesEnabled(curr);
+            const allOnNow = areAllScopesEnabled(dbgCfg);
+            const dbgAllOn = mkBtn('dbg-all-on', allOnNow ? 'Alle Module aus' : 'Alle Module an', () => {
+                const nextAllOn = !areAllScopesEnabled(getDebugConfig(aktuelleFeatureFlags));
                 const scopes = {};
                 DEBUG_SCOPE_DEFINITIONS.forEach(def => { scopes[def.key] = nextAllOn; });
-                applyScopesFromPreset(scopes, nextAllOn);
-                showToast(nextAllOn ? 'Alle Debug-Module aktiviert' : 'Alle Debug-Module deaktiviert', 'success');
+                persistDebugDerived({ scopes });
+                afterDebugPersist(nextAllOn ? 'Alle Debug-Module aktiviert' : 'Alle Debug-Module deaktiviert');
             });
+            const onVip = isVehicleDetailPage();
+            const onSrp = isSearchResultsPage();
             const dbgLog = mkBtn('dbg-log', 'Kohorte jetzt loggen', () => {
                 runManualCohortLog();
             });
+            dbgLog.disabled = !onVip;
+            if (!onVip) dbgLog.title = 'Nur auf einer Fahrzeugdetailseite verfügbar';
             const dbgSrpLog = mkBtn('dbg-srp-log', 'SRP-Status jetzt loggen', () => {
                 runManualSrpStatusLog();
             });
+            dbgSrpLog.disabled = !onSrp;
+            if (!onSrp) dbgSrpLog.title = 'Nur auf einer Suchergebnisseite verfügbar';
             const srpLogCardsOn = isSrpLogCardEnabled(aktuelleFeatureFlags);
             const dbgSrpCard = mkBtn(
                 'toggle',
                 'Debug-Log-Cards: ' + (srpLogCardsOn ? 'an' : 'aus'),
                 () => {
                     const nextOn = !isSrpLogCardEnabled(aktuelleFeatureFlags);
-                    persistShowSrpLogCard(nextOn);
-                    aktuelleFeatureFlags = ladeFeatureFlags();
+                    persistDebugDerived({ showSrpLogCard: nextOn });
                     syncDebugLogCardsOnPage();
                     if (nextOn) {
                         appendSrpDebugLog('info', 'Debug-Log-Cards aktiviert', {
                             page: isSearchResultsPage() ? 'srp' : (isVehicleDetailPage() ? 'detail' : 'other'),
                         });
                     }
-                    renderConfig();
-                    showToast('Debug-Log-Cards ' + (nextOn ? 'aktiviert' : 'deaktiviert'), 'success');
+                    afterDebugPersist('Debug-Log-Cards ' + (nextOn ? 'aktiviert' : 'deaktiviert'));
                 }
             );
-            dbgAllOn.classList.toggle('mc-btn--toggle-active', areAllScopesEnabled(dbgCfg));
-            dbgAllOn.setAttribute('aria-pressed', areAllScopesEnabled(dbgCfg) ? 'true' : 'false');
+            dbgAllOn.classList.toggle('mc-btn--toggle-active', allOnNow);
+            dbgAllOn.setAttribute('aria-pressed', allOnNow ? 'true' : 'false');
             dbgSrpCard.classList.toggle('mc-btn--toggle-active', srpLogCardsOn);
             dbgSrpCard.setAttribute('aria-pressed', srpLogCardsOn ? 'true' : 'false');
             dbgRow.appendChild(dbgOff);
@@ -5807,11 +5860,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                     () => {
                         const nowCfg = getDebugConfig(aktuelleFeatureFlags);
                         const next = !nowCfg.scopes[def.key];
-                        persistDebugMaster(true);
-                        persistDebugScope(def.key, next);
-                        aktuelleFeatureFlags = ladeFeatureFlags();
-                        renderConfig();
-                        showToast((def.label + (next ? ' Debug aktiv' : ' Debug aus')), 'success');
+                        persistDebugDerived({ scopes: { [def.key]: next } });
+                        afterDebugPersist(def.label + (next ? ' Debug aktiv' : ' Debug aus'));
                     }
                 );
                 btn.classList.toggle('mc-btn--toggle-active', scopeOn);
@@ -5945,10 +5995,14 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         speichereConfig(STORAGE_KEYS.featureFlags, aktuelleFeatureFlags);
         speichereConfig(STORAGE_KEYS.version, SCHEMA_VERSION);
 
-        runtimeState.suchKonfigurationen = aktuelleAusstattungsKonfig;
-        runtimeState.techDataKonfigurationen = aktuelleTechKonfigurationen;
-        runtimeState.mergeGruppenConfig = aktuelleMergeGruppen;
-        runtimeState.featureFlags = aktuelleFeatureFlags;
+        // Kopien statt Referenzen: sonst wirkten spätere, noch ungespeicherte
+        // Popup-Änderungen sofort live (und „Abbrechen“ nähme sie nicht zurück).
+        runtimeState.suchKonfigurationen = JSON.parse(JSON.stringify(aktuelleAusstattungsKonfig));
+        runtimeState.techDataKonfigurationen = JSON.parse(JSON.stringify(aktuelleTechKonfigurationen));
+        runtimeState.mergeGruppenConfig = JSON.parse(JSON.stringify(aktuelleMergeGruppen));
+        runtimeState.featureFlags = JSON.parse(JSON.stringify(aktuelleFeatureFlags));
+        // JSON macht aus der letzten Schwelle (Infinity) null — merge stellt sie wieder her.
+        runtimeState.featureFlags.priceRating = mergePriceRating(runtimeState.featureFlags.priceRating);
         refreshMapsLinkBehavior();
 
         refreshSaveBaseline();

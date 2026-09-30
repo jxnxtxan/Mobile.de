@@ -27,7 +27,10 @@ export function mergeSrpSort(stored) {
 }
 
 export function priceRatingDefault() {
-    return JSON.parse(JSON.stringify(PRICE_RATING_DEFAULT));
+    const d = JSON.parse(JSON.stringify(PRICE_RATING_DEFAULT));
+    // JSON macht aus Infinity null — die offene letzte Stufe wiederherstellen.
+    d.thresholds = PRICE_RATING_DEFAULT.thresholds.map(t => ({ ...t }));
+    return d;
 }
 
 /**
@@ -44,6 +47,31 @@ function numOr(value, fallback) {
     return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * Eingabe aus einem Zahlenfeld auf [min, max] begrenzen. 0 ist gültig; nur
+ * Unlesbares fällt auf `fallback` zurück (`parseInt(x) || alt` verwarf die 0).
+ */
+export function clampInt(value, min, max, fallback) {
+    const n = parseInt(value, 10);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+}
+
+export function clampNum(value, min, max, fallback) {
+    const n = typeof value === 'number' ? value : parseFloat(String(value).replace(',', '.'));
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+}
+
+/** Die vier Grenzen müssen streng aufsteigen, die letzte Stufe ist offen. */
+export function thresholdsAscending(thresholds) {
+    if (!Array.isArray(thresholds) || thresholds.length !== 5) return false;
+    for (let i = 1; i < 4; i++) {
+        if (!(thresholds[i].maxPct > thresholds[i - 1].maxPct)) return false;
+    }
+    return thresholds[4].maxPct === Infinity;
+}
+
 export function mergePriceRating(stored) {
     const d = priceRatingDefault();
     if (!stored || typeof stored !== 'object') return d;
@@ -57,6 +85,7 @@ export function mergePriceRating(stored) {
                 level: typeof t.level === 'number' ? t.level : d.thresholds[i].level
             };
         });
+        if (!thresholdsAscending(out.thresholds)) out.thresholds = d.thresholds;
     }
     out.enabled = stored.enabled !== false;
     out.useModelRange = stored.useModelRange !== false;
@@ -68,7 +97,7 @@ export function mergePriceRating(stored) {
     out.keyPowerBucket = Math.max(1, Math.min(50, intOr(out.keyPowerBucket, d.keyPowerBucket)));
     out.onlyFavoriteWeights = stored.onlyFavoriteWeights === true;
     out.minComparables = Math.max(5, Math.min(50, intOr(out.minComparables, d.minComparables)));
-    out.punktZuEuro = Math.max(100, intOr(out.punktZuEuro, d.punktZuEuro));
+    out.punktZuEuro = Math.max(100, Math.min(5000, intOr(out.punktZuEuro, d.punktZuEuro)));
     out.maxAdjustPct = Math.max(0.05, Math.min(0.25, numOr(out.maxAdjustPct, d.maxAdjustPct)));
     out.kmToleranceAbs = Math.max(0, Math.min(200000, intOr(out.kmToleranceAbs, d.kmToleranceAbs)));
     out.yearTolerance = Math.max(0, Math.min(3, intOr(out.yearTolerance, d.yearTolerance)));
@@ -250,6 +279,27 @@ export function persistDebugConfig(nextDebugConfig) {
     merged.priceRatingPerfDebug = merged.debug.enabled && merged.debug.scopes.perf === true;
     speichereConfig(STORAGE_KEYS.featureFlags, merged);
     runtimeState.featureFlags = merged;
+}
+
+/**
+ * Hauptschalter folgt den Modulen: an, sobald ein Modul oder die Log-Cards an
+ * sind, sonst aus. Vorher erzwangen Modul-Buttons „an“, der Preset-Button
+ * schaltete dagegen bei null Modulen ab.
+ */
+export function withDerivedDebugMaster(dbg) {
+    const scopes = { ...((dbg && dbg.scopes) || {}) };
+    const anyOn = Object.values(scopes).some(v => v === true) || (dbg && dbg.showSrpLogCard === true);
+    return { ...dbg, scopes, enabled: !!anyOn };
+}
+
+export function persistDebugDerived(patch) {
+    const dbg = getDebugConfig(ladeFeatureFlags());
+    const next = {
+        ...dbg,
+        ...patch,
+        scopes: { ...dbg.scopes, ...((patch && patch.scopes) || {}) }
+    };
+    persistDebugConfig(withDerivedDebugMaster(next));
 }
 
 export function persistDebugMaster(enabled) {

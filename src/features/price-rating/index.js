@@ -831,6 +831,13 @@ export function buildCohortSearchUrl(profile, prCfg) {
 }
 
 /** Gleiche Filter-Mitten wie in buildCohortSearchUrl / profileFromSearchPageUrl (Cache-Treffer VIP ↔ SRP). */
+/** EZ-Gruppengröße im Cache-Key: mindestens so breit wie die Toleranz (±1 → 3 Jahre). */
+export function cohortYearBucketSize(pr) {
+    const yearBucketRaw = Math.max(1, parseInt(pr && pr.keyYearBucket, 10) || 1);
+    const yearTol = Math.max(0, parseInt(pr && pr.yearTolerance, 10) || 0);
+    return Math.max(yearBucketRaw, (yearTol * 2) + 1);
+}
+
 export function profileForCohortCacheKey(profile, prCfg) {
     const pr = prCfg || getPriceRating(runtimeState.featureFlags);
     const useModelRange = pr.useModelRange !== false;
@@ -838,10 +845,7 @@ export function profileForCohortCacheKey(profile, prCfg) {
     const useYear = pr.keyUseYear !== false;
     const usePower = pr.keyUsePower !== false;
     const kmBucket = Math.max(500, parseInt(pr.keyKmBucket, 10) || 5000);
-    const yearBucketRaw = Math.max(1, parseInt(pr.keyYearBucket, 10) || 1);
-    const yearTol = Math.max(0, parseInt(pr.yearTolerance, 10) || 0);
-    // Respect EZ tolerance in cache matching: with ±1 years, 2022 and 2023 should map together.
-    const yearBucket = Math.max(yearBucketRaw, (yearTol * 2) + 1);
+    const yearBucket = cohortYearBucketSize(pr);
     const powerBucket = Math.max(1, parseInt(pr.keyPowerBucket, 10) || 10);
     const p = {
         makeId: profile.makeId || '',
@@ -936,9 +940,14 @@ export function cohortHumanLabel(profile, prCfg) {
         .trim();
     const parts = [];
     if (model) parts.push(model);
-    if (typeof p.firstRegistrationYear === 'number') parts.push('EZ-Bucket ' + p.firstRegistrationYear);
-    if (typeof p.mileageKm === 'number') parts.push('km-Bucket ' + p.mileageKm.toLocaleString('de-DE'));
-    if (typeof p.powerKw === 'number') parts.push('kW-Bucket ' + p.powerKw);
+    if (typeof p.firstRegistrationYear === 'number') {
+        // Gruppenanfang allein („2013“) las sich wie ein falsches Baujahr.
+        const size = cohortYearBucketSize(prCfg || getPriceRating(runtimeState.featureFlags));
+        const end = p.firstRegistrationYear + size - 1;
+        parts.push('EZ ' + (size > 1 ? p.firstRegistrationYear + '–' + end : p.firstRegistrationYear));
+    }
+    if (typeof p.mileageKm === 'number') parts.push('km ~' + p.mileageKm.toLocaleString('de-DE'));
+    if (typeof p.powerKw === 'number') parts.push('kW ~' + p.powerKw);
     return parts.join(' | ');
 }
 
