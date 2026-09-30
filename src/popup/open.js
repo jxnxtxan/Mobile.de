@@ -742,9 +742,6 @@ grid-template-rows:minmax(140px,1fr) auto;
 .mc-toolbar__row--controls .mc-toolbar-zone--anzeige{flex:1 1 auto;min-width:0;}
 .mc-toolbar__row--controls .mc-toolbar-zone--bulk{flex:0 0 auto;}
 .mc-toolbar__row--controls .mc-toolbar-zone--bulk:first-child:last-child{margin-left:auto;}
-.mc-toolbar__row--controls .mc-toolbar-zone--bulk:not(:first-child){
-  padding-left:12px;margin-left:4px;border-left:1px solid var(--mc-border);
-}
 .mc-toolbar-zone{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;}
 .mc-toolbar-zone--stack{flex-direction:column;align-items:flex-start;gap:6px;}
 .mc-toolbar-zone__label{

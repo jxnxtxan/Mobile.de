@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.45
+// @version      2.16.46
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -6061,7 +6061,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.45";
+    const SCRIPT_UI_VERSION = "2.16.46";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -6644,9 +6644,6 @@ grid-template-rows:minmax(140px,1fr) auto;
 .mc-toolbar__row--controls .mc-toolbar-zone--anzeige{flex:1 1 auto;min-width:0;}
 .mc-toolbar__row--controls .mc-toolbar-zone--bulk{flex:0 0 auto;}
 .mc-toolbar__row--controls .mc-toolbar-zone--bulk:first-child:last-child{margin-left:auto;}
-.mc-toolbar__row--controls .mc-toolbar-zone--bulk:not(:first-child){
-  padding-left:12px;margin-left:4px;border-left:1px solid var(--mc-border);
-}
 .mc-toolbar-zone{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;}
 .mc-toolbar-zone--stack{flex-direction:column;align-items:flex-start;gap:6px;}
 .mc-toolbar-zone__label{
