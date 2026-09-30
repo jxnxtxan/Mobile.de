@@ -2613,7 +2613,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     }
     window.__mobiledeShowToast = showToast;
 
-    function confirmAsync(msg) {
+    function confirmAsync(msg, opts) {
         return new Promise(resolve => {
             const back = document.createElement('div');
             back.className = 'mc-modal-backdrop';
@@ -2624,14 +2624,20 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             const row = document.createElement('div');
             row.className = 'mc-modal-actions';
             const no = mkBtn('ghost', 'Abbrechen', () => { back.remove(); resolve(false); });
-            const yes = mkBtn('primary', 'Bestätigen', () => { back.remove(); resolve(true); });
+            const yes = mkBtn(
+                opts && opts.danger ? 'danger' : 'primary',
+                (opts && opts.yesLabel) || 'Bestätigen',
+                () => { back.remove(); resolve(true); }
+            );
             row.appendChild(no);
             row.appendChild(yes);
             modal.appendChild(p);
             modal.appendChild(row);
             back.appendChild(modal);
             overlay.appendChild(back);
-            yes.focus();
+            // Bei zerstörerischen Fragen landet ein versehentliches Enter auf „Abbrechen“.
+            if (opts && opts.focusCancel) no.focus();
+            else yes.focus();
         });
     }
 
@@ -2696,7 +2702,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         if (closeConfirmOpen) return;
         closeConfirmOpen = true;
         try {
-            const ok = await confirmAsync('Ungespeicherte Änderungen verwerfen und schließen?');
+            const ok = await confirmAsync('Ungespeicherte Änderungen verwerfen und schließen?', {
+                yesLabel: 'Verwerfen',
+                danger: true,
+                focusCancel: true
+            });
             if (ok) removeOverlay();
         } finally {
             closeConfirmOpen = false;
@@ -5008,7 +5018,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             renderAusstattung();
         }
         const el = panelAus.querySelector('[data-cfg-index="' + idx + '"]');
-        if (el) el.scrollIntoView({ block: 'center' });
+        if (el) el.scrollIntoView({ block: 'nearest' });
     }
 
     /** Unterbereich im Config-Reiter — bleibt über renderConfig() hinweg erhalten. */
@@ -5430,8 +5440,9 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         srpSec.appendChild(srpCard);
         mountConfigSection('srp', srpSec);
 
+        // Bewusst eine Kopie: syncPrFlags() sichert den alten Stand für Rückgängig,
+        // bevor es pr übernimmt. Mit derselben Referenz war der Snapshot schon verändert.
         const pr = mergePriceRating(aktuelleFeatureFlags.priceRating);
-        aktuelleFeatureFlags.priceRating = pr;
 
         async function confirmPrImpact(message) {
             return confirmAsync(
@@ -5511,9 +5522,9 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         prTop.appendChild(prMasterControl);
         const prDesc = document.createElement('div');
         prDesc.className = 'mc-feature-desc';
-        prDesc.textContent = 'Alle Einstellungen für die Preisbewertung an einem Ort. Ausstattungs-Gewichte gelten für erkannte Features (Liste, Titel, Beschreibung). '
-            + 'Vergleichsfahrzeuge kommen von der Suchergebnisseite (ⓘ → Vergleichssuche). Geöffnete Inserate '
-            + 'können zusätzlich Ausstattungs-Details/Beschreibung für präzisere Scores liefern. Cache gilt tabübergreifend (localStorage).';
+        prDesc.textContent = 'Vergleicht den Preis mit ähnlichen Inseraten und rechnet Ausstattungs-Unterschiede heraus. '
+            + 'Vergleichsfahrzeuge kommen von der Suchergebnisseite (ⓘ → Vergleichssuche); geöffnete Inserate liefern '
+            + 'zusätzlich Ausstattungs-Details. Die Gewichte je Ausstattung pflegst du im Reiter Ausstattung.';
         prCard.appendChild(prTop);
         prCard.appendChild(prDesc);
         const prBody = document.createElement('div');

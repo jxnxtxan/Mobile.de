@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.40
+// @version      2.16.41
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -5972,7 +5972,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.40";
+    const SCRIPT_UI_VERSION = "2.16.41";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -8287,7 +8287,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       }, 3200);
     }
     window.__mobiledeShowToast = showToast;
-    function confirmAsync(msg) {
+    function confirmAsync(msg, opts) {
       return new Promise((resolve) => {
         const back = document.createElement("div");
         back.className = "mc-modal-backdrop";
@@ -8301,17 +8301,22 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           back.remove();
           resolve(false);
         });
-        const yes = mkBtn("primary", "Bestätigen", () => {
-          back.remove();
-          resolve(true);
-        });
+        const yes = mkBtn(
+          opts && opts.danger ? "danger" : "primary",
+          opts && opts.yesLabel || "Bestätigen",
+          () => {
+            back.remove();
+            resolve(true);
+          }
+        );
         row.appendChild(no);
         row.appendChild(yes);
         modal.appendChild(p);
         modal.appendChild(row);
         back.appendChild(modal);
         overlay.appendChild(back);
-        yes.focus();
+        if (opts && opts.focusCancel) no.focus();
+        else yes.focus();
       });
     }
     function confirmSaveWithChangelog(changes) {
@@ -8388,7 +8393,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       if (closeConfirmOpen) return;
       closeConfirmOpen = true;
       try {
-        const ok = await confirmAsync("Ungespeicherte Änderungen verwerfen und schließen?");
+        const ok = await confirmAsync("Ungespeicherte Änderungen verwerfen und schließen?", {
+          yesLabel: "Verwerfen",
+          danger: true,
+          focusCancel: true
+        });
         if (ok) removeOverlay();
       } finally {
         closeConfirmOpen = false;
@@ -10591,7 +10600,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         renderAusstattung();
       }
       const el = panelAus.querySelector('[data-cfg-index="' + idx + '"]');
-      if (el) el.scrollIntoView({ block: "center" });
+      if (el) el.scrollIntoView({ block: "nearest" });
     }
     let activeConfigSection = "general";
     const CONFIG_SECTIONS = [
@@ -10985,7 +10994,6 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       srpSec.appendChild(srpCard);
       mountConfigSection("srp", srpSec);
       const pr = mergePriceRating(aktuelleFeatureFlags.priceRating);
-      aktuelleFeatureFlags.priceRating = pr;
       async function confirmPrImpact(message) {
         return confirmAsync(
           "⚠ Starke Auswirkung auf die Preisbewertung\n\n" + message + "\n\nTrotzdem übernehmen?"
@@ -11057,7 +11065,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       prTop.appendChild(prMasterControl);
       const prDesc = document.createElement("div");
       prDesc.className = "mc-feature-desc";
-      prDesc.textContent = "Alle Einstellungen für die Preisbewertung an einem Ort. Ausstattungs-Gewichte gelten für erkannte Features (Liste, Titel, Beschreibung). Vergleichsfahrzeuge kommen von der Suchergebnisseite (ⓘ → Vergleichssuche). Geöffnete Inserate können zusätzlich Ausstattungs-Details/Beschreibung für präzisere Scores liefern. Cache gilt tabübergreifend (localStorage).";
+      prDesc.textContent = "Vergleicht den Preis mit ähnlichen Inseraten und rechnet Ausstattungs-Unterschiede heraus. Vergleichsfahrzeuge kommen von der Suchergebnisseite (ⓘ → Vergleichssuche); geöffnete Inserate liefern zusätzlich Ausstattungs-Details. Die Gewichte je Ausstattung pflegst du im Reiter Ausstattung.";
       prCard.appendChild(prTop);
       prCard.appendChild(prDesc);
       const prBody = document.createElement("div");
