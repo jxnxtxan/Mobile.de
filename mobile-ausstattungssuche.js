@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.44
+// @version      2.16.45
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -1254,6 +1254,17 @@
     if (matching.some((e) => e.configInactive)) meta.configInactive = true;
     return meta;
   }
+  function mergePreviewText(group, maxModifiers = 3) {
+    const basis = (group && group.basis || "").trim();
+    if (!basis) return null;
+    const mods = (group && group.order || []).map((m) => String(m || "").trim()).filter(Boolean).slice(0, maxModifiers);
+    if (mods.length < 2) return null;
+    const basisCap = basis.charAt(0).toUpperCase() + basis.slice(1);
+    return {
+      from: mods.map((m) => basisCap + " " + m),
+      to: basisCap + " " + mods.join(", ")
+    };
+  }
   function generalizedMergeEntries(entries, gruppen) {
     if (!Array.isArray(gruppen) || gruppen.length === 0) return entries;
     let result = [...entries];
@@ -1742,6 +1753,22 @@
       }
     });
     return daten;
+  }
+  function verfuegbareTechFelder() {
+    const dl = getTechDataDl();
+    if (!dl) return [];
+    const out = [];
+    const seen = new Set();
+    dl.querySelectorAll("dt").forEach((dt) => {
+      const label = (dt.textContent || "").trim();
+      const key = label.toLowerCase();
+      if (!label || seen.has(key)) return;
+      seen.add(key);
+      const dd = dt.nextElementSibling;
+      const value = dd && dd.tagName.toLowerCase() === "dd" ? dd.textContent.trim() : "";
+      out.push({ label, value });
+    });
+    return out;
   }
   function technischeDatenHinzufuegen(parentElement) {
     const technischeDaten = sucheTechnischeDaten();
@@ -5840,6 +5867,45 @@ Kontext: …${item.snippet}…` : "";
     scheduleTask("rating:srp-observer-init", "rating", () => ensureSrpPriceRatingObserver());
     scheduleTask("ui:debug-log-cards-init", "ui", () => syncDebugLogCardsOnPage());
   }
+  function summarizeConfigImport(text, currentSchema) {
+    const raw = String(text || "").trim();
+    if (!raw) return { ok: false, empty: true, message: "" };
+    let obj;
+    try {
+      obj = JSON.parse(raw);
+    } catch (err) {
+      return { ok: false, message: "Kein gültiges JSON: " + (err && err.message ? err.message : err) };
+    }
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+      return { ok: false, message: "Kein Konfigurations-Objekt erkannt." };
+    }
+    const parts = [];
+    const count = (arr, one, many) => arr.length + " " + (arr.length === 1 ? one : many);
+    if (Array.isArray(obj.suchKonfigurationen)) {
+      parts.push(count(obj.suchKonfigurationen, "Ausstattung", "Ausstattungen"));
+    }
+    if (Array.isArray(obj.techDataKonfigurationen)) {
+      parts.push(count(obj.techDataKonfigurationen, "Tech-Feld", "Tech-Felder"));
+    }
+    if (Array.isArray(obj.mergeGruppenConfig)) {
+      parts.push(count(obj.mergeGruppenConfig, "Merge-Gruppe", "Merge-Gruppen"));
+    }
+    if (obj.featureFlags && typeof obj.featureFlags === "object") parts.push("Einstellungen");
+    if (obj.priceDataStore && typeof obj.priceDataStore === "object") {
+      const ads = Object.keys(obj.priceDataStore.adsById || {}).length;
+      parts.push("Preisdaten (" + ads + " Inserate)");
+    }
+    if (!parts.length) {
+      return { ok: false, message: "Die Datei enthält keine bekannten Konfigurationsteile." };
+    }
+    const schema = typeof obj.__version === "number" ? obj.__version : null;
+    let note = "";
+    if (schema == null) note = "ohne Schema-Angabe";
+    else if (schema !== currentSchema) {
+      note = "Schema v" + schema + " (aktuell v" + currentSchema + ")";
+    } else note = "Schema v" + schema;
+    return { ok: true, parts, schema, message: parts.join(" · ") + " · " + note };
+  }
   const KONFIG_TAB_HELP_HTML = new Map([
     ["aus", `
 <h4>Was macht das?</h4>
@@ -5857,7 +5923,7 @@ Kontext: …${item.snippet}…` : "";
 <li><strong>Spaltenköpfe</strong> sortieren die Anzeige (bei manueller Reihenfolge deaktiviert).</li>
 <li><strong>Ziehen</strong> (⋮⋮): ganze Zeile als Vorschau; Live-Platzhalter beim Ziehen.</li>
 <li><strong>Filter</strong> „nur aktive“ / „nur Favoriten“ und <strong>Alle Einträge</strong> (Ein/Aus für alle Einträge im Tab) stehen in einer Zeile.</li>
-<li><strong>Defaults zurücksetzen</strong> im Footer neben <strong>Rückgängig</strong> (mit Trennlinie) – nicht in der Listen-Toolbar.</li>
+<li><strong>Auf Standard zurücksetzen…</strong> steht dezent unten links im Footer (mit Rückfrage, per Rückgängig umkehrbar).</li>
 <li><strong>Listen-Layout</strong> (Tab Config): Umschaltung zwischen diesem klassischen Grid und der Split-View (Liste + Editor).</li>
 </ul>`],
     ["aus_split", `
@@ -5867,7 +5933,7 @@ Kontext: …${item.snippet}…` : "";
 <ul>
 <li><strong>Liste links</strong>: Kompakte Zeilen (Aktiv, Favorit, Name, Farbe, Badges). Eintrag anklicken → Editor rechts.</li>
 <li><strong>Editor rechts</strong>: Anzeigetext, Suchbegriffe und Verbote als <strong>Chips</strong> (Enter oder Komma zum Hinzufügen, × zum Entfernen).</li>
-<li><strong>Farbe</strong>, <strong>Nur Ausstattungsliste</strong>, <strong>Wortteil-Suche</strong>, <strong>Duplizieren</strong> und <strong>Löschen</strong> im Editor.</li>
+<li><strong>Duplizieren</strong> und <strong>Löschen</strong> oben im Editor-Kopf; darunter <strong>Preisgewicht</strong>, <strong>Farbe</strong>, <strong>Nur Ausstattungsliste</strong> und <strong>Wortteil-Suche</strong>.</li>
 <li><strong>Sortierung</strong> über Dropdown in der Toolbar (bei manueller Reihenfolge deaktiviert).</li>
 <li><strong>Filter</strong> inkl. „Mit Verboten“; Favoriten-Block und Drag&amp;Drop (⋮⋮) wie bisher.</li>
 <li>Auf schmalen Bildschirmen: Editor als Sheet von unten („Fertig“ zum Schließen).</li>
@@ -5880,7 +5946,7 @@ Kontext: …${item.snippet}…` : "";
 <ul>
 <li><strong>Aktiv-Schalter</strong> zum Ein-/Ausblenden.</li>
 <li><strong>Begriff</strong>: Muss exakt mit dem <code>&lt;dt&gt;</code>-Label aus dem mobile.de-Tech-Daten-Block übereinstimmen (Groß-/Kleinschreibung egal).</li>
-<li><strong>Suche</strong>, <strong>Alle Einträge</strong> (Ein/Aus für alle Tech-Einträge) und <strong>Spaltenköpfe</strong> wie auf der Ausstattungs-Seite. <strong>Defaults zurücksetzen</strong> im Footer neben <strong>Rückgängig</strong>.</li>
+<li><strong>Suche</strong>, <strong>Alle Einträge</strong> (Ein/Aus für alle Tech-Einträge) und <strong>Spaltenköpfe</strong> wie auf der Ausstattungs-Seite. <strong>Auf Standard zurücksetzen…</strong> unten links im Footer. Bei bis zu 8 Einträgen blendet die Werkzeugleiste Suche, Filter und Sortierung aus.</li>
 <li><strong>Listen-Reihenfolge</strong> (Tab Config): Bereich „Tech-Daten“ + Modus Manuell → Drag&amp;Drop; optional Reihenfolge auf der Fahrzeugseite übernehmen.</li>
 <li><strong>Reihenfolge</strong> per Drag&amp;Drop (⋮⋮) mit Live-Vorschau in der Liste.</li>
 <li><strong>Listen-Layout</strong> (Tab Config): optional Split-View (Liste + Editor).</li>
@@ -5891,7 +5957,8 @@ Kontext: …${item.snippet}…` : "";
 <h4>Split-View:</h4>
 <ul>
 <li><strong>Liste links</strong>: Aktiv-Schalter und gekürzter Begriff — Zeile anklicken für den Editor.</li>
-<li><strong>Editor rechts</strong>: Vollständiger Begriff (exakt wie <code>&lt;dt&gt;</code>-Label), Option <strong>Aktiv</strong>, Löschen.</li>
+<li><strong>Editor rechts</strong>: Begriff (exakt wie <code>&lt;dt&gt;</code>-Label), Löschen oben. Aktiv/inaktiv per Schalter in der Liste.</li>
+<li><strong>Auf diesem Inserat verfügbar</strong>: Auf einer Fahrzeugseite legt ein Klick auf einen Vorschlag das Feld mit exaktem Label an.</li>
 <li><strong>Sortierung</strong> per Dropdown; Drag&amp;Drop bei manueller Tech-Reihenfolge (Config).</li>
 <li>Layout: Tab <strong>Config</strong> → <strong>Listen-Layout</strong>.</li>
 </ul>`],
@@ -5903,7 +5970,7 @@ Kontext: …${item.snippet}…` : "";
 <li><strong>Aktiv-Schalter</strong>: Inaktive Gruppen werden beim Zusammenfassen auf der Fahrzeugseite ignoriert.</li>
 <li><strong>Basis</strong>: Das gemeinsame Wort, nach dem gruppiert wird (z.B. <code>außenspiegel</code>). Klein- und Großschreibung egal.</li>
 <li><strong>Reihenfolge</strong>: Komma-getrennte Liste der Modifizierer-Schlüsselwörter in der gewünschten Reihenfolge im zusammengefassten Eintrag (z.B. <code>elektr. verstellbar, beheizbar, anklappbar</code>). Treffer, die in keiner Reihenfolge auftauchen, kommen ans Ende.</li>
-<li><strong>Spaltenköpfe</strong> zum Sortieren, <strong>Filter „nur aktive“</strong> und <strong>Alle Einträge</strong> (Ein/Aus) in einer Zeile wie bei Ausstattung. Speichern sortiert alphabetisch nach Basis. <strong>Defaults zurücksetzen</strong> im Footer neben <strong>Rückgängig</strong>.</li>
+<li><strong>Spaltenköpfe</strong> zum Sortieren, <strong>Filter „nur aktive“</strong> und <strong>Alle Einträge</strong> (Ein/Aus) in einer Zeile wie bei Ausstattung. Speichern sortiert alphabetisch nach Basis. <strong>Auf Standard zurücksetzen…</strong> unten links im Footer. Bei bis zu 8 Einträgen blendet die Werkzeugleiste Suche, Filter und Sortierung aus.</li>
 <li><strong>Listen-Layout</strong> (Tab Config): optional Split-View.</li>
 </ul>`],
     ["merge_split", `
@@ -5912,7 +5979,7 @@ Kontext: …${item.snippet}…` : "";
 <h4>Split-View:</h4>
 <ul>
 <li><strong>Liste links</strong>: Aktiv, Basis (gekürzt), Badge mit Anzahl Modifier.</li>
-<li><strong>Editor rechts</strong>: Basis-Feld; Modifier-Reihenfolge als <strong>Chips</strong> (Enter/Komma); Option <strong>Aktiv</strong>, Löschen.</li>
+<li><strong>Editor rechts</strong>: Basis-Feld; Modifier-Reihenfolge als <strong>Chips</strong> (Enter/Komma); <strong>Beispiel</strong> zeigt, was auf der Fahrzeugseite daraus wird. Löschen oben, Aktiv per Schalter in der Liste.</li>
 <li><strong>Sortierung</strong> per Dropdown in der Toolbar.</li>
 <li>Layout: Tab <strong>Config</strong> → <strong>Listen-Layout</strong>.</li>
 </ul>`],
@@ -5994,7 +6061,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.44";
+    const SCRIPT_UI_VERSION = "2.16.45";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -6802,6 +6869,22 @@ grid-template-rows:minmax(140px,1fr) auto;
 }
 .mc-pr-group{display:flex;flex-direction:column;gap:6px;margin-top:16px;}
 .mc-weight-editor{display:flex;flex-direction:column;gap:4px;}
+.mc-tech-suggest{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 8px;}
+.mc-ie-json>summary{cursor:pointer;font-size:12px;color:var(--mc-muted);padding:4px 0;}
+.mc-ie-json[open]>summary{margin-bottom:6px;}
+.mc-ie-summary{font-size:12px;line-height:1.4;color:var(--mc-muted);flex:1;min-width:0;}
+.mc-ie-summary--ok{color:var(--mc-ok);}
+.mc-ie-summary--error{color:var(--mc-danger);}
+.mc-ie-group--collapsible>summary{cursor:pointer;}
+.mc-merge-preview{
+  font-size:12px;line-height:1.5;color:var(--mc-muted);padding:8px 10px;border-radius:8px;
+  border:1px dashed var(--mc-border);background:rgba(0,0,0,.12);
+}
+.mc-merge-preview__from{color:var(--mc-muted);}
+.mc-merge-preview__arrow{font-size:11px;margin:2px 0;}
+.mc-merge-preview__to{color:var(--mc-text);font-weight:600;}
+.mc-tech-suggest[hidden]{display:none;}
+.mc-tech-suggest__label{font-size:12px;color:var(--mc-muted);margin-right:2px;}
 .mc-weight-editor__input{max-width:160px;}
 .mc-weight-editor__hint{font-size:11px;color:var(--mc-muted);}
 .mc-pr-weight-summary{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
@@ -7052,7 +7135,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
 }
 .mc-ie-code[readonly]{cursor:default;opacity:.95;}
 .mc-ie-meta{font-size:11px;color:var(--mc-muted);line-height:1.35;margin-top:-4px;}
-.mc-ie-import-footer{display:flex;justify-content:flex-end;margin-top:auto;padding-top:2px;}
+.mc-ie-import-footer{display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:auto;padding-top:2px;}
 .mc-dropzone{
   flex-shrink:0;border:2px dashed var(--mc-border);border-radius:10px;padding:14px 12px;
   text-align:center;cursor:pointer;background:rgba(0,0,0,.14);
@@ -7575,7 +7658,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       function syncHint() {
         const eff = wirksamesPreisGewicht(item);
         const src = typeof item.preisGewicht === "number" ? item.preisGewicht > 0 ? "eigener Wert" : "bewusst aus" : std != null ? "Standard" : "kein Gewicht";
-        hint.textContent = "Wirksam: " + fmtGewicht(eff) + " Punkte (" + src + ") · 0 = aus, leer = Standard";
+        hint.textContent = "Wirksam: " + fmtGewicht(eff) + " Punkte (" + src + ") · 0 = aus, leer = Standard" + (item.aktiv ? "" : " · Eintrag ist inaktiv und zählt nicht");
       }
       inp.addEventListener("change", () => {
         const raw = inp.value.trim();
@@ -8676,7 +8759,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       filters: [
         { label: "nur aktive", title: "Nur aktive Einträge anzeigen" },
         { label: "nur Favoriten", title: "Nur favorisierte Einträge anzeigen" },
-        { label: "mit Verboten", title: "Nur Einträge mit verbotenen Begriffen" }
+        { label: "mit Verboten", title: "Nur Einträge mit verbotenen Begriffen" },
+        { label: "mit Gewicht", title: "Nur Einträge, die in der Preisbewertung zählen (Gewicht > 0)" }
       ],
       bulk: { onAll: (flag2) => bulkAusAlle(flag2) },
       onNeu: () => {
@@ -8685,6 +8769,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         onlyCb.checked = false;
         favOnlyCb.checked = false;
         verbotenOnlyCb.checked = false;
+        gewichtOnlyCb.checked = false;
         selectedAusIndex = 0;
         expandedAusstattungIndex = useConfigSplitView() ? null : 0;
         markDirty();
@@ -8699,6 +8784,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     const onlyCb = ausTb.filterCbs[0];
     const favOnlyCb = ausTb.filterCbs[1];
     const verbotenOnlyCb = ausTb.filterCbs[2];
+    const gewichtOnlyCb = ausTb.filterCbs[3];
     const ausSortDropdown = mkSortDropdown(ausSort, [
       { key: "anzeige", dir: "asc", label: "Anzeige A–Z" },
       { key: "anzeige", dir: "desc", label: "Anzeige Z–A" },
@@ -8773,6 +8859,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       if (onlyCb.checked && !item.aktiv) return false;
       if (favOnlyCb.checked && item.favorit !== true) return false;
       if (verbotenOnlyCb.checked && !(Array.isArray(item.verboten) && item.verboten.length)) return false;
+      if (gewichtOnlyCb.checked && wirksamesPreisGewicht(item) <= 0) return false;
       if (!f) return true;
       if ((item.anzeige || "").toLowerCase().includes(f)) return true;
       if ((item.begriffe || []).some((b) => String(b).toLowerCase().includes(f))) return true;
@@ -9239,7 +9326,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       if (item.compound) badges.push("Wortteil");
       const vCount = Array.isArray(item.verboten) ? item.verboten.length : 0;
       if (vCount) badges.push(vCount + " verboten");
-      const wEff = wirksamesPreisGewicht(item);
+      const wEff = item.aktiv ? wirksamesPreisGewicht(item) : 0;
       if (wEff > 0) badges.push("⚖ " + fmtGewicht(wEff));
       const errs = cardIssuesAus(index, item);
       const row = mkSplitListItem({
@@ -9468,7 +9555,40 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     const techSplitShell = mkConfigSplitShell("tech");
     techSplitShell.root.hidden = true;
     const techSplit = techSplitShell;
+    const techSuggest = document.createElement("div");
+    techSuggest.className = "mc-tech-suggest";
+    function renderTechSuggestions() {
+      techSuggest.innerHTML = "";
+      const vorhanden = new Set(aktuelleTechKonfigurationen.map((t) => (t.begriff || "").trim().toLowerCase()));
+      const felder = verfuegbareTechFelder().filter((f) => !vorhanden.has(f.label.toLowerCase()));
+      if (!felder.length) {
+        techSuggest.hidden = true;
+        return;
+      }
+      techSuggest.hidden = false;
+      const lab = document.createElement("span");
+      lab.className = "mc-tech-suggest__label";
+      lab.textContent = "Auf diesem Inserat verfügbar:";
+      techSuggest.appendChild(lab);
+      felder.forEach((f) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "mc-pr-weight-chip mc-tech-suggest__chip";
+        b.textContent = "+ " + f.label;
+        if (f.value) b.title = f.label + ": " + f.value;
+        b.addEventListener("click", () => {
+          pushUndo({ kind: "tech", data: snapshotTech() });
+          aktuelleTechKonfigurationen.push({ begriff: f.label, aktiv: true });
+          selectedTechIndex = aktuelleTechKonfigurationen.length - 1;
+          markDirty();
+          renderTechData();
+          showToast("„" + f.label + "“ hinzugefügt", "success");
+        });
+        techSuggest.appendChild(b);
+      });
+    }
     panelTech.appendChild(techToolbar);
+    panelTech.appendChild(techSuggest);
     panelTech.appendChild(techContainer);
     panelTech.appendChild(techSplit.root);
     installKonfigTabHelp("tech", "mc-konfig-help-tech", "Hilfe zum Tab Tech-Daten", "Hilfe zu Tech-Daten", techTb.searchRow, null, panelTech, techContainer);
@@ -9656,6 +9776,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const act = aktuelleTechKonfigurationen.filter((t) => t.aktiv).length;
       techMetaStats.textContent = vis.length + " von " + total + " sichtbar · " + act + " aktiv";
       techTb.setDensity(total);
+      renderTechSuggestions();
       techMetaHint.textContent = listOrderMetaHint("tech");
       techSortDropdown.querySelector("select").disabled = columnSortLockedForTech();
       if (aktuelleTechKonfigurationen.length === 0) {
@@ -9695,6 +9816,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const sortedVis = getSortedTechVisibleIndices();
       techMetaStats.textContent = vis.length + " von " + total + " sichtbar · " + act + " aktiv";
       techTb.setDensity(total);
+      renderTechSuggestions();
       techMetaHint.textContent = listOrderMetaHint("tech");
       if (aktuelleTechKonfigurationen.length === 0) {
         techContainer.appendChild(mkEmptyState("Keine Tech-Parameter."));
@@ -9944,12 +10066,38 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const chipO = mkChipInput(group.order, {
         onChange: (arr) => {
           group.order = arr;
+          syncMergePreview();
           markDirty();
           refreshValidationUI();
           renderMergeSplitListOnly();
         }
       });
       fields.appendChild(mkConfigSplitEditorField("Modifier-Reihenfolge (Komma oder Enter)", chipO.wrap));
+      const preview = document.createElement("div");
+      preview.className = "mc-merge-preview";
+      function syncMergePreview() {
+        preview.innerHTML = "";
+        const pv = mergePreviewText(group);
+        if (!pv) {
+          preview.textContent = "Mindestens zwei Modifier eintragen, dann erscheint hier ein Beispiel.";
+          return;
+        }
+        const from = document.createElement("div");
+        from.className = "mc-merge-preview__from";
+        from.textContent = pv.from.join("  ·  ");
+        const arrow = document.createElement("div");
+        arrow.className = "mc-merge-preview__arrow";
+        arrow.textContent = "↓ wird auf der Fahrzeugseite zu";
+        const to = document.createElement("div");
+        to.className = "mc-merge-preview__to";
+        to.textContent = pv.to;
+        preview.appendChild(from);
+        preview.appendChild(arrow);
+        preview.appendChild(to);
+      }
+      syncMergePreview();
+      inpB.addEventListener("input", syncMergePreview);
+      fields.appendChild(mkConfigSplitEditorField("Beispiel", preview));
       editor.appendChild(fields);
       const footer = mkConfigSplitEditorFooter();
       const actions = mkConfigSplitEditorActions();
@@ -10149,11 +10297,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     const ieGroupConfigTitle = document.createElement("div");
     ieGroupConfigTitle.className = "mc-ie-group__title";
     ieGroupConfigTitle.textContent = "Konfiguration";
-    const ieGroupPrice = document.createElement("div");
-    ieGroupPrice.className = "mc-ie-group";
-    const ieGroupPriceTitle = document.createElement("div");
+    const ieGroupPrice = document.createElement("details");
+    ieGroupPrice.className = "mc-ie-group mc-ie-group--collapsible";
+    const ieGroupPriceTitle = document.createElement("summary");
     ieGroupPriceTitle.className = "mc-ie-group__title";
-    ieGroupPriceTitle.textContent = "Preisdaten-Sync";
+    ieGroupPriceTitle.textContent = "Preisdaten-Sync — Inserate und Vergleichsgruppen zwischen Browsern übertragen";
     const cardEx = document.createElement("div");
     cardEx.className = "mc-ie-card mc-ie-card--export";
     const exHead = document.createElement("div");
@@ -10190,10 +10338,6 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function refreshExportArea() {
       exportArea.value = JSON.stringify(buildExportPayload(), null, 2);
     }
-    const btnGenerateExport = mkBtn("ghost", "Aktualisieren", () => {
-      refreshExportArea();
-      showToast("Export-Vorschau aktualisiert", "success");
-    });
     const btnCopyExport = mkBtn("ghost", "Kopieren", async () => {
       refreshExportArea();
       const text = exportArea.value || "";
@@ -10226,14 +10370,22 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       setTimeout(() => URL.revokeObjectURL(a.href), 2500);
       showToast("Datei gestartet", "success");
     });
-    exBtnGroup.appendChild(btnGenerateExport);
     exBtnGroup.appendChild(btnCopyExport);
     exActions.appendChild(exBtnGroup);
     exActions.appendChild(btnDownloadExport);
     cardEx.appendChild(exHead);
     cardEx.appendChild(exActions);
-    cardEx.appendChild(exportArea);
     cardEx.appendChild(exMeta);
+    const exJson = document.createElement("details");
+    exJson.className = "mc-ie-json";
+    const exJsonSum = document.createElement("summary");
+    exJsonSum.textContent = "JSON anzeigen";
+    exJson.appendChild(exJsonSum);
+    exJson.appendChild(exportArea);
+    exJson.addEventListener("toggle", () => {
+      if (exJson.open) refreshExportArea();
+    });
+    cardEx.appendChild(exJson);
     const cardIm = document.createElement("div");
     cardIm.className = "mc-ie-card mc-ie-card--import";
     const imHead = document.createElement("div");
@@ -10287,6 +10439,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const r = new FileReader();
       r.onload = () => {
         importArea.value = String(r.result || "");
+        syncImportSummary();
         showToast("Datei eingeladen – bitte prüfen", "success");
       };
       r.readAsText(file);
@@ -10297,6 +10450,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const r = new FileReader();
       r.onload = () => {
         importArea.value = String(r.result || "");
+        syncImportSummary();
         showToast("Datei eingeladen", "success");
       };
       r.readAsText(file);
@@ -10309,6 +10463,17 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     importArea.setAttribute("aria-label", "Import JSON");
     const imFooter = document.createElement("div");
     imFooter.className = "mc-ie-import-footer";
+    const imSummary = document.createElement("div");
+    imSummary.className = "mc-ie-summary";
+    imSummary.setAttribute("aria-live", "polite");
+    function syncImportSummary() {
+      const sum = summarizeConfigImport(importArea.value, SCHEMA_VERSION);
+      imSummary.textContent = sum.empty ? "" : sum.ok ? "Enthält: " + sum.message : sum.message;
+      imSummary.classList.toggle("mc-ie-summary--ok", !!sum.ok);
+      imSummary.classList.toggle("mc-ie-summary--error", !sum.ok && !sum.empty);
+      btnImport.disabled = !sum.ok;
+    }
+    importArea.addEventListener("input", syncImportSummary);
     const btnImport = mkBtn("primary", "Import durchführen", async () => {
       const text = importArea.value.trim();
       if (!text) {
@@ -10321,7 +10486,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         showToast("Ungültiges JSON: " + err, "error");
         return;
       }
-      const ok = await confirmAsync("Import ersetzt die geladenen Konfig-Daten im Popup (vorher automatisches Backup in GM-Speicher). Fortfahren?");
+      const sum = summarizeConfigImport(text, SCHEMA_VERSION);
+      const ok = await confirmAsync("Import ersetzt die Konfiguration im Popup durch: " + sum.message + ".\n\nVorher wird automatisch ein Backup angelegt; übernommen wird erst mit Speichern. Fortfahren?");
       if (!ok) return;
       try {
         const obj = JSON.parse(text);
@@ -10362,7 +10528,9 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         showToast("Fehler beim Import: " + e2, "error");
       }
     });
+    imFooter.appendChild(imSummary);
     imFooter.appendChild(btnImport);
+    btnImport.disabled = true;
     cardIm.appendChild(imHead);
     cardIm.appendChild(drop);
     cardIm.appendChild(fileInp);
@@ -10404,10 +10572,6 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       storeExportArea.value = JSON.stringify(payload, null, 2);
       storeExMeta.textContent = "Dateiname: mobilede-preisdaten-YYYY-MM-DD.json · " + adsCount + " Inserate · " + cohortsCount + " Kohorten";
     }
-    const btnStoreGenerateExport = mkBtn("ghost", "Aktualisieren", () => {
-      refreshPriceStoreExportArea();
-      showToast("Preisdaten-Export aktualisiert", "success");
-    });
     const btnStoreCopyExport = mkBtn("ghost", "Kopieren", async () => {
       refreshPriceStoreExportArea();
       const text = storeExportArea.value || "";
@@ -10440,14 +10604,22 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       setTimeout(() => URL.revokeObjectURL(a.href), 2500);
       showToast("Preisdaten-Datei gestartet", "success");
     });
-    storeExBtnGroup.appendChild(btnStoreGenerateExport);
     storeExBtnGroup.appendChild(btnStoreCopyExport);
     storeExActions.appendChild(storeExBtnGroup);
     storeExActions.appendChild(btnStoreDownloadExport);
     cardStoreEx.appendChild(storeExHead);
     cardStoreEx.appendChild(storeExActions);
-    cardStoreEx.appendChild(storeExportArea);
     cardStoreEx.appendChild(storeExMeta);
+    const storeJson = document.createElement("details");
+    storeJson.className = "mc-ie-json";
+    const storeJsonSum = document.createElement("summary");
+    storeJsonSum.textContent = "JSON anzeigen";
+    storeJson.appendChild(storeJsonSum);
+    storeJson.appendChild(storeExportArea);
+    storeJson.addEventListener("toggle", () => {
+      if (storeJson.open) refreshPriceStoreExportArea();
+    });
+    cardStoreEx.appendChild(storeJson);
     const cardStoreIm = document.createElement("div");
     cardStoreIm.className = "mc-ie-card mc-ie-card--import";
     const storeImHead = document.createElement("div");

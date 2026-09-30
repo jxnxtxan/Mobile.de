@@ -17,7 +17,7 @@ export const KONFIG_TAB_HELP_HTML = new Map([
 <li><strong>Spaltenköpfe</strong> sortieren die Anzeige (bei manueller Reihenfolge deaktiviert).</li>
 <li><strong>Ziehen</strong> (⋮⋮): ganze Zeile als Vorschau; Live-Platzhalter beim Ziehen.</li>
 <li><strong>Filter</strong> „nur aktive“ / „nur Favoriten“ und <strong>Alle Einträge</strong> (Ein/Aus für alle Einträge im Tab) stehen in einer Zeile.</li>
-<li><strong>Defaults zurücksetzen</strong> im Footer neben <strong>Rückgängig</strong> (mit Trennlinie) – nicht in der Listen-Toolbar.</li>
+<li><strong>Auf Standard zurücksetzen…</strong> steht dezent unten links im Footer (mit Rückfrage, per Rückgängig umkehrbar).</li>
 <li><strong>Listen-Layout</strong> (Tab Config): Umschaltung zwischen diesem klassischen Grid und der Split-View (Liste + Editor).</li>
 </ul>`],
     ['aus_split', `
@@ -27,7 +27,7 @@ export const KONFIG_TAB_HELP_HTML = new Map([
 <ul>
 <li><strong>Liste links</strong>: Kompakte Zeilen (Aktiv, Favorit, Name, Farbe, Badges). Eintrag anklicken → Editor rechts.</li>
 <li><strong>Editor rechts</strong>: Anzeigetext, Suchbegriffe und Verbote als <strong>Chips</strong> (Enter oder Komma zum Hinzufügen, × zum Entfernen).</li>
-<li><strong>Farbe</strong>, <strong>Nur Ausstattungsliste</strong>, <strong>Wortteil-Suche</strong>, <strong>Duplizieren</strong> und <strong>Löschen</strong> im Editor.</li>
+<li><strong>Duplizieren</strong> und <strong>Löschen</strong> oben im Editor-Kopf; darunter <strong>Preisgewicht</strong>, <strong>Farbe</strong>, <strong>Nur Ausstattungsliste</strong> und <strong>Wortteil-Suche</strong>.</li>
 <li><strong>Sortierung</strong> über Dropdown in der Toolbar (bei manueller Reihenfolge deaktiviert).</li>
 <li><strong>Filter</strong> inkl. „Mit Verboten“; Favoriten-Block und Drag&amp;Drop (⋮⋮) wie bisher.</li>
 <li>Auf schmalen Bildschirmen: Editor als Sheet von unten („Fertig“ zum Schließen).</li>
@@ -40,7 +40,7 @@ export const KONFIG_TAB_HELP_HTML = new Map([
 <ul>
 <li><strong>Aktiv-Schalter</strong> zum Ein-/Ausblenden.</li>
 <li><strong>Begriff</strong>: Muss exakt mit dem <code>&lt;dt&gt;</code>-Label aus dem mobile.de-Tech-Daten-Block übereinstimmen (Groß-/Kleinschreibung egal).</li>
-<li><strong>Suche</strong>, <strong>Alle Einträge</strong> (Ein/Aus für alle Tech-Einträge) und <strong>Spaltenköpfe</strong> wie auf der Ausstattungs-Seite. <strong>Defaults zurücksetzen</strong> im Footer neben <strong>Rückgängig</strong>.</li>
+<li><strong>Suche</strong>, <strong>Alle Einträge</strong> (Ein/Aus für alle Tech-Einträge) und <strong>Spaltenköpfe</strong> wie auf der Ausstattungs-Seite. <strong>Auf Standard zurücksetzen…</strong> unten links im Footer. Bei bis zu 8 Einträgen blendet die Werkzeugleiste Suche, Filter und Sortierung aus.</li>
 <li><strong>Listen-Reihenfolge</strong> (Tab Config): Bereich „Tech-Daten“ + Modus Manuell → Drag&amp;Drop; optional Reihenfolge auf der Fahrzeugseite übernehmen.</li>
 <li><strong>Reihenfolge</strong> per Drag&amp;Drop (⋮⋮) mit Live-Vorschau in der Liste.</li>
 <li><strong>Listen-Layout</strong> (Tab Config): optional Split-View (Liste + Editor).</li>
@@ -51,7 +51,8 @@ export const KONFIG_TAB_HELP_HTML = new Map([
 <h4>Split-View:</h4>
 <ul>
 <li><strong>Liste links</strong>: Aktiv-Schalter und gekürzter Begriff — Zeile anklicken für den Editor.</li>
-<li><strong>Editor rechts</strong>: Vollständiger Begriff (exakt wie <code>&lt;dt&gt;</code>-Label), Option <strong>Aktiv</strong>, Löschen.</li>
+<li><strong>Editor rechts</strong>: Begriff (exakt wie <code>&lt;dt&gt;</code>-Label), Löschen oben. Aktiv/inaktiv per Schalter in der Liste.</li>
+<li><strong>Auf diesem Inserat verfügbar</strong>: Auf einer Fahrzeugseite legt ein Klick auf einen Vorschlag das Feld mit exaktem Label an.</li>
 <li><strong>Sortierung</strong> per Dropdown; Drag&amp;Drop bei manueller Tech-Reihenfolge (Config).</li>
 <li>Layout: Tab <strong>Config</strong> → <strong>Listen-Layout</strong>.</li>
 </ul>`],
@@ -63,7 +64,7 @@ export const KONFIG_TAB_HELP_HTML = new Map([
 <li><strong>Aktiv-Schalter</strong>: Inaktive Gruppen werden beim Zusammenfassen auf der Fahrzeugseite ignoriert.</li>
 <li><strong>Basis</strong>: Das gemeinsame Wort, nach dem gruppiert wird (z.B. <code>außenspiegel</code>). Klein- und Großschreibung egal.</li>
 <li><strong>Reihenfolge</strong>: Komma-getrennte Liste der Modifizierer-Schlüsselwörter in der gewünschten Reihenfolge im zusammengefassten Eintrag (z.B. <code>elektr. verstellbar, beheizbar, anklappbar</code>). Treffer, die in keiner Reihenfolge auftauchen, kommen ans Ende.</li>
-<li><strong>Spaltenköpfe</strong> zum Sortieren, <strong>Filter „nur aktive“</strong> und <strong>Alle Einträge</strong> (Ein/Aus) in einer Zeile wie bei Ausstattung. Speichern sortiert alphabetisch nach Basis. <strong>Defaults zurücksetzen</strong> im Footer neben <strong>Rückgängig</strong>.</li>
+<li><strong>Spaltenköpfe</strong> zum Sortieren, <strong>Filter „nur aktive“</strong> und <strong>Alle Einträge</strong> (Ein/Aus) in einer Zeile wie bei Ausstattung. Speichern sortiert alphabetisch nach Basis. <strong>Auf Standard zurücksetzen…</strong> unten links im Footer. Bei bis zu 8 Einträgen blendet die Werkzeugleiste Suche, Filter und Sortierung aus.</li>
 <li><strong>Listen-Layout</strong> (Tab Config): optional Split-View.</li>
 </ul>`],
     ['merge_split', `
@@ -72,7 +73,7 @@ export const KONFIG_TAB_HELP_HTML = new Map([
 <h4>Split-View:</h4>
 <ul>
 <li><strong>Liste links</strong>: Aktiv, Basis (gekürzt), Badge mit Anzahl Modifier.</li>
-<li><strong>Editor rechts</strong>: Basis-Feld; Modifier-Reihenfolge als <strong>Chips</strong> (Enter/Komma); Option <strong>Aktiv</strong>, Löschen.</li>
+<li><strong>Editor rechts</strong>: Basis-Feld; Modifier-Reihenfolge als <strong>Chips</strong> (Enter/Komma); <strong>Beispiel</strong> zeigt, was auf der Fahrzeugseite daraus wird. Löschen oben, Aktiv per Schalter in der Liste.</li>
 <li><strong>Sortierung</strong> per Dropdown in der Toolbar.</li>
 <li>Layout: Tab <strong>Config</strong> → <strong>Listen-Layout</strong>.</li>
 </ul>`],

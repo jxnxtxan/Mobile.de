@@ -33,6 +33,27 @@ export function sucheTechnischeDaten() {
     return daten;
 }
 
+/**
+ * Alle Tech-Felder des geöffneten Inserats (dt-Label + Wert) — für Vorschläge
+ * im Konfig-Popup, damit niemand das Label exakt abtippen muss.
+ */
+export function verfuegbareTechFelder() {
+    const dl = getTechDataDl();
+    if (!dl) return [];
+    const out = [];
+    const seen = new Set();
+    dl.querySelectorAll('dt').forEach(dt => {
+        const label = (dt.textContent || '').trim();
+        const key = label.toLowerCase();
+        if (!label || seen.has(key)) return;
+        seen.add(key);
+        const dd = dt.nextElementSibling;
+        const value = dd && dd.tagName.toLowerCase() === 'dd' ? dd.textContent.trim() : '';
+        out.push({ label, value });
+    });
+    return out;
+}
+
 export function technischeDatenHinzufuegen(parentElement) {
     const technischeDaten = sucheTechnischeDaten();
     if (technischeDaten.length === 0) {

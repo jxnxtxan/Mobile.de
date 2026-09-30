@@ -151,6 +151,25 @@ export function pickMergedEntryMeta(matching) {
     return meta;
 }
 
+/**
+ * Beispiel für das Konfig-Popup: welche Einzeltreffer zu welcher Zeile
+ * zusammengefasst werden (gleiche Schreibweise wie generalizedMergeEntries).
+ */
+export function mergePreviewText(group, maxModifiers = 3) {
+    const basis = ((group && group.basis) || '').trim();
+    if (!basis) return null;
+    const mods = ((group && group.order) || [])
+        .map(m => String(m || '').trim())
+        .filter(Boolean)
+        .slice(0, maxModifiers);
+    if (mods.length < 2) return null;
+    const basisCap = basis.charAt(0).toUpperCase() + basis.slice(1);
+    return {
+        from: mods.map(m => basisCap + ' ' + m),
+        to: basisCap + ' ' + mods.join(', ')
+    };
+}
+
 export function generalizedMergeEntries(entries, gruppen) {
     if (!Array.isArray(gruppen) || gruppen.length === 0) return entries;
     let result = [...entries];

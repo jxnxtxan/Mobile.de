@@ -75,3 +75,12 @@ test('isForbiddenInWindow ohne Verbote ist immer falsch', () => {
     assert.equal(isForbiddenInWindow(tokens, { startIdx: 0, endIdx: 0 }, []), false);
     assert.equal(isForbiddenInWindow(tokens, { startIdx: 0, endIdx: 0 }, null), false);
 });
+
+test('Merge-Vorschau zeigt Einzeltreffer und zusammengefasste Zeile', async () => {
+    const { mergePreviewText } = await import('../src/core/search/merge-groups.js');
+    const pv = mergePreviewText({ basis: 'außenspiegel', order: ['elektr. verstellbar', 'beheizbar', 'anklappbar', 'klappbar'] });
+    assert.deepEqual(pv.from, ['Außenspiegel elektr. verstellbar', 'Außenspiegel beheizbar', 'Außenspiegel anklappbar']);
+    assert.equal(pv.to, 'Außenspiegel elektr. verstellbar, beheizbar, anklappbar');
+    assert.equal(mergePreviewText({ basis: 'x', order: ['a'] }), null);
+    assert.equal(mergePreviewText({ basis: '', order: ['a', 'b'] }), null);
+});
