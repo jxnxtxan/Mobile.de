@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.43
+// @version      2.16.44
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -5994,7 +5994,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.43";
+    const SCRIPT_UI_VERSION = "2.16.44";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -6401,6 +6401,14 @@ Kontext: …${item.snippet}…` : "";
   display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;
   padding-top:10px;border-top:1px dashed var(--mc-border);margin-top:2px;
 }
+.mc-config-split__editor-head{
+  position:sticky;top:-12px;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  margin:-12px -12px 12px;padding:10px 12px;border-bottom:1px solid var(--mc-border);
+  background:linear-gradient(rgba(0,0,0,.12),rgba(0,0,0,.12)),var(--mc-surface);border-radius:10px 10px 0 0;
+}
+.mc-config-split__editor-head .mc-config-split__editor-title{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mc-config-split__editor-head .mc-config-split__editor-actions{padding-top:0;border-top:none;margin-top:0;flex-wrap:nowrap;}
+.mc-config-split__editor-head .mc-btn{padding:4px 10px;font-size:12px;}
 .mc-config-split__list-item.mc-card{
   display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;
   gap:6px;padding:6px 8px;margin:0;min-height:0;cursor:pointer;
@@ -6602,6 +6610,26 @@ grid-template-rows:minmax(140px,1fr) auto;
 }
 .mc-toolbar-toggle--plain:hover{background:transparent;border:none;}
 .mc-toolbar-toggle--plain:has(input:checked){background:transparent;border:none;}
+/* Kompakte Werkzeugleiste: Zeilen fließen in eine Reihe, Zonen-Beschriftungen nur für Screenreader. */
+.mc-toolbar{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:10px 12px;}
+.mc-toolbar > .mc-toolbar__row{display:contents;}
+.mc-toolbar .mc-toolbar-zone__label,.mc-toolbar .mc-toolbar-sort label{
+  position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;min-width:0;
+}
+.mc-toolbar .mc-toolbar-zone--search{order:1;flex:1 1 240px;min-width:180px;}
+.mc-toolbar .mc-toolbar-sort{order:2;}
+.mc-toolbar .mc-toolbar-zone--anzeige{order:3;flex:0 1 auto;}
+.mc-toolbar .mc-toolbar-zone--bulk{order:4;flex:0 0 auto;margin-left:0;padding-left:0;border-left:none;}
+.mc-toolbar .mc-toolbar__row--meta > .mc-btn--primary{order:5;align-self:center;}
+.mc-toolbar .mc-toolbar-help-slot{order:6;margin-left:0;}
+.mc-toolbar .mc-toolbar-meta-col{order:10;flex:1 1 100%;}
+.mc-toolbar .mc-toolbar-stats{font-size:11px;color:var(--mc-muted);}
+.mc-toolbar-hint:empty{display:none;}
+.mc-toolbar-toggle{padding:2px 10px 2px 4px;font-size:12px;}
+/* Wenige Einträge: Suche, Filter, Sortierung und Sammelschalter lohnen nicht. */
+.mc-toolbar--few .mc-toolbar-zone--search,.mc-toolbar--few .mc-toolbar-sort,
+.mc-toolbar--few .mc-toolbar-zone--anzeige,.mc-toolbar--few .mc-toolbar-zone--bulk{display:none!important;}
+.mc-toolbar--few .mc-toolbar-meta-col{order:0;flex:1 1 auto;}
 .mc-col-sort-header{
   padding:6px 10px;margin-bottom:8px;
   background:rgba(0,0,0,.2);border:1px solid var(--mc-border);border-radius:8px;
@@ -6981,7 +7009,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
 .mc-changelog{margin:0 0 14px;padding:0 0 0 18px;max-height:40vh;overflow-y:auto;font-size:13px;line-height:1.5;color:var(--mc-text);}
 .mc-changelog li{margin:4px 0;}
 .mc-modal-actions{display:flex;justify-content:flex-end;gap:8px;}
-.mc-btn--primary.mc-btn--save-idle{opacity:.55;}
+.mc-btn--primary.mc-btn--save-idle{
+  opacity:1;background:var(--mc-elevated);border-color:var(--mc-border);color:var(--mc-muted);cursor:default;
+}
+.mc-foot-reset--subtle{border-color:transparent;background:transparent;color:var(--mc-muted);font-size:12px;}
+.mc-foot-reset--subtle:hover{color:#ffcdd2;border-color:rgba(229,115,115,.5);background:rgba(229,115,115,.08);}
 .mc-ie-panel{display:flex;flex-direction:column;gap:12px;min-height:0;flex:1;}
 .mc-ie-header{
   display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
@@ -7049,6 +7081,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const lbl = document.createElement("span");
       lbl.className = "mc-toolbar-zone__label";
       lbl.textContent = label;
+      zone.setAttribute("role", "group");
+      zone.setAttribute("aria-label", label);
       const body = document.createElement("div");
       body.className = "mc-toolbar-zone__body";
       zone.appendChild(lbl);
@@ -7061,6 +7095,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       buttons.forEach((btn) => g.appendChild(btn));
       return g;
     }
+    const TOOLBAR_FEW_ENTRIES = 8;
     function buildListToolbar(opts) {
       const {
         searchPlaceholder,
@@ -7132,7 +7167,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         metaRow.appendChild(mkBtn("primary", neuLabel, onNeu));
       }
       toolbar.appendChild(metaRow);
-      return { toolbar, searchRow, search, metaStats, metaHint, filterCbs };
+      function setDensity(total) {
+        const few = total <= TOOLBAR_FEW_ENTRIES;
+        toolbar.classList.toggle("mc-toolbar--few", few);
+        if (few && search._input && search._input.value) search._input.value = "";
+      }
+      return { toolbar, searchRow, search, metaStats, metaHint, filterCbs, setDensity };
     }
     function mkHelpPanel(htmlContent) {
       const wrap = document.createElement("div");
@@ -7610,6 +7650,16 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const footer = document.createElement("div");
       footer.className = "mc-config-split__editor-footer";
       return footer;
+    }
+    function pinEditorHeader(editor) {
+      const title2 = editor.querySelector(":scope > .mc-config-split__editor-title");
+      const actions = editor.querySelector(".mc-config-split__editor-actions");
+      if (!title2 || !actions) return;
+      const head2 = document.createElement("div");
+      head2.className = "mc-config-split__editor-head";
+      editor.insertBefore(head2, title2);
+      head2.appendChild(title2);
+      head2.appendChild(actions);
     }
     function mkConfigSplitEditorActions() {
       const actions = document.createElement("div");
@@ -8110,18 +8160,6 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           return msg;
         }
       }
-      if (kind === "aus") {
-        if (split) {
-          return "Sortierung über Dropdown · Speichern sortiert alphabetisch nach Anzeigetext";
-        }
-        return "Spaltenköpfe sortieren die Anzeige · Speichern sortiert alphabetisch nach Anzeigetext";
-      }
-      if (kind === "tech") {
-        if (split) {
-          return "Sortierung über Dropdown · Speichern sortiert alphabetisch nach Begriff";
-        }
-        return "Spaltenköpfe sortieren die Anzeige · Speichern sortiert alphabetisch nach Begriff";
-      }
       return "";
     }
     function columnSortLockedForAus() {
@@ -8552,14 +8590,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     undoBtn.disabled = true;
     undoBtnRef = undoBtn;
     const footerResetHandlers = [null, null, null, null, null];
-    const btnResetTab = mkBtn("danger", "Defaults zurücksetzen", () => {
+    const btnResetTab = mkBtn("ghost", "Auf Standard zurücksetzen…", () => {
       const fn = footerResetHandlers[activeTabIndex];
       if (fn) fn();
     });
-    btnResetTab.classList.add("mc-foot-reset");
-    const footSep = document.createElement("span");
-    footSep.className = "mc-foot-sep";
-    footSep.setAttribute("aria-hidden", "true");
+    btnResetTab.classList.add("mc-foot-reset", "mc-foot-reset--subtle");
+    btnResetTab.title = "Diesen Reiter auf die Standardwerte zurücksetzen (mit Rückfrage, per Rückgängig umkehrbar)";
     function syncFooterReset(tabIdx) {
       const fn = footerResetHandlers[tabIdx];
       btnResetTab.classList.toggle("mc-foot-reset--visible", !!fn);
@@ -8570,8 +8606,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     saveBtnRef = saveBtn;
     syncSaveBtn();
     footLeft.appendChild(statusBtn);
-    footRight.appendChild(btnResetTab);
-    footRight.appendChild(footSep);
+    footLeft.appendChild(btnResetTab);
     footRight.appendChild(undoBtn);
     footRight.appendChild(cancelBtn);
     footRight.appendChild(saveBtn);
@@ -8671,23 +8706,10 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       { key: "favorit", dir: "desc", label: "Favoriten zuerst" },
       { key: "begriffeCount", dir: "desc", label: "Meiste Begriffe" }
     ], false, () => renderAusstattung());
-    const ausDupToolbarBtn = mkBtn("ghost", "Duplizieren", () => {
-      if (selectedAusIndex === null) return;
-      duplicateAusEntry(selectedAusIndex);
-    });
-    ausDupToolbarBtn.classList.add("mc-toolbar-split-only");
-    ausDupToolbarBtn.disabled = true;
     const ausToolbarMetaRow = ausToolbar.querySelector(".mc-toolbar__row--meta");
-    if (ausToolbarMetaRow) {
-      ausToolbarMetaRow.insertBefore(ausSortDropdown, ausToolbarMetaRow.firstChild);
-      const neuBtn = ausToolbarMetaRow.querySelector(".mc-btn--primary");
-      if (neuBtn) ausToolbarMetaRow.insertBefore(ausDupToolbarBtn, neuBtn);
-      else ausToolbarMetaRow.appendChild(ausDupToolbarBtn);
-    }
+    if (ausToolbarMetaRow) ausToolbarMetaRow.insertBefore(ausSortDropdown, ausToolbarMetaRow.firstChild);
     function syncSplitToolbarVisibility() {
-      const split = useConfigSplitView();
       ausSortDropdown.querySelector("select").disabled = columnSortLockedForAus();
-      ausDupToolbarBtn.disabled = !split || selectedAusIndex === null;
     }
     footerResetHandlers[0] = async () => {
       const ok = await confirmAsync("Ausstattungs-Konfiguration auf Defaults zurücksetzen? Aktueller Stand wird vorher gesichert.");
@@ -8906,6 +8928,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       }));
       footer.appendChild(actions);
       editor.appendChild(footer);
+      pinEditorHeader(editor);
     }
     function countAusaktiv() {
       const t = aktuelleAusstattungsKonfig.length;
@@ -9315,6 +9338,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const { a, t } = countAusaktiv();
       const { vis, sortedFav, sortedRest, favVis } = getSortedAusVisibleIndices();
       ausMetaStats.textContent = vis.length + " sichtbar · " + a + " von " + t + " aktiv · " + favVis + " Favoriten";
+      ausTb.setDensity(t);
       ausMetaHint.textContent = listOrderMetaHint("aus");
       syncSplitToolbarVisibility();
       if (aktuelleAusstattungsKonfig.length === 0) {
@@ -9361,6 +9385,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const { a, t } = countAusaktiv();
       const favVis = vis.filter((i) => aktuelleAusstattungsKonfig[i].favorit === true).length;
       ausMetaStats.textContent = vis.length + " sichtbar · " + a + " von " + t + " aktiv · " + favVis + " Favoriten";
+      ausTb.setDensity(t);
       ausMetaHint.textContent = listOrderMetaHint("aus");
       if (aktuelleAusstattungsKonfig.length === 0) {
         ausstattungContainer.appendChild(mkEmptyState("Noch keine Einträge."));
@@ -9541,16 +9566,6 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       fields.appendChild(mkConfigSplitEditorField("Begriff (exakt wie mobile.de dt-Label)", inp));
       editor.appendChild(fields);
       const footer = mkConfigSplitEditorFooter();
-      footer.appendChild(mkConfigSplitOptionsField([{
-        checked: item.aktiv === true,
-        title: "Aktiv",
-        hint: "Feld in Suche und Ergebnisanzeige ein- oder ausblenden",
-        onChange: (v) => {
-          item.aktiv = v;
-          markDirty();
-          renderTechSplitListOnly();
-        }
-      }]));
       const actions = mkConfigSplitEditorActions();
       actions.appendChild(mkBtn("del", "Löschen", async () => {
         const ok = await confirmAsync("Tech-Eintrag löschen?");
@@ -9564,6 +9579,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       }));
       footer.appendChild(actions);
       editor.appendChild(footer);
+      pinEditorHeader(editor);
     }
     function appendTechListRow(index) {
       const item = aktuelleTechKonfigurationen[index];
@@ -9639,6 +9655,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const total = aktuelleTechKonfigurationen.length;
       const act = aktuelleTechKonfigurationen.filter((t) => t.aktiv).length;
       techMetaStats.textContent = vis.length + " von " + total + " sichtbar · " + act + " aktiv";
+      techTb.setDensity(total);
       techMetaHint.textContent = listOrderMetaHint("tech");
       techSortDropdown.querySelector("select").disabled = columnSortLockedForTech();
       if (aktuelleTechKonfigurationen.length === 0) {
@@ -9677,6 +9694,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const act = aktuelleTechKonfigurationen.filter((t) => t.aktiv).length;
       const sortedVis = getSortedTechVisibleIndices();
       techMetaStats.textContent = vis.length + " von " + total + " sichtbar · " + act + " aktiv";
+      techTb.setDensity(total);
       techMetaHint.textContent = listOrderMetaHint("tech");
       if (aktuelleTechKonfigurationen.length === 0) {
         techContainer.appendChild(mkEmptyState("Keine Tech-Parameter."));
@@ -9934,16 +9952,6 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       fields.appendChild(mkConfigSplitEditorField("Modifier-Reihenfolge (Komma oder Enter)", chipO.wrap));
       editor.appendChild(fields);
       const footer = mkConfigSplitEditorFooter();
-      footer.appendChild(mkConfigSplitOptionsField([{
-        checked: group.aktiv !== false,
-        title: "Aktiv",
-        hint: "Gruppe beim Zusammenfassen auf der Fahrzeugseite ein- oder ausblenden",
-        onChange: (v) => {
-          group.aktiv = v;
-          markDirty();
-          renderMergeSplitListOnly();
-        }
-      }]));
       const actions = mkConfigSplitEditorActions();
       actions.appendChild(mkBtn("del", "Löschen", async () => {
         const ok = await confirmAsync("Merge-Gruppe löschen?");
@@ -9958,6 +9966,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       }));
       footer.appendChild(actions);
       editor.appendChild(footer);
+      pinEditorHeader(editor);
     }
     function appendMergeListRow(index) {
       const group = aktuelleMergeGruppen[index];
@@ -10014,6 +10023,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const total = aktuelleMergeGruppen.length;
       const act = aktuelleMergeGruppen.filter((g) => g.aktiv !== false).length;
       mergeMetaStats.textContent = vis.length + " von " + total + " sichtbar · " + act + " aktiv";
+      mergeTb.setDensity(total);
       mergeMetaHint.textContent = mergeMetaHintText();
       if (aktuelleMergeGruppen.length === 0) {
         mergeSplit.list.appendChild(mkEmptyState("Keine Merge-Gruppen."));
@@ -10046,6 +10056,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       const act = aktuelleMergeGruppen.filter((g) => g.aktiv !== false).length;
       const sortedVis = getSortedMergeVisibleIndices();
       mergeMetaStats.textContent = vis.length + " von " + total + " sichtbar · " + act + " aktiv";
+      mergeTb.setDensity(total);
       mergeMetaHint.textContent = mergeMetaHintText();
       if (aktuelleMergeGruppen.length === 0) {
         mergeContainer.appendChild(mkEmptyState("Keine Merge-Gruppen."));

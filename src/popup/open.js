@@ -563,6 +563,14 @@ export function oeffneKonfigPopup() {
   display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;
   padding-top:10px;border-top:1px dashed var(--mc-border);margin-top:2px;
 }
+.mc-config-split__editor-head{
+  position:sticky;top:-12px;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  margin:-12px -12px 12px;padding:10px 12px;border-bottom:1px solid var(--mc-border);
+  background:linear-gradient(rgba(0,0,0,.12),rgba(0,0,0,.12)),var(--mc-surface);border-radius:10px 10px 0 0;
+}
+.mc-config-split__editor-head .mc-config-split__editor-title{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mc-config-split__editor-head .mc-config-split__editor-actions{padding-top:0;border-top:none;margin-top:0;flex-wrap:nowrap;}
+.mc-config-split__editor-head .mc-btn{padding:4px 10px;font-size:12px;}
 .mc-config-split__list-item.mc-card{
   display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;
   gap:6px;padding:6px 8px;margin:0;min-height:0;cursor:pointer;
@@ -764,6 +772,26 @@ grid-template-rows:minmax(140px,1fr) auto;
 }
 .mc-toolbar-toggle--plain:hover{background:transparent;border:none;}
 .mc-toolbar-toggle--plain:has(input:checked){background:transparent;border:none;}
+/* Kompakte Werkzeugleiste: Zeilen fließen in eine Reihe, Zonen-Beschriftungen nur für Screenreader. */
+.mc-toolbar{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:10px 12px;}
+.mc-toolbar > .mc-toolbar__row{display:contents;}
+.mc-toolbar .mc-toolbar-zone__label,.mc-toolbar .mc-toolbar-sort label{
+  position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;min-width:0;
+}
+.mc-toolbar .mc-toolbar-zone--search{order:1;flex:1 1 240px;min-width:180px;}
+.mc-toolbar .mc-toolbar-sort{order:2;}
+.mc-toolbar .mc-toolbar-zone--anzeige{order:3;flex:0 1 auto;}
+.mc-toolbar .mc-toolbar-zone--bulk{order:4;flex:0 0 auto;margin-left:0;padding-left:0;border-left:none;}
+.mc-toolbar .mc-toolbar__row--meta > .mc-btn--primary{order:5;align-self:center;}
+.mc-toolbar .mc-toolbar-help-slot{order:6;margin-left:0;}
+.mc-toolbar .mc-toolbar-meta-col{order:10;flex:1 1 100%;}
+.mc-toolbar .mc-toolbar-stats{font-size:11px;color:var(--mc-muted);}
+.mc-toolbar-hint:empty{display:none;}
+.mc-toolbar-toggle{padding:2px 10px 2px 4px;font-size:12px;}
+/* Wenige Einträge: Suche, Filter, Sortierung und Sammelschalter lohnen nicht. */
+.mc-toolbar--few .mc-toolbar-zone--search,.mc-toolbar--few .mc-toolbar-sort,
+.mc-toolbar--few .mc-toolbar-zone--anzeige,.mc-toolbar--few .mc-toolbar-zone--bulk{display:none!important;}
+.mc-toolbar--few .mc-toolbar-meta-col{order:0;flex:1 1 auto;}
 .mc-col-sort-header{
   padding:6px 10px;margin-bottom:8px;
   background:rgba(0,0,0,.2);border:1px solid var(--mc-border);border-radius:8px;
@@ -1143,7 +1171,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
 .mc-changelog{margin:0 0 14px;padding:0 0 0 18px;max-height:40vh;overflow-y:auto;font-size:13px;line-height:1.5;color:var(--mc-text);}
 .mc-changelog li{margin:4px 0;}
 .mc-modal-actions{display:flex;justify-content:flex-end;gap:8px;}
-.mc-btn--primary.mc-btn--save-idle{opacity:.55;}
+.mc-btn--primary.mc-btn--save-idle{
+  opacity:1;background:var(--mc-elevated);border-color:var(--mc-border);color:var(--mc-muted);cursor:default;
+}
+.mc-foot-reset--subtle{border-color:transparent;background:transparent;color:var(--mc-muted);font-size:12px;}
+.mc-foot-reset--subtle:hover{color:#ffcdd2;border-color:rgba(229,115,115,.5);background:rgba(229,115,115,.08);}
 .mc-ie-panel{display:flex;flex-direction:column;gap:12px;min-height:0;flex:1;}
 .mc-ie-header{
   display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
@@ -1221,6 +1253,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const lbl = document.createElement('span');
         lbl.className = 'mc-toolbar-zone__label';
         lbl.textContent = label;
+        zone.setAttribute('role', 'group');
+        zone.setAttribute('aria-label', label);
         const body = document.createElement('div');
         body.className = 'mc-toolbar-zone__body';
         zone.appendChild(lbl);
@@ -1239,6 +1273,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
      * Einheitliche Listen-Toolbar (Suche, Filter, Bulk, Neu, Meta).
      * @returns {{ toolbar, searchRow, search, metaStats, metaHint, filterCbs?: HTMLInputElement[] }}
      */
+    const TOOLBAR_FEW_ENTRIES = 8;
+
     function buildListToolbar(opts) {
         const {
             searchPlaceholder,
@@ -1317,7 +1353,14 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         }
         toolbar.appendChild(metaRow);
 
-        return { toolbar, searchRow, search, metaStats, metaHint, filterCbs };
+        /** Ab wenigen Einträgen nur Statistik, „+ Neu“ und Hilfe zeigen. */
+        function setDensity(total) {
+            const few = total <= TOOLBAR_FEW_ENTRIES;
+            toolbar.classList.toggle('mc-toolbar--few', few);
+            if (few && search._input && search._input.value) search._input.value = '';
+        }
+
+        return { toolbar, searchRow, search, metaStats, metaHint, filterCbs, setDensity };
     }
 
     function mkHelpPanel(htmlContent) {
@@ -1841,6 +1884,21 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const footer = document.createElement('div');
         footer.className = 'mc-config-split__editor-footer';
         return footer;
+    }
+
+    /**
+     * Titel und Aktionen (Duplizieren/Löschen) als fixierter Kopf oben im Editor —
+     * vorher lagen sie unter Farbe/Optionen außerhalb des sichtbaren Bereichs.
+     */
+    function pinEditorHeader(editor) {
+        const title = editor.querySelector(':scope > .mc-config-split__editor-title');
+        const actions = editor.querySelector('.mc-config-split__editor-actions');
+        if (!title || !actions) return;
+        const head = document.createElement('div');
+        head.className = 'mc-config-split__editor-head';
+        editor.insertBefore(head, title);
+        head.appendChild(title);
+        head.appendChild(actions);
     }
 
     function mkConfigSplitEditorActions() {
@@ -2407,18 +2465,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                 return msg;
             }
         }
-        if (kind === 'aus') {
-            if (split) {
-                return 'Sortierung über Dropdown · Speichern sortiert alphabetisch nach Anzeigetext';
-            }
-            return 'Spaltenköpfe sortieren die Anzeige · Speichern sortiert alphabetisch nach Anzeigetext';
-        }
-        if (kind === 'tech') {
-            if (split) {
-                return 'Sortierung über Dropdown · Speichern sortiert alphabetisch nach Begriff';
-            }
-            return 'Spaltenköpfe sortieren die Anzeige · Speichern sortiert alphabetisch nach Begriff';
-        }
+        // Alphabetischer Modus braucht keinen Dauerhinweis — nur manuelle Reihenfolge wird erklärt.
         return '';
     }
 
@@ -2840,14 +2887,13 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     undoBtn.disabled = true;
     undoBtnRef = undoBtn;
     const footerResetHandlers = [null, null, null, null, null];
-    const btnResetTab = mkBtn('danger', 'Defaults zurücksetzen', () => {
+    // Selten gebraucht und zerstörerisch: dezent links statt rot neben Rückgängig.
+    const btnResetTab = mkBtn('ghost', 'Auf Standard zurücksetzen…', () => {
         const fn = footerResetHandlers[activeTabIndex];
         if (fn) fn();
     });
-    btnResetTab.classList.add('mc-foot-reset');
-    const footSep = document.createElement('span');
-    footSep.className = 'mc-foot-sep';
-    footSep.setAttribute('aria-hidden', 'true');
+    btnResetTab.classList.add('mc-foot-reset', 'mc-foot-reset--subtle');
+    btnResetTab.title = 'Diesen Reiter auf die Standardwerte zurücksetzen (mit Rückfrage, per Rückgängig umkehrbar)';
     function syncFooterReset(tabIdx) {
         const fn = footerResetHandlers[tabIdx];
         btnResetTab.classList.toggle('mc-foot-reset--visible', !!fn);
@@ -2859,8 +2905,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     syncSaveBtn();
 
     footLeft.appendChild(statusBtn);
-    footRight.appendChild(btnResetTab);
-    footRight.appendChild(footSep);
+    footLeft.appendChild(btnResetTab);
     footRight.appendChild(undoBtn);
     footRight.appendChild(cancelBtn);
     footRight.appendChild(saveBtn);
@@ -2966,23 +3011,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         { key: 'favorit', dir: 'desc', label: 'Favoriten zuerst' },
         { key: 'begriffeCount', dir: 'desc', label: 'Meiste Begriffe' }
     ], false, () => renderAusstattung());
-    const ausDupToolbarBtn = mkBtn('ghost', 'Duplizieren', () => {
-        if (selectedAusIndex === null) return;
-        duplicateAusEntry(selectedAusIndex);
-    });
-    ausDupToolbarBtn.classList.add('mc-toolbar-split-only');
-    ausDupToolbarBtn.disabled = true;
+    // „Duplizieren“ steht im Editor des gewählten Eintrags — kein zweiter Knopf in der Toolbar.
     const ausToolbarMetaRow = ausToolbar.querySelector('.mc-toolbar__row--meta');
-    if (ausToolbarMetaRow) {
-        ausToolbarMetaRow.insertBefore(ausSortDropdown, ausToolbarMetaRow.firstChild);
-        const neuBtn = ausToolbarMetaRow.querySelector('.mc-btn--primary');
-        if (neuBtn) ausToolbarMetaRow.insertBefore(ausDupToolbarBtn, neuBtn);
-        else ausToolbarMetaRow.appendChild(ausDupToolbarBtn);
-    }
+    if (ausToolbarMetaRow) ausToolbarMetaRow.insertBefore(ausSortDropdown, ausToolbarMetaRow.firstChild);
     function syncSplitToolbarVisibility() {
-        const split = useConfigSplitView();
         ausSortDropdown.querySelector('select').disabled = columnSortLockedForAus();
-        ausDupToolbarBtn.disabled = !split || selectedAusIndex === null;
     }
     footerResetHandlers[0] = async () => {
         const ok = await confirmAsync('Ausstattungs-Konfiguration auf Defaults zurücksetzen? Aktueller Stand wird vorher gesichert.');
@@ -3208,6 +3241,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         footer.appendChild(actions);
 
         editor.appendChild(footer);
+        pinEditorHeader(editor);
     }
 
     function countAusaktiv() {
@@ -3648,6 +3682,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const { a, t } = countAusaktiv();
         const { vis, sortedFav, sortedRest, favVis } = getSortedAusVisibleIndices();
         ausMetaStats.textContent = vis.length + ' sichtbar · ' + a + ' von ' + t + ' aktiv · ' + favVis + ' Favoriten';
+        ausTb.setDensity(t);
         ausMetaHint.textContent = listOrderMetaHint('aus');
         syncSplitToolbarVisibility();
         if (aktuelleAusstattungsKonfig.length === 0) {
@@ -3695,6 +3730,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const { a, t } = countAusaktiv();
         const favVis = vis.filter(i => aktuelleAusstattungsKonfig[i].favorit === true).length;
         ausMetaStats.textContent = vis.length + ' sichtbar · ' + a + ' von ' + t + ' aktiv · ' + favVis + ' Favoriten';
+        ausTb.setDensity(t);
         ausMetaHint.textContent = listOrderMetaHint('aus');
         if (aktuelleAusstattungsKonfig.length === 0) {
             ausstattungContainer.appendChild(mkEmptyState('Noch keine Einträge.'));
@@ -3882,16 +3918,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         editor.appendChild(fields);
 
         const footer = mkConfigSplitEditorFooter();
-        footer.appendChild(mkConfigSplitOptionsField([{
-            checked: item.aktiv === true,
-            title: 'Aktiv',
-            hint: 'Feld in Suche und Ergebnisanzeige ein- oder ausblenden',
-            onChange: v => {
-                item.aktiv = v;
-                markDirty();
-                renderTechSplitListOnly();
-            }
-        }]));
+        // „Aktiv“ schaltet der Schalter in der Liste — hier nicht doppelt.
 
         const actions = mkConfigSplitEditorActions();
         actions.appendChild(mkBtn('del', 'Löschen', async () => {
@@ -3906,6 +3933,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         }));
         footer.appendChild(actions);
         editor.appendChild(footer);
+        pinEditorHeader(editor);
     }
 
     function appendTechListRow(index) {
@@ -3987,6 +4015,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const total = aktuelleTechKonfigurationen.length;
         const act = aktuelleTechKonfigurationen.filter(t => t.aktiv).length;
         techMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
+        techTb.setDensity(total);
         techMetaHint.textContent = listOrderMetaHint('tech');
         techSortDropdown.querySelector('select').disabled = columnSortLockedForTech();
         if (aktuelleTechKonfigurationen.length === 0) {
@@ -4034,6 +4063,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const act = aktuelleTechKonfigurationen.filter(t => t.aktiv).length;
         const sortedVis = getSortedTechVisibleIndices();
         techMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
+        techTb.setDensity(total);
         techMetaHint.textContent = listOrderMetaHint('tech');
 
         if (aktuelleTechKonfigurationen.length === 0) {
@@ -4306,16 +4336,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         editor.appendChild(fields);
 
         const footer = mkConfigSplitEditorFooter();
-        footer.appendChild(mkConfigSplitOptionsField([{
-            checked: group.aktiv !== false,
-            title: 'Aktiv',
-            hint: 'Gruppe beim Zusammenfassen auf der Fahrzeugseite ein- oder ausblenden',
-            onChange: v => {
-                group.aktiv = v;
-                markDirty();
-                renderMergeSplitListOnly();
-            }
-        }]));
+        // „Aktiv“ schaltet der Schalter in der Liste — hier nicht doppelt.
 
         const actions = mkConfigSplitEditorActions();
         actions.appendChild(mkBtn('del', 'Löschen', async () => {
@@ -4331,6 +4352,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         }));
         footer.appendChild(actions);
         editor.appendChild(footer);
+        pinEditorHeader(editor);
     }
 
     function appendMergeListRow(index) {
@@ -4392,6 +4414,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const total = aktuelleMergeGruppen.length;
         const act = aktuelleMergeGruppen.filter(g => g.aktiv !== false).length;
         mergeMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
+        mergeTb.setDensity(total);
         mergeMetaHint.textContent = mergeMetaHintText();
         if (aktuelleMergeGruppen.length === 0) {
             mergeSplit.list.appendChild(mkEmptyState('Keine Merge-Gruppen.'));
@@ -4425,6 +4448,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const act = aktuelleMergeGruppen.filter(g => g.aktiv !== false).length;
         const sortedVis = getSortedMergeVisibleIndices();
         mergeMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
+        mergeTb.setDensity(total);
         mergeMetaHint.textContent = mergeMetaHintText();
         if (aktuelleMergeGruppen.length === 0) {
             mergeContainer.appendChild(mkEmptyState('Keine Merge-Gruppen.'));
