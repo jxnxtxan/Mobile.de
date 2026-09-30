@@ -645,8 +645,9 @@ export function getPreisGewichtForConfig(cfg, prCfg) {
     if (!cfg) return 0;
     const pr = prCfg || getPriceRating(runtimeState.featureFlags);
     if (pr.onlyFavoriteWeights && cfg.favorit !== true) return 0;
+    // Eingetragene Zahl gilt — auch 0 (= bewusst aus). Nur ohne Eintrag greift der Standard.
     const w = cfg.preisGewicht;
-    if (typeof w === 'number' && w > 0) return w;
+    if (typeof w === 'number' && Number.isFinite(w)) return w > 0 ? w : 0;
     const key = (cfg.anzeige || '').trim().toLowerCase();
     return DEFAULT_PREIS_GEWICHT_BY_ANZEIGE[key] || 0;
 }

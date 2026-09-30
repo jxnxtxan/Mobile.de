@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.39
+// @version      2.16.40
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -2439,10 +2439,10 @@ Kontext: …${item.snippet}…` : "";
   }
   function getPreisGewichtForConfig(cfg, prCfg) {
     if (!cfg) return 0;
-    const pr = getPriceRating(runtimeState.featureFlags);
+    const pr = prCfg || getPriceRating(runtimeState.featureFlags);
     if (pr.onlyFavoriteWeights && cfg.favorit !== true) return 0;
     const w = cfg.preisGewicht;
-    if (typeof w === "number" && w > 0) return w;
+    if (typeof w === "number" && Number.isFinite(w)) return w > 0 ? w : 0;
     const key = (cfg.anzeige || "").trim().toLowerCase();
     return DEFAULT_PREIS_GEWICHT_BY_ANZEIGE[key] || 0;
   }
@@ -5915,7 +5915,9 @@ Kontext: …${item.snippet}…` : "";
 <li>Neue Features werden automatisch mit ihren Standardwerten ergänzt; bestehende Einstellungen bleiben erhalten.</li>
 <li><strong>Defaults zurücksetzen</strong> für alle Feature-Flags: Footer neben <strong>Rückgängig</strong>.</li>
 <li><strong>Listen-Layout:</strong> Schaltet die Tabs Ausstattung, Tech-Daten und Merge-Gruppen zwischen klassischem Grid und Split-View (Liste + Editor) um. Gilt nach <strong>Speichern</strong>.</li>
-<li><strong>Preisbewertung:</strong> Vollständig im Tab <strong>Config</strong> — Schwellen, €/Punkt, Vergleichskohorte, Ausstattungs-Gewichte. Änderungen mit starker Auswirkung fragen per Warnung nach.</li>
+<li><strong>Bereiche:</strong> Links wählst du Allgemein, Listen &amp; Sortierung, Suchergebnisse, Preisbewertung und — wenn freigeschaltet — Debug.</li>
+<li><strong>Preisbewertung:</strong> Vergleichsgruppe, Ausstattungs-Aufschlag, Preis-Stufen; Cache-Key-Details unter „Erweitert“. Die <strong>Gewichte</strong> pflegst du am Eintrag im Reiter <strong>Ausstattung</strong> (Feld „Preisgewicht“: leer = Standard, 0 = aus). Änderungen mit starker Auswirkung fragen per Warnung nach.</li>
+<li><strong>Debug:</strong> 5× auf den Einleitungstext klicken blendet den Bereich ein. Debug-Schalter wirken sofort und lassen offene Änderungen unberührt.</li>
 </ul>`]
   ]);
   function oeffneKonfigPopup() {
@@ -5970,7 +5972,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.39";
+    const SCRIPT_UI_VERSION = "2.16.40";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -6072,10 +6074,11 @@ Kontext: …${item.snippet}…` : "";
         if (bSum) lines.push("✎ " + name + ": Suchbegriffe (" + bSum + ")");
         const vSum = arrayChangeSummary(before.verboten, after.verboten);
         if (vSum) lines.push("✎ " + name + ": Verbotene Wörter (" + vSum + ")");
-        const wB = Number(before.preisGewicht) || 0;
-        const wA = Number(after.preisGewicht) || 0;
+        const wFmt = (w) => typeof w === "number" ? w + " Pkt." : "Standard";
+        const wB = typeof before.preisGewicht === "number" ? before.preisGewicht : null;
+        const wA = typeof after.preisGewicht === "number" ? after.preisGewicht : null;
         if (wB !== wA) {
-          lines.push("✎ " + name + ": Preis-Gewicht " + wB + " → " + wA + " Pkt.");
+          lines.push("✎ " + name + ": Preis-Gewicht " + wFmt(wB) + " → " + wFmt(wA));
         }
       });
       if (orderChangedByKey(baseline, current, keyFn)) {
@@ -6748,6 +6751,16 @@ grid-template-rows:minmax(140px,1fr) auto;
   .mc-config-nav{flex-direction:row;flex-wrap:wrap;position:static;}
 }
 .mc-pr-group{display:flex;flex-direction:column;gap:6px;margin-top:16px;}
+.mc-weight-editor{display:flex;flex-direction:column;gap:4px;}
+.mc-weight-editor__input{max-width:160px;}
+.mc-weight-editor__hint{font-size:11px;color:var(--mc-muted);}
+.mc-pr-weight-summary{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+.mc-pr-weight-chip{
+  display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;
+  border:1px solid var(--mc-border);background:rgba(0,0,0,.18);color:var(--mc-text);cursor:pointer;font-family:inherit;
+}
+.mc-pr-weight-chip:hover{border-color:var(--mc-accent);}
+.mc-pr-weight-chip__w{color:#f0c878;font-weight:600;}
 .mc-pr-group-hint{font-size:12px;line-height:1.45;color:var(--mc-muted);}
 .mc-pr-advanced{
   margin-top:16px;border:1px solid var(--mc-border);border-radius:8px;padding:8px 12px;background:rgba(0,0,0,.12);
@@ -7471,6 +7484,57 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       p.className = "mc-config-split__editor-placeholder";
       p.textContent = "Eintrag in der Liste wählen oder „+ Neu“ klicken.";
       editorEl.appendChild(p);
+    }
+    function fmtGewicht(w) {
+      return String(Math.round(w * 10) / 10).replace(".", ",");
+    }
+    function standardPreisGewicht(item) {
+      const key = (item && item.anzeige || "").trim().toLowerCase();
+      const d = DEFAULT_PREIS_GEWICHT_BY_ANZEIGE[key];
+      return typeof d === "number" ? d : null;
+    }
+    function wirksamesPreisGewicht(item) {
+      return getPreisGewichtForConfig(item, mergePriceRating(aktuelleFeatureFlags.priceRating));
+    }
+    function mkPreisGewichtEditor(item, onChanged) {
+      const wrap = document.createElement("div");
+      wrap.className = "mc-weight-editor";
+      const inp = document.createElement("input");
+      inp.type = "number";
+      inp.className = "mc-input mc-weight-editor__input";
+      inp.min = "0";
+      inp.max = "10";
+      inp.step = "0.1";
+      const std = standardPreisGewicht(item);
+      inp.placeholder = std != null ? "Standard: " + fmtGewicht(std) : "leer = kein Gewicht";
+      inp.value = typeof item.preisGewicht === "number" ? String(item.preisGewicht) : "";
+      const hint = document.createElement("div");
+      hint.className = "mc-weight-editor__hint";
+      function syncHint() {
+        const eff = wirksamesPreisGewicht(item);
+        const src = typeof item.preisGewicht === "number" ? item.preisGewicht > 0 ? "eigener Wert" : "bewusst aus" : std != null ? "Standard" : "kein Gewicht";
+        hint.textContent = "Wirksam: " + fmtGewicht(eff) + " Punkte (" + src + ") · 0 = aus, leer = Standard";
+      }
+      inp.addEventListener("change", () => {
+        const raw = inp.value.trim();
+        const prev = item.preisGewicht;
+        const next = raw === "" ? void 0 : clampNum(raw, 0, 10, 0);
+        if (next === prev) {
+          inp.value = typeof prev === "number" ? String(prev) : "";
+          return;
+        }
+        pushUndo({ kind: "ausstattung", data: snapshotAus() });
+        if (next === void 0) delete item.preisGewicht;
+        else item.preisGewicht = next;
+        inp.value = typeof item.preisGewicht === "number" ? String(item.preisGewicht) : "";
+        markDirty();
+        syncHint();
+        if (onChanged) onChanged();
+      });
+      syncHint();
+      wrap.appendChild(inp);
+      wrap.appendChild(hint);
+      return wrap;
     }
     function mkConfigSplitEditorField(labelText, el) {
       const grp = document.createElement("div");
@@ -8752,6 +8816,10 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         }
       });
       fields.appendChild(mkConfigSplitEditorField("Verbotene Begriffe", chipV.wrap));
+      fields.appendChild(mkConfigSplitEditorField(
+        "Preisgewicht (Punkte für die Preisbewertung)",
+        mkPreisGewichtEditor(item, () => renderAusstattungSplitListOnly())
+      ));
       editor.appendChild(fields);
       const footer = mkConfigSplitEditorFooter();
       const colorField = document.createElement("div");
@@ -9060,6 +9128,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       adv.appendChild(txtBegriffe);
       adv.appendChild(lb2);
       adv.appendChild(txtVerboten);
+      const lbW = document.createElement("div");
+      lbW.className = "mc-label-sm";
+      lbW.textContent = "Preisgewicht (Punkte für die Preisbewertung)";
+      adv.appendChild(lbW);
+      adv.appendChild(mkPreisGewichtEditor(item));
       adv.appendChild(btnLoeschen);
       card.appendChild(adv);
       if (dragOn) setupListDragReorder({
@@ -9112,6 +9185,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       if (item.compound) badges.push("Wortteil");
       const vCount = Array.isArray(item.verboten) ? item.verboten.length : 0;
       if (vCount) badges.push(vCount + " verboten");
+      const wEff = wirksamesPreisGewicht(item);
+      if (wEff > 0) badges.push("⚖ " + fmtGewicht(wEff));
       const errs = cardIssuesAus(index, item);
       const row = mkSplitListItem({
         index,
@@ -10504,6 +10579,20 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       renderTechData();
       renderConfig();
     }
+    function jumpToAusEntry(idx) {
+      if (!aktuelleAusstattungsKonfig[idx]) return;
+      if (ausSearch && ausSearch._input && ausSearch._input.value) ausSearch._input.value = "";
+      setActiveTab(0);
+      if (useConfigSplitView()) {
+        renderAusstattung();
+        selectAusIndex(idx, true);
+      } else {
+        expandedAusstattungIndex = idx;
+        renderAusstattung();
+      }
+      const el = panelAus.querySelector('[data-cfg-index="' + idx + '"]');
+      if (el) el.scrollIntoView({ block: "center" });
+    }
     let activeConfigSection = "general";
     const CONFIG_SECTIONS = [
       { key: "general", label: "Allgemein" },
@@ -11252,162 +11341,62 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       thHigh.textContent = PRICE_RATING_LEVELS[4].label + ": alles darüber";
       thWrap.appendChild(thHigh);
       prBody.appendChild(thWrap);
-      const wtTitle = document.createElement("div");
-      wtTitle.className = "mc-lo-section-title";
-      wtTitle.style.marginTop = "14px";
-      wtTitle.textContent = "Ausstattungs-Gewichte (Punkte)";
-      prBody.appendChild(wtTitle);
-      const wtHint = document.createElement("div");
-      wtHint.className = "mc-feature-desc";
-      wtHint.textContent = "0 = Feature ignorieren. Höhere Werte = stärkerer Einfluss auf den erwarteten Preis.";
-      prBody.appendChild(wtHint);
-      const wtToolbar = document.createElement("div");
-      wtToolbar.className = "mc-pr-actions";
-      const wtSearch = document.createElement("input");
-      wtSearch.type = "search";
-      wtSearch.className = "mc-input";
-      wtSearch.placeholder = "Ausstattung filtern…";
-      wtSearch.style.flex = "1 1 160px";
-      wtToolbar.appendChild(wtSearch);
-      const wtOnlyWrap = document.createElement("label");
-      wtOnlyWrap.className = "mc-toolbar-toggle mc-toolbar-toggle--plain";
-      wtOnlyWrap.title = "Nur Einträge mit Gewicht > 0 anzeigen";
-      const wtOnlyToggle = mkToggle(false, () => renderWeightRows());
-      const wtOnlyCb = wtOnlyToggle.querySelector("input");
-      const wtOnlyTxt = document.createElement("span");
-      wtOnlyTxt.textContent = "Nur mit Gewicht";
-      wtOnlyWrap.appendChild(wtOnlyTxt);
-      wtOnlyWrap.appendChild(wtOnlyToggle);
-      wtToolbar.appendChild(wtOnlyWrap);
-      prBody.appendChild(wtToolbar);
-      const wtList = document.createElement("div");
-      wtList.className = "mc-pr-weights";
-      prBody.appendChild(wtList);
-      let wtVisibleLimit = 80;
-      let wtFilteredIndices = [];
-      let wtRenderRaf = 0;
-      let wtSearchDebounce = 0;
-      cleanupOnClose.add(() => {
-        clearTimeout(wtSearchDebounce);
-        if (wtRenderRaf) cancelAnimationFrame(wtRenderRaf);
-      });
-      function renderWeightRows() {
-        const t0 = pricePerfMarkStart();
-        wtList.innerHTML = "";
-        const q = wtSearch.value.trim().toLowerCase();
-        const indices = [];
-        aktuelleAusstattungsKonfig.forEach((item, idx) => {
-          const w = Number(item.preisGewicht) || 0;
-          if (wtOnlyCb.checked && w <= 0) return;
-          const name = (item.anzeige || "").toLowerCase();
-          if (q && !name.includes(q)) return;
-          indices.push(idx);
-        });
-        wtFilteredIndices = indices;
-        if (!wtFilteredIndices.length) {
-          const empty = document.createElement("div");
-          empty.style.padding = "12px";
-          empty.style.opacity = "0.7";
-          empty.textContent = "Keine Einträge für den Filter.";
-          wtList.appendChild(empty);
-          pricePerfMarkEnd("renderWeightRows", t0, 16);
-          return;
-        }
-        const capped = wtFilteredIndices.slice(0, wtVisibleLimit);
-        capped.forEach((idx) => {
-          const item = aktuelleAusstattungsKonfig[idx] || {};
-          const row = document.createElement("div");
-          row.className = "mc-pr-weight-row" + (item.aktiv === false ? " mc-pr-weight-row--inactive" : "");
-          row.dataset.weightIdx = String(idx);
-          const name = document.createElement("div");
-          name.className = "mc-pr-weight-name";
-          name.textContent = (item.favorit ? "★ " : "") + (item.anzeige || "—");
-          name.title = item.anzeige || "";
-          const inp = document.createElement("input");
-          inp.type = "number";
-          inp.className = "mc-input mc-pr-weight-inp";
-          inp.min = "0";
-          inp.max = "10";
-          inp.step = "0.1";
-          inp.value = String(Number(item.preisGewicht) || 0);
-          row.appendChild(name);
-          row.appendChild(inp);
-          wtList.appendChild(row);
-        });
-        if (wtFilteredIndices.length > capped.length) {
-          const more = document.createElement("button");
-          more.type = "button";
-          more.className = "mc-btn mc-btn--ghost";
-          more.style.marginTop = "8px";
-          more.textContent = "Mehr laden (" + (wtFilteredIndices.length - capped.length) + ")";
-          more.addEventListener("click", () => {
-            wtVisibleLimit += 80;
-            renderWeightRows();
-          });
-          wtList.appendChild(more);
-        }
-        pricePerfMarkEnd("renderWeightRows", t0, 16);
+      const grpWeights = mkPrGroup(
+        "Ausstattungs-Gewichte",
+        "Gepflegt wird das Gewicht direkt am Eintrag im Reiter Ausstattung (Feld „Preisgewicht“). Hier die Einträge, die aktuell zählen — Klick springt zum Eintrag."
+      );
+      const weighted = aktuelleAusstattungsKonfig.map((item, idx) => ({ item, idx, w: wirksamesPreisGewicht(item) })).filter((x) => x.item && x.item.aktiv !== false && x.w > 0).sort((a, b) => b.w - a.w || (a.item.anzeige || "").localeCompare(b.item.anzeige || "", "de"));
+      const wtSummary = document.createElement("div");
+      wtSummary.className = "mc-pr-weight-summary";
+      if (!weighted.length) {
+        const empty = document.createElement("div");
+        empty.className = "mc-pr-group-hint";
+        empty.textContent = pr.onlyFavoriteWeights ? "Keine Favoriten mit Gewicht — „Nur Favoriten-Gewichte“ ist an." : "Keine Ausstattung mit Gewicht — die Bewertung ignoriert Ausstattungsunterschiede.";
+        wtSummary.appendChild(empty);
       }
-      wtList.addEventListener("change", async (e) => {
-        const inp = e.target;
-        if (!(inp instanceof HTMLInputElement) || !inp.classList.contains("mc-pr-weight-inp")) return;
-        const row = inp.closest(".mc-pr-weight-row");
-        const idx = row ? parseInt(row.dataset.weightIdx || "", 10) : NaN;
-        if (!Number.isInteger(idx) || idx < 0) return;
-        const item = aktuelleAusstattungsKonfig[idx];
-        if (!item) return;
-        const prev = Number(item.preisGewicht) || 0;
-        const next = clampNum(inp.value, 0, 10, 0);
-        inp.value = String(next);
-        if (next === prev) return;
-        const impactful = next >= 2.5 || prev >= 2.5 || prev === 0 && next > 0 || Math.abs(next - prev) >= 1.5;
-        if (impactful) {
-          const ok = await confirmPrImpact(
-            "„" + (item.anzeige || "Eintrag") + "“: Gewicht " + prev + " → " + next + " Punkte."
-          );
-          if (!ok) {
-            inp.value = String(prev);
-            return;
-          }
-        }
-        pushUndo({ kind: "ausstattung", data: snapshotAus() });
-        item.preisGewicht = next;
-        markDirty();
+      weighted.forEach(({ item, idx, w }) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "mc-pr-weight-chip";
+        chip.title = "Im Reiter Ausstattung bearbeiten";
+        const name = document.createElement("span");
+        name.textContent = item.anzeige || "(ohne Anzeige)";
+        const wt = document.createElement("span");
+        wt.className = "mc-pr-weight-chip__w";
+        wt.textContent = fmtGewicht(w);
+        chip.appendChild(name);
+        chip.appendChild(wt);
+        chip.addEventListener("click", () => jumpToAusEntry(idx));
+        wtSummary.appendChild(chip);
       });
-      wtSearch.addEventListener("input", () => {
-        wtVisibleLimit = 80;
-        clearTimeout(wtSearchDebounce);
-        wtSearchDebounce = setTimeout(() => {
-          if (wtRenderRaf) cancelAnimationFrame(wtRenderRaf);
-          wtRenderRaf = requestAnimationFrame(renderWeightRows);
-        }, 140);
-      });
-      renderWeightRows();
+      grpWeights.appendChild(wtSummary);
       const wtBulk = document.createElement("div");
       wtBulk.className = "mc-pr-actions";
       wtBulk.appendChild(mkBtn("prem", "Premium-Defaults setzen", async () => {
         const ok = await confirmPrImpact(
-          "Setzt für alle bekannten Premium-Ausstattungen (HUD, 360°, B&O, …) die Standard-Gewichte. Bereits gesetzte Gewichte > 0 bleiben erhalten, außer es gibt einen Default-Eintrag."
+          "Setzt für alle bekannten Premium-Ausstattungen (HUD, 360°, B&O, …) die Standard-Gewichte. Eigene Gewichte > 0 bleiben erhalten; bewusst ausgeschaltete (0) werden wieder auf Standard gesetzt."
         );
         if (!ok) return;
         pushUndo({ kind: "ausstattung", data: snapshotAus() });
         aktuelleAusstattungsKonfig = applyPreisGewichtDefaults(aktuelleAusstattungsKonfig);
         markDirty();
-        renderWeightRows();
+        renderAusstattung();
+        renderConfig();
         showToast("Premium-Gewichte übernommen", "success");
       }));
       wtBulk.appendChild(mkBtn("clearw", "Alle Gewichte auf 0", async () => {
         const ok = await confirmPrImpact(
-          "Alle Ausstattungs-Gewichte werden auf 0 gesetzt — die Preisbewertung ignoriert dann Ausstattungs-Unterschiede."
+          "Alle Ausstattungs-Gewichte werden auf 0 (= aus) gesetzt — die Preisbewertung ignoriert dann Ausstattungs-Unterschiede."
         );
         if (!ok) return;
         pushUndo({ kind: "ausstattung", data: snapshotAus() });
         aktuelleAusstattungsKonfig = clearAllPreisGewichte(aktuelleAusstattungsKonfig);
         markDirty();
-        renderWeightRows();
-        showToast("Alle Gewichte zurückgesetzt", "success");
+        renderAusstattung();
+        renderConfig();
+        showToast("Alle Gewichte auf 0 gesetzt", "success");
       }));
-      prBody.appendChild(wtBulk);
+      grpWeights.appendChild(wtBulk);
       prBody.appendChild(prAdvanced);
       prCard.appendChild(prBody);
       const prSec = document.createElement("div");

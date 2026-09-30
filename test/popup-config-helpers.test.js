@@ -72,3 +72,16 @@ test('Kohorten-Beschriftung zeigt den EZ-Bereich statt des Gruppenanfangs', () =
     assert.match(label, /EZ 2013–2015/);
     assert.doesNotMatch(label, /Bucket/);
 });
+
+/**
+ * 0 fiel früher still auf das Standardgewicht zurück — „Alle Gewichte auf 0“
+ * ließ HUD & Co. bei 2,5. Jetzt: Zahl gilt (0 = aus), nur ohne Eintrag Standard.
+ */
+test('Preisgewicht: 0 = aus, leer = Standard, eigener Wert gilt', async () => {
+    const { getPreisGewichtForConfig } = await import('../src/features/price-rating/index.js');
+    const pr = priceRatingDefault();
+    assert.equal(getPreisGewichtForConfig({ anzeige: 'Head-Up Display', preisGewicht: 0 }, pr), 0);
+    assert.equal(getPreisGewichtForConfig({ anzeige: 'Head-Up Display' }, pr), 2.5);
+    assert.equal(getPreisGewichtForConfig({ anzeige: 'Head-Up Display', preisGewicht: 1.2 }, pr), 1.2);
+    assert.equal(getPreisGewichtForConfig({ anzeige: 'Unbekannt' }, pr), 0);
+});
