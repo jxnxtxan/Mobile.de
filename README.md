@@ -27,7 +27,7 @@ Auf der Fahrzeugdetailseite (neben dem Preis) und in der Suchergebnisliste zeigt
 ## Installation
 
 1. [Tampermonkey](https://www.tampermonkey.net/) (oder kompatibles Userscript-Manager-Add-on) installieren.
-2. Skriptdatei [`mobile-ausstattungssuche.js`](https://raw.githubusercontent.com/jxnxtxan/Mobile/main/mobile-ausstattungssuche.js) in Tampermonkey öffnen bzw. per „Neues Userscript aus URL …“ einbinden (`@updateURL` / `@downloadURL` zeigen darauf).
+2. Skriptdatei [`mobile-ausstattungssuche.js`](https://raw.githubusercontent.com/jxnxtxan/Mobile.de/main/mobile-ausstattungssuche.js) in Tampermonkey öffnen bzw. per „Neues Userscript aus URL …“ einbinden (`@updateURL` / `@downloadURL` zeigen darauf).
 
 ## Entwicklung (Build)
 
