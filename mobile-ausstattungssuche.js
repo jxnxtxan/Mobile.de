@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.38
+// @version      2.16.39
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -456,14 +456,6 @@
       sessionStorage.removeItem(SRP_SORT_OVERRIDE_STORAGE_KEY);
     } catch (e) {
     }
-  }
-  function countConfigTabSettings(flags) {
-    const f = flags || runtimeState.featureFlags;
-    let on = FEATURE_FLAG_DEFINITIONS.filter((d) => f[d.key] !== false).length;
-    let all = FEATURE_FLAG_DEFINITIONS.length;
-    if (getSrpSort(f).enabled) on += 1;
-    all += 1;
-    return { on, all };
   }
   function listOrderDefault() {
     return JSON.parse(JSON.stringify(LIST_ORDER_DEFAULT));
@@ -5978,7 +5970,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.38";
+    const SCRIPT_UI_VERSION = "2.16.39";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -6740,6 +6732,27 @@ grid-template-rows:minmax(140px,1fr) auto;
 .mc-config-intro{margin:0;font-size:13px;line-height:1.5;color:var(--mc-muted);flex:1;min-width:0;}
 .mc-config-intro strong{color:var(--mc-text);font-weight:600;}
 .mc-config-section{display:flex;flex-direction:column;gap:10px;}
+.mc-config-layout{display:grid;grid-template-columns:176px minmax(0,1fr);gap:18px;align-items:start;}
+.mc-config-nav{display:flex;flex-direction:column;gap:4px;position:sticky;top:0;}
+.mc-config-nav-btn{
+  text-align:left;border:1px solid transparent;background:transparent;color:var(--mc-muted);
+  padding:8px 10px;border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit;
+}
+.mc-config-nav-btn:hover{background:var(--mc-bg-soft);color:var(--mc-text);}
+.mc-config-nav-btn[aria-current="page"]{
+  background:rgba(33,150,243,.15);border-color:rgba(33,150,243,.4);color:var(--mc-text);font-weight:600;
+}
+.mc-config-content{display:flex;flex-direction:column;gap:16px;min-width:0;}
+@media(max-width:719px){
+  .mc-config-layout{grid-template-columns:1fr;}
+  .mc-config-nav{flex-direction:row;flex-wrap:wrap;position:static;}
+}
+.mc-pr-group{display:flex;flex-direction:column;gap:6px;margin-top:16px;}
+.mc-pr-group-hint{font-size:12px;line-height:1.45;color:var(--mc-muted);}
+.mc-pr-advanced{
+  margin-top:16px;border:1px solid var(--mc-border);border-radius:8px;padding:8px 12px;background:rgba(0,0,0,.12);
+}
+.mc-pr-advanced>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--mc-muted);padding:4px 0;}
 .mc-config-section-title{
   font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mc-muted);
   padding:0 2px;
@@ -10436,7 +10449,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     configHeader.className = "mc-config-header";
     const configIntro = document.createElement("p");
     configIntro.className = "mc-config-intro";
-    configIntro.innerHTML = "<strong>Skript-Einstellungen:</strong> Features, Listen-Reihenfolge und Suchergebnis-Sortierung. Änderungen gelten nach <strong>Speichern</strong> — teils sofort auf der geöffneten Fahrzeug- oder Suchergebnisseite.";
+    configIntro.innerHTML = "<strong>Skript-Einstellungen</strong> — Änderungen gelten nach <strong>Speichern</strong>. Details im „?“.";
     configHeader.appendChild(configIntro);
     const configContainer = document.createElement("div");
     configContainer.className = "mc-config-body";
@@ -10491,8 +10504,47 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       renderTechData();
       renderConfig();
     }
+    let activeConfigSection = "general";
+    const CONFIG_SECTIONS = [
+      { key: "general", label: "Allgemein" },
+      { key: "lists", label: "Listen & Sortierung" },
+      { key: "srp", label: "Suchergebnisse" },
+      { key: "price", label: "Preisbewertung" },
+      { key: "debug", label: "Debug" }
+    ];
     function renderConfig() {
       configContainer.innerHTML = "";
+      const debugVisible = !!getDebugConfig(aktuelleFeatureFlags).enabled || configDebugUiUnlocked;
+      if (activeConfigSection === "debug" && !debugVisible) activeConfigSection = "general";
+      const cfgLayout = document.createElement("div");
+      cfgLayout.className = "mc-config-layout";
+      const cfgNav = document.createElement("nav");
+      cfgNav.className = "mc-config-nav";
+      cfgNav.setAttribute("aria-label", "Bereiche der Einstellungen");
+      CONFIG_SECTIONS.forEach((sec) => {
+        if (sec.key === "debug" && !debugVisible) return;
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "mc-config-nav-btn";
+        b.textContent = sec.label;
+        if (sec.key === activeConfigSection) b.setAttribute("aria-current", "page");
+        b.addEventListener("click", () => {
+          if (activeConfigSection === sec.key) return;
+          activeConfigSection = sec.key;
+          renderConfig();
+          panelConfig.scrollTop = 0;
+          configContainer.scrollTop = 0;
+        });
+        cfgNav.appendChild(b);
+      });
+      const cfgContent = document.createElement("div");
+      cfgContent.className = "mc-config-content";
+      cfgLayout.appendChild(cfgNav);
+      cfgLayout.appendChild(cfgContent);
+      configContainer.appendChild(cfgLayout);
+      function mountConfigSection(key, el) {
+        if (key === activeConfigSection) cfgContent.appendChild(el);
+      }
       aktuelleFeatureFlags.listOrder = mergeListOrder(aktuelleFeatureFlags.listOrder);
       aktuelleFeatureFlags.srpSort = mergeSrpSort(aktuelleFeatureFlags.srpSort);
       const lo = aktuelleFeatureFlags.listOrder;
@@ -10561,7 +10613,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           featList.appendChild(card);
         });
         featSec.appendChild(featList);
-        configContainer.appendChild(featSec);
+        mountConfigSection("general", featSec);
       }
       appendFeaturesSection();
       function syncListOrderUi() {
@@ -10633,7 +10685,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       uiListSecTitle.textContent = "Konfig-Popup";
       uiListSec.appendChild(uiListSecTitle);
       uiListSec.appendChild(uiListCard);
-      configContainer.appendChild(uiListSec);
+      mountConfigSection("general", uiListSec);
       const loCard = document.createElement("div");
       loCard.className = "mc-card mc-list-order-card";
       const loHead = document.createElement("div");
@@ -10760,7 +10812,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       loSecTitle.textContent = "Listen & Sortierung";
       loSec.appendChild(loSecTitle);
       loSec.appendChild(loCard);
-      configContainer.appendChild(loSec);
+      mountConfigSection("lists", loSec);
       const srpCard = document.createElement("div");
       srpCard.className = "mc-card mc-list-order-card";
       const srpHead = document.createElement("div");
@@ -10842,7 +10894,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       srpSecTitle.textContent = "Suchergebnisse";
       srpSec.appendChild(srpSecTitle);
       srpSec.appendChild(srpCard);
-      configContainer.appendChild(srpSec);
+      mountConfigSection("srp", srpSec);
       const pr = mergePriceRating(aktuelleFeatureFlags.priceRating);
       aktuelleFeatureFlags.priceRating = pr;
       async function confirmPrImpact(message) {
@@ -11002,13 +11054,40 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         return field;
       }
       updatePrBodyState();
-      prBody.appendChild(mkPrToggleRow("Auf Fahrzeugdetailseite", () => !!pr.enabledVip, (v) => {
+      function mkPrGroup(title2, hint, parent) {
+        const g = document.createElement("div");
+        g.className = "mc-pr-group";
+        const t = document.createElement("div");
+        t.className = "mc-lo-section-title";
+        t.textContent = title2;
+        g.appendChild(t);
+        if (hint) {
+          const h = document.createElement("div");
+          h.className = "mc-pr-group-hint";
+          h.textContent = hint;
+          g.appendChild(h);
+        }
+        prBody.appendChild(g);
+        return g;
+      }
+      function mkPrGridIn(group) {
+        const grid = document.createElement("div");
+        grid.className = "mc-pr-grid";
+        group.appendChild(grid);
+        return grid;
+      }
+      const grpGeneral = mkPrGroup("Anzeige");
+      grpGeneral.appendChild(mkPrToggleRow("Auf Fahrzeugdetailseite", () => !!pr.enabledVip, (v) => {
         pr.enabledVip = v;
       }));
-      prBody.appendChild(mkPrToggleRow("Badge in Suchergebnissen", () => !!pr.enabledSrp, (v) => {
+      grpGeneral.appendChild(mkPrToggleRow("Badge in Suchergebnissen", () => !!pr.enabledSrp, (v) => {
         pr.enabledSrp = v;
       }));
-      prBody.appendChild(mkPrToggleRow(
+      const grpCohort = mkPrGroup(
+        "Vergleichsgruppe",
+        "Welche Inserate als vergleichbar gelten. Reichen sie nicht, dient der mobile.de-Marktpreis als Basis."
+      );
+      grpCohort.appendChild(mkPrToggleRow(
         "mobile.de als Fallback",
         () => !!pr.mobileFallback,
         (v) => {
@@ -11016,7 +11095,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         },
         "Ohne Fallback zeigt die Bewertung bei zu wenig Vergleichsfahrzeugen ggf. gar nichts an."
       ));
-      prBody.appendChild(mkPrToggleRow(
+      grpCohort.appendChild(mkPrToggleRow(
         "Baureihe in Vergleichssuche",
         () => pr.useModelRange !== false,
         (v) => {
@@ -11024,31 +11103,30 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         },
         "Wenn aus: ignoriert Baureihe/Modelgruppe im Vergleich (hilfreich, wenn Baureihe oft fehlt)."
       ));
-      prBody.appendChild(mkPrToggleRow(
-        "Cache-Key: km berücksichtigen",
-        () => pr.keyUseMileage !== false,
-        (v) => {
-          pr.keyUseMileage = v;
-        },
-        "Wenn aus: Kilometerstand wird beim Cache-Matching ignoriert."
-      ));
-      prBody.appendChild(mkPrToggleRow(
-        "Cache-Key: EZ berücksichtigen",
-        () => pr.keyUseYear !== false,
-        (v) => {
-          pr.keyUseYear = v;
-        },
-        "Wenn aus: Erstzulassungsjahr wird beim Cache-Matching ignoriert."
-      ));
-      prBody.appendChild(mkPrToggleRow(
-        "Cache-Key: Leistung berücksichtigen",
-        () => pr.keyUsePower !== false,
-        (v) => {
-          pr.keyUsePower = v;
-        },
-        "Wenn aus: Leistung (kW/PS) wird beim Cache-Matching ignoriert."
-      ));
-      prBody.appendChild(mkPrToggleRow(
+      const cohortGrid = mkPrGridIn(grpCohort);
+      cohortGrid.appendChild(mkPrNumberField("Min. Vergleichsfahrzeuge", "minComparables", 5, 50, {
+        impact: true,
+        warn: "Weniger Vergleiche = ungenauere, aber schnellere Bewertung. Mehr = stabiler, aber strenger Filter."
+      }));
+      cohortGrid.appendChild(mkPrNumberField("km-Toleranz Suche (± km)", "kmToleranceAbs", 0, 2e5, {
+        impact: true,
+        step: 500,
+        warn: "Abweichung in Kilometer (±) für die Vergleichssuche."
+      }));
+      cohortGrid.appendChild(mkPrNumberField("EZ-Toleranz (± Jahre)", "yearTolerance", 0, 3, {
+        impact: true,
+        warn: "Größere EZ-Spanne in der Vergleichssuche."
+      }));
+      cohortGrid.appendChild(mkPrNumberField("Leistung-Toleranz (± kW)", "powerToleranceKw", 0, 80, {
+        impact: true,
+        step: 1,
+        warn: "Abweichung in kW (±) für die Vergleichssuche."
+      }));
+      const grpEquip = mkPrGroup(
+        "Ausstattung",
+        "Aufschlag je Ausstattungspunkt gegenüber dem Median der Vergleichsfahrzeuge, gedeckelt in % des Basispreises."
+      );
+      grpEquip.appendChild(mkPrToggleRow(
         "Nur Favoriten-Gewichte",
         () => !!pr.onlyFavoriteWeights,
         (v) => {
@@ -11056,53 +11134,67 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         },
         "Nur Ausstattungen mit Stern zählen für die Preis-Korrektur — alle anderen Gewichte werden ignoriert."
       ));
-      const prGrid = document.createElement("div");
-      prGrid.className = "mc-pr-grid";
-      prGrid.appendChild(mkPrNumberField("Min. Vergleichsfahrzeuge", "minComparables", 5, 50, {
-        impact: true,
-        warn: "Weniger Vergleiche = ungenauere, aber schnellere Bewertung. Mehr = stabiler, aber strenger Filter."
-      }));
-      prGrid.appendChild(mkPrNumberField("€ pro Ausstattungspunkt", "punktZuEuro", 100, 5e3, {
+      const equipGrid = mkPrGridIn(grpEquip);
+      equipGrid.appendChild(mkPrNumberField("€ pro Ausstattungspunkt", "punktZuEuro", 100, 5e3, {
         impact: true,
         warn: "Direkter Multiplikator: 1 Punkt mehr Ausstattung ≈ so viele Euro höherer Erwartungspreis."
       }));
-      prGrid.appendChild(mkPrNumberField("Max. Ausstattungs-Korrektur (%)", "maxAdjustPct", 5, 25, {
+      equipGrid.appendChild(mkPrNumberField("Max. Ausstattungs-Korrektur (%)", "maxAdjustPct", 5, 25, {
         impact: true,
         step: 1,
         display: (v) => Math.round(v * 100),
         parse: (v) => clampInt(v, 5, 25, Math.round(pr.maxAdjustPct * 100)) / 100,
         warn: "Deckelt, wie stark die Ausstattung den erwarteten Preis nach oben/unten schieben darf."
       }));
-      prGrid.appendChild(mkPrNumberField("km-Toleranz Suche (± km)", "kmToleranceAbs", 0, 2e5, {
-        impact: true,
-        step: 500,
-        warn: "Abweichung in Kilometer (±) für die Vergleichssuche."
-      }));
-      prGrid.appendChild(mkPrNumberField("EZ-Toleranz (± Jahre)", "yearTolerance", 0, 3, {
-        impact: true,
-        warn: "Größere EZ-Spanne in der Vergleichssuche."
-      }));
-      prGrid.appendChild(mkPrNumberField("Leistung-Toleranz (± kW)", "powerToleranceKw", 0, 80, {
-        impact: true,
-        step: 1,
-        warn: "Abweichung in kW (±) für die Vergleichssuche."
-      }));
-      prGrid.appendChild(mkPrNumberField("Cache-Key km-Schritt", "keyKmBucket", 500, 5e4, {
+      const prAdvanced = document.createElement("details");
+      prAdvanced.className = "mc-pr-advanced";
+      const prAdvSummary = document.createElement("summary");
+      prAdvSummary.textContent = "Erweitert: Cache-Key";
+      prAdvanced.appendChild(prAdvSummary);
+      const prAdvHint = document.createElement("div");
+      prAdvHint.className = "mc-pr-group-hint";
+      prAdvHint.textContent = "Wie zwischengespeicherte Vergleichsgruppen wiedergefunden werden. Nur bei Bedarf ändern.";
+      prAdvanced.appendChild(prAdvHint);
+      prAdvanced.appendChild(mkPrToggleRow(
+        "Cache-Key: km berücksichtigen",
+        () => pr.keyUseMileage !== false,
+        (v) => {
+          pr.keyUseMileage = v;
+        },
+        "Wenn aus: Kilometerstand wird beim Cache-Matching ignoriert."
+      ));
+      prAdvanced.appendChild(mkPrToggleRow(
+        "Cache-Key: EZ berücksichtigen",
+        () => pr.keyUseYear !== false,
+        (v) => {
+          pr.keyUseYear = v;
+        },
+        "Wenn aus: Erstzulassungsjahr wird beim Cache-Matching ignoriert."
+      ));
+      prAdvanced.appendChild(mkPrToggleRow(
+        "Cache-Key: Leistung berücksichtigen",
+        () => pr.keyUsePower !== false,
+        (v) => {
+          pr.keyUsePower = v;
+        },
+        "Wenn aus: Leistung (kW/PS) wird beim Cache-Matching ignoriert."
+      ));
+      const advGrid = mkPrGridIn(prAdvanced);
+      advGrid.appendChild(mkPrNumberField("Cache-Key km-Schritt", "keyKmBucket", 500, 5e4, {
         impact: true,
         step: 500,
         warn: "Rundet km im Cache-Key auf diesen Schritt (größer = tolerantere Cache-Treffer)."
       }));
-      prGrid.appendChild(mkPrNumberField("Cache-Key EZ-Schritt (Jahre)", "keyYearBucket", 1, 5, {
+      advGrid.appendChild(mkPrNumberField("Cache-Key EZ-Schritt (Jahre)", "keyYearBucket", 1, 5, {
         impact: true,
         step: 1,
         warn: "Rundet Erstzulassung im Cache-Key auf diesen Schritt."
       }));
-      prGrid.appendChild(mkPrNumberField("Cache-Key kW-Schritt", "keyPowerBucket", 1, 50, {
+      advGrid.appendChild(mkPrNumberField("Cache-Key kW-Schritt", "keyPowerBucket", 1, 50, {
         impact: true,
         step: 1,
         warn: "Rundet Leistung im Cache-Key auf diesen Schritt (größer = toleranter)."
       }));
-      prBody.appendChild(prGrid);
       const thTitle = document.createElement("div");
       thTitle.className = "mc-lo-section-title";
       thTitle.style.marginTop = "12px";
@@ -11316,6 +11408,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         showToast("Alle Gewichte zurückgesetzt", "success");
       }));
       prBody.appendChild(wtBulk);
+      prBody.appendChild(prAdvanced);
       prCard.appendChild(prBody);
       const prSec = document.createElement("div");
       prSec.className = "mc-config-section";
@@ -11324,7 +11417,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       prSecTitle.textContent = "Preisbewertung";
       prSec.appendChild(prSecTitle);
       prSec.appendChild(prCard);
-      configContainer.appendChild(prSec);
+      mountConfigSection("price", prSec);
       function appendPriceDebugSection() {
         const dbgCfg = getDebugConfig(aktuelleFeatureFlags);
         if (!dbgCfg.enabled && !configDebugUiUnlocked) return;
@@ -11347,7 +11440,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         dbgCard.className = "mc-card mc-list-order-card";
         const dbgDesc = document.createElement("div");
         dbgDesc.className = "mc-feature-desc";
-        dbgDesc.textContent = "Schreibt modulare Debug-Infos in die Browser-Konsole. 5× auf den Einleitungstext oben klicken zum Ein-/Ausschalten.";
+        dbgDesc.textContent = "Schreibt modulare Debug-Infos in die Browser-Konsole. Schalter wirken sofort (ohne Speichern) und lassen offene Änderungen unberührt. Bereich ein-/ausblenden: 5× auf den Einleitungstext oben klicken.";
         dbgCard.appendChild(dbgDesc);
         const dbgRow = document.createElement("div");
         dbgRow.className = "mc-pr-actions";
@@ -11430,7 +11523,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         });
         dbgCard.appendChild(scopeList);
         dbgSec.appendChild(dbgCard);
-        configContainer.appendChild(dbgSec);
+        mountConfigSection("debug", dbgSec);
       }
       appendPriceDebugSection();
     }
@@ -11497,9 +11590,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         tabButtons[3].badge.textContent = "";
       }
       if (tabButtons[4]) {
-        const cfg = countConfigTabSettings(aktuelleFeatureFlags);
         tabButtons[4].labelSpan.textContent = "Config";
-        tabButtons[4].badge.textContent = "[" + cfg.on + " / " + cfg.all + "]";
+        tabButtons[4].badge.textContent = "";
       }
     }
     saveBtn.addEventListener("click", async () => {
