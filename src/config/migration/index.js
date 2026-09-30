@@ -221,6 +221,32 @@ export function migrateMergeGroups(userMerge, defaults) {
     return merged;
 }
 
+/**
+ * Schema 12: alter Default der Ausstattungs-Kappung (12 %) war zu knapp — gut
+ * ausgestattete Fahrzeuge liefen sofort in den Deckel. Nur der unveränderte
+ * alte Default wird angehoben, eigene Werte bleiben.
+ */
+export function migratePriceRatingMaxAdjust(priceRating, storedVersion) {
+    if (!priceRating || typeof priceRating !== 'object') return priceRating;
+    if (typeof storedVersion === 'number' && storedVersion >= 12) return priceRating;
+    if (priceRating.maxAdjustPct !== 0.12) return priceRating;
+    console.info('mobilede: Preisbewertung max. Ausstattungs-Korrektur 12 % → 20 %.');
+    return { ...priceRating, maxAdjustPct: 0.2 };
+}
+
+/**
+ * Schema 13: Seit Einträge ohne km/EZ/Leistung aus der Kohorte fliegen, sind
+ * saubere Kohorten kleiner — 20 schickte zu viele Fahrzeuge in den
+ * mobile.de-Fallback. Nur der unveränderte alte Default wird gesenkt.
+ */
+export function migratePriceRatingMinComparables(priceRating, storedVersion) {
+    if (!priceRating || typeof priceRating !== 'object') return priceRating;
+    if (typeof storedVersion === 'number' && storedVersion >= 13) return priceRating;
+    if (priceRating.minComparables !== 20) return priceRating;
+    console.info('mobilede: Preisbewertung Mindestanzahl Vergleichsfahrzeuge 20 → 10.');
+    return { ...priceRating, minComparables: 10 };
+}
+
 export function migrateIfNeeded() {
     const stored = ladeConfig(STORAGE_KEYS.version);
     if (stored === SCHEMA_VERSION) return;
@@ -250,7 +276,12 @@ export function migrateIfNeeded() {
         const mergedFlags = mergeConfigListUi(userFlags, { ...featureFlagsDefault(), ...userFlags });
         mergedFlags.listOrder = mergeListOrder(userFlags.listOrder);
         mergedFlags.srpSort = mergeSrpSort(userFlags.srpSort);
-        mergedFlags.priceRating = mergePriceRating(userFlags.priceRating);
+        mergedFlags.priceRating = mergePriceRating(
+            migratePriceRatingMinComparables(
+                migratePriceRatingMaxAdjust(userFlags.priceRating, stored),
+                stored
+            )
+        );
         speichereConfig(STORAGE_KEYS.featureFlags, mergedFlags);
     }
 

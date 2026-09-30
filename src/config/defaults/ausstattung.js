@@ -84,6 +84,16 @@ export const suchKonfigurationenDefault = [
         { begriffe: ['verkehrszeichen', 'road sign'], anzeige: 'Verkehrszeichenerkennung', aktiv: true },
         { begriffe: ['digital cockpit', 'virtual cockpit', 'volldigit kombiinstrument', 'kombiinstrument digital'], anzeige: 'Volldigitales Kombiinstrument', aktiv: true },
         { begriffe: ['winter paket', 'kalt paket'], anzeige: 'Winterpaket', aktiv: true },
-        { begriffe: ['zentral verriegelung', 'central lock', 'zentralverriegelung'], anzeige: 'Zentralverriegelung', aktiv: true }
+        { begriffe: ['zentral verriegelung', 'central lock', 'zentralverriegelung'], anzeige: 'Zentralverriegelung', aktiv: true },
+        // Premium-Ausstattungen mit Preisgewicht (Schema 12)
+        { begriffe: ['4 zonen klima', 'vier zonen klima', '4 zonen klimaautomatik'], anzeige: '4-Zonen-Klimaautomatik', aktiv: true },
+        { begriffe: ['adaptives fahrwerk', 'adaptive fahrwerk', 'daempferregelung', 'adaptive daempfer', 'dynamic chassis control'], verboten: ['luft'], anzeige: 'Adaptives Fahrwerk', aktiv: true },
+        { begriffe: ['hinterachslenkung', 'allradlenkung', 'hinterradlenkung', 'integral aktivlenkung', 'all wheel steering'], anzeige: 'Hinterachslenkung', farbe: 'orange', aktiv: true },
+        { begriffe: ['keramikbremse', 'keramik bremse', 'carbon keramik', 'ceramic brake', 'pccb'], anzeige: 'Keramikbremse', farbe: 'red', aktiv: true },
+        { begriffe: ['laserlicht', 'laser licht', 'laserscheinwerfer', 'laser scheinwerfer'], anzeige: 'Laser Licht', farbe: 'orange', aktiv: true },
+        { begriffe: ['lederausstattung', 'leder ausstattung', 'vollleder', 'nappaleder', 'ledersitze'], verboten: ['kunstleder', 'teilleder', 'lederoptik'], anzeige: 'Lederausstattung', aktiv: true },
+        { begriffe: ['luftfederung', 'luftfahrwerk', 'air suspension'], anzeige: 'Luftfederung', farbe: 'orange', aktiv: true },
+        { begriffe: ['massagesitz', 'massage sitz', 'massagefunktion', 'sitzmassage'], anzeige: 'Massagesitze', farbe: 'orange', aktiv: true },
+        { begriffe: ['nachtsicht', 'night vision', 'nachtsichtassistent'], anzeige: 'Nachtsicht Assistent', farbe: 'orange', aktiv: true }
 
     ];

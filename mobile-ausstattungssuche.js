@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.35
+// @version      2.16.37
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -26,7 +26,7 @@
 (function () {
   'use strict';
 
-  const SCHEMA_VERSION = 11;
+  const SCHEMA_VERSION = 13;
   const PAGE_UI_Z_INDEX = 2147483e3;
   const POPUP_OVERLAY_Z_INDEX = 2147483647;
   const STORAGE_KEYS = {
@@ -92,9 +92,9 @@
     keyYearBucket: 1,
     keyPowerBucket: 10,
     onlyFavoriteWeights: false,
-    minComparables: 20,
+    minComparables: 10,
     punktZuEuro: 800,
-    maxAdjustPct: 0.12,
+    maxAdjustPct: 0.2,
     kmToleranceAbs: 1e4,
     yearTolerance: 1,
     powerToleranceKw: 0,
@@ -117,7 +117,26 @@
     "bose sound system": 1.2,
     "elektr. sitzeinstellung mit memory-funktion": 1.2,
     "anhängerkupplung": 1,
-    "abstandstempomat": 1
+    "abstandstempomat": 1,
+    "nachtsicht assistent": 1.5,
+    "laser licht": 1.5,
+    "luftfederung": 1.5,
+    "massagesitze": 1,
+    "sitzbelüftung": 1,
+    "standheizung": 1,
+    "softclose": 0.8,
+    "standbelüftung": 0.5,
+    "akustikverglasung": 0.5,
+    "seitenscheiben akustikverglasung": 0.5,
+    "volldigitales kombiinstrument": 0.5,
+    "totwinkel-assistent": 0.5,
+    "dachhimmel alcantara": 0.5,
+    "lenkradheizung": 0.3,
+    "hinterachslenkung": 1,
+    "keramikbremse": 2,
+    "adaptives fahrwerk": 1,
+    "lederausstattung": 1,
+    "4-zonen-klimaautomatik": 0.5
   };
   const PRICE_COHORT_CACHE_PREFIX = "mobilede_price_cohort_";
   const PRICE_RATING_CACHE_PREFIX = "mobilede_price_rating_";
@@ -230,7 +249,16 @@
     { begriffe: ["verkehrszeichen", "road sign"], anzeige: "Verkehrszeichenerkennung", aktiv: true },
     { begriffe: ["digital cockpit", "virtual cockpit", "volldigit kombiinstrument", "kombiinstrument digital"], anzeige: "Volldigitales Kombiinstrument", aktiv: true },
     { begriffe: ["winter paket", "kalt paket"], anzeige: "Winterpaket", aktiv: true },
-    { begriffe: ["zentral verriegelung", "central lock", "zentralverriegelung"], anzeige: "Zentralverriegelung", aktiv: true }
+    { begriffe: ["zentral verriegelung", "central lock", "zentralverriegelung"], anzeige: "Zentralverriegelung", aktiv: true },
+{ begriffe: ["4 zonen klima", "vier zonen klima", "4 zonen klimaautomatik"], anzeige: "4-Zonen-Klimaautomatik", aktiv: true },
+    { begriffe: ["adaptives fahrwerk", "adaptive fahrwerk", "daempferregelung", "adaptive daempfer", "dynamic chassis control"], verboten: ["luft"], anzeige: "Adaptives Fahrwerk", aktiv: true },
+    { begriffe: ["hinterachslenkung", "allradlenkung", "hinterradlenkung", "integral aktivlenkung", "all wheel steering"], anzeige: "Hinterachslenkung", farbe: "orange", aktiv: true },
+    { begriffe: ["keramikbremse", "keramik bremse", "carbon keramik", "ceramic brake", "pccb"], anzeige: "Keramikbremse", farbe: "red", aktiv: true },
+    { begriffe: ["laserlicht", "laser licht", "laserscheinwerfer", "laser scheinwerfer"], anzeige: "Laser Licht", farbe: "orange", aktiv: true },
+    { begriffe: ["lederausstattung", "leder ausstattung", "vollleder", "nappaleder", "ledersitze"], verboten: ["kunstleder", "teilleder", "lederoptik"], anzeige: "Lederausstattung", aktiv: true },
+    { begriffe: ["luftfederung", "luftfahrwerk", "air suspension"], anzeige: "Luftfederung", farbe: "orange", aktiv: true },
+    { begriffe: ["massagesitz", "massage sitz", "massagefunktion", "sitzmassage"], anzeige: "Massagesitze", farbe: "orange", aktiv: true },
+    { begriffe: ["nachtsicht", "night vision", "nachtsichtassistent"], anzeige: "Nachtsicht Assistent", farbe: "orange", aktiv: true }
   ];
   const techDataKonfigurationenDefault = [
     { begriff: "Fahrzeugzustand", aktiv: true },
@@ -701,6 +729,20 @@
     if (updated) console.info("mobilede: Merge-Gruppen mit Schema-Updates ergänzt.");
     return merged;
   }
+  function migratePriceRatingMaxAdjust(priceRating, storedVersion) {
+    if (!priceRating || typeof priceRating !== "object") return priceRating;
+    if (typeof storedVersion === "number" && storedVersion >= 12) return priceRating;
+    if (priceRating.maxAdjustPct !== 0.12) return priceRating;
+    console.info("mobilede: Preisbewertung max. Ausstattungs-Korrektur 12 % → 20 %.");
+    return { ...priceRating, maxAdjustPct: 0.2 };
+  }
+  function migratePriceRatingMinComparables(priceRating, storedVersion) {
+    if (!priceRating || typeof priceRating !== "object") return priceRating;
+    if (typeof storedVersion === "number" && storedVersion >= 13) return priceRating;
+    if (priceRating.minComparables !== 20) return priceRating;
+    console.info("mobilede: Preisbewertung Mindestanzahl Vergleichsfahrzeuge 20 → 10.");
+    return { ...priceRating, minComparables: 10 };
+  }
   function migrateIfNeeded() {
     const stored = ladeConfig(STORAGE_KEYS.version);
     if (stored === SCHEMA_VERSION) return;
@@ -725,7 +767,12 @@
       const mergedFlags = mergeConfigListUi(userFlags, { ...featureFlagsDefault(), ...userFlags });
       mergedFlags.listOrder = mergeListOrder(userFlags.listOrder);
       mergedFlags.srpSort = mergeSrpSort(userFlags.srpSort);
-      mergedFlags.priceRating = mergePriceRating(userFlags.priceRating);
+      mergedFlags.priceRating = mergePriceRating(
+        migratePriceRatingMinComparables(
+          migratePriceRatingMaxAdjust(userFlags.priceRating, stored),
+          stored
+        )
+      );
       speichereConfig(STORAGE_KEYS.featureFlags, mergedFlags);
     }
     speichereConfig(STORAGE_KEYS.version, SCHEMA_VERSION);
@@ -1306,25 +1353,37 @@
     }
     return false;
   }
+  function rawLabelMatchQuality(r, rawLabel, candidate) {
+    const c = cleanText(candidate || "");
+    if (!c) return { quality: 0, len: 0 };
+    if (c === r) return { quality: 3, len: c.length };
+    if (!stringsMatchForHighlight(rawLabel, { anzeige: candidate, begriff: candidate })) {
+      return { quality: 0, len: 0 };
+    }
+    if (r.includes(c)) return { quality: 2, len: c.length };
+    return { quality: 1, len: 0 };
+  }
   function findConfigEntryForRawLabel(rawLabel) {
     const r = cleanText(rawLabel);
     if (!r) return null;
+    let best = null;
+    let bestQuality = 0;
+    let bestLen = -1;
     for (const cfg of runtimeState.suchKonfigurationen) {
       if (!cfg) continue;
-      const anzeigeKey = cleanText(cfg.anzeige || "");
-      if (anzeigeKey && anzeigeKey === r) return cfg;
-      if (anzeigeKey && stringsMatchForHighlight(rawLabel, { anzeige: cfg.anzeige })) {
-        return cfg;
-      }
-      if (Array.isArray(cfg.begriffe)) {
-        for (const b of cfg.begriffe) {
-          if (stringsMatchForHighlight(rawLabel, { anzeige: b, begriff: b })) {
-            return cfg;
-          }
+      const candidates = [cfg.anzeige].concat(Array.isArray(cfg.begriffe) ? cfg.begriffe : []);
+      for (const cand of candidates) {
+        const { quality, len } = rawLabelMatchQuality(r, rawLabel, cand);
+        if (quality === 0) continue;
+        if (quality > bestQuality || quality === bestQuality && len > bestLen) {
+          best = cfg;
+          bestQuality = quality;
+          bestLen = len;
         }
       }
+      if (bestQuality === 3) break;
     }
-    return null;
+    return best;
   }
   function rawCoveredByEntryLabel(rawLabel, entryAnzeige, entryHighlighted) {
     if (!entryAnzeige || false) return false;
@@ -3098,18 +3157,21 @@ Kontext: …${item.snippet}…` : "";
     if (!item || !profile) return false;
     if (!sameMakeModelForCohort(item, profile)) return false;
     const pr = prCfg || getPriceRating(runtimeState.featureFlags);
-    if (pr.keyUseMileage !== false && profile.mileageKm != null && item.mileageKm != null) {
+    if (pr.keyUseMileage !== false && profile.mileageKm != null) {
+      if (item.mileageKm == null) return false;
       const tol = Math.max(0, parseInt(pr.kmToleranceAbs, 10) || 0);
       if (Math.abs(item.mileageKm - profile.mileageKm) > tol) return false;
     }
-    if (pr.keyUseYear !== false && profile.firstRegistrationYear != null && item.firstRegistrationYear != null) {
+    if (pr.keyUseYear !== false && profile.firstRegistrationYear != null) {
+      if (item.firstRegistrationYear == null) return false;
       const tol = Math.max(0, parseInt(pr.yearTolerance, 10) || 0);
       if (Math.abs(item.firstRegistrationYear - profile.firstRegistrationYear) > tol) return false;
     }
     if (pr.keyUsePower !== false) {
       const pKw = profile.powerKw != null ? profile.powerKw : profile.powerPs != null ? Math.round(profile.powerPs * PS_TO_KW) : null;
       const iKw = item.powerKw != null ? item.powerKw : item.powerPs != null ? Math.round(item.powerPs * PS_TO_KW) : null;
-      if (pKw != null && iKw != null) {
+      if (pKw != null) {
+        if (iKw == null) return false;
         const tol = Math.max(0, parseInt(pr.powerToleranceKw, 10) || 0);
         if (Math.abs(iKw - pKw) > tol) return false;
       }
@@ -3307,7 +3369,7 @@ Kontext: …${item.snippet}…` : "";
   }
   function mergeCohortSourcesFromCacheAndStore(profile, prCfg) {
     const cacheKey = cohortCacheKey(profile, prCfg);
-    const cached = readCohortCache(cacheKey) || [];
+    const cached = (readCohortCache(cacheKey) || []).filter((it) => itemMatchesCohortProfile(it, profile, prCfg));
     const storeScan = findCohortItemsFromStoreByProfile(profile, prCfg);
     const byId = new Map();
     cached.forEach((it) => {
@@ -3351,6 +3413,11 @@ Kontext: …${item.snippet}…` : "";
       }
     });
   }
+  function excludeOwnAdFromCohort(items, profile) {
+    const ownId = profile && profile.id != null ? String(profile.id) : "";
+    if (!ownId) return items || [];
+    return (items || []).filter((it) => !it || String(it.id) !== ownId);
+  }
   function getCohortComparables(profile, prCfg) {
     const uniqueModelCount = (list) => {
       const s = new Set();
@@ -3373,21 +3440,22 @@ Kontext: …${item.snippet}…` : "";
       return memo.value;
     }
     const merged = mergeCohortSourcesFromCacheAndStore(profile, prCfg);
-    if (merged.items.length >= 3) {
+    const mergedOthers = excludeOwnAdFromCohort(merged.items, profile);
+    if (mergedOthers.length >= 3) {
       if (merged.shouldWrite) writeCohortCache(merged.cacheKey, merged.items);
       const storeSource = merged.cachedLen && merged.storeScanLen ? "cache+store" : merged.storeScanLen ? "store-scan" : "local-cache";
       priceRatingDebugLog("Kohorte aus Cache/Store (vereinigt)", {
         cacheKey: merged.cacheKey,
-        count: merged.items.length,
-        comparablePrices: countCohortComparablePrices(merged.items),
-        vipDetails: countCohortVipDetailCount(merged.items),
+        count: mergedOthers.length,
+        comparablePrices: countCohortComparablePrices(mergedOthers),
+        vipDetails: countCohortVipDetailCount(mergedOthers),
         cachedLen: merged.cachedLen,
         storeScanLen: merged.storeScanLen,
         uniqueModelsInSource: uniqueModelCount(merged.items),
         storeSource
       });
       const out2 = {
-        items: merged.items,
+        items: mergedOthers,
         fromCache: true,
         cacheKey: merged.cacheKey,
         storeScan: merged.storeScanLen > 0
@@ -3449,11 +3517,8 @@ Kontext: …${item.snippet}…` : "";
     if (!Array.isArray(labels) || labels.length < 2) return null;
     const amounts = labels.map(parseEuroAmount).filter((n) => n != null);
     if (amounts.length < 2) return null;
-    const offset = typeof priceRating.vehiclePriceOffset === "number" ? priceRating.vehiclePriceOffset : 50;
-    const t = Math.max(0, Math.min(1, offset / 100));
-    const min = amounts[0];
-    const max = amounts[amounts.length - 1];
-    return min + (max - min) * t;
+    const mid = Math.floor((amounts.length - 1) / 2);
+    return (amounts[mid] + amounts[mid + 1]) / 2;
   }
   function clampAdjust(base, delta, maxPct) {
     const cap = base * (maxPct || 0.12);
@@ -3469,6 +3534,19 @@ Kontext: …${item.snippet}…` : "";
       }
     }
     return 4;
+  }
+  const MIN_KNOWN_EQUIPMENT_COMPARABLES = 3;
+  function equipmentAdjustCapPct(maxAdjustPct, baseSource) {
+    const cap = typeof maxAdjustPct === "number" ? maxAdjustPct : 0.12;
+    return baseSource === "mobile" ? cap / 2 : cap;
+  }
+  function equipmentBaseline(comparables, equipScores) {
+    const known = (comparables || []).filter((c) => c && c.equipmentFromVipCache && c.equipment && typeof c.equipment.score === "number").map((c) => c.equipment.score);
+    if (known.length >= MIN_KNOWN_EQUIPMENT_COMPARABLES) {
+      return { medianEquip: median(known), basis: "known", knownCount: known.length };
+    }
+    const all = equipScores || [];
+    return { medianEquip: all.length ? median(all) || 0 : 0, basis: "all", knownCount: known.length };
   }
   function computePriceRating(profile, comparables, options) {
     var _a, _b;
@@ -3502,6 +3580,7 @@ Kontext: …${item.snippet}…` : "";
     let basePrice = null;
     let cohortCount = 0;
     let usedMobileFallback = false;
+    let baseSource = "cohort";
     const equipScores = (comparables || []).map((c) => c.equipment && c.equipment.score || 0);
     const prices = (comparables || []).map((c) => c.priceGross).filter((n) => n > 0);
     if (prices.length >= prCfg.minComparables) {
@@ -3511,6 +3590,7 @@ Kontext: …${item.snippet}…` : "";
     } else if (prCfg.mobileFallback && profile.priceRating) {
       basePrice = mobileMarketPriceFromRating(profile.priceRating);
       usedMobileFallback = true;
+      baseSource = "mobile";
       cohortCount = prices.length;
       priceRatingDebugLog("Baseline aus mobile-Fallback", {
         cohortCount,
@@ -3531,10 +3611,12 @@ Kontext: …${item.snippet}…` : "";
       });
       return { ok: false, reason: "no_baseline", cohortCount: prices.length };
     }
-    const medianEquip = equipScores.length ? median(equipScores) : 0;
+    const equipBaseline = equipmentBaseline(comparables, equipScores);
+    const medianEquip = equipBaseline.medianEquip;
     const equipDelta = ownScore - (medianEquip || 0);
     const rawAdjust = equipDelta * prCfg.punktZuEuro;
-    const adjust = clampAdjust(basePrice, rawAdjust, prCfg.maxAdjustPct);
+    const adjustCapPct = equipmentAdjustCapPct(prCfg.maxAdjustPct, baseSource);
+    const adjust = clampAdjust(basePrice, rawAdjust, adjustCapPct);
     const adjustedExpected = basePrice + adjust;
     const devPct = (price - adjustedExpected) / adjustedExpected;
     const level = deviationToLevel(devPct, prCfg.thresholds);
@@ -3543,8 +3625,12 @@ Kontext: …${item.snippet}…` : "";
       basePrice: Math.round(basePrice),
       ownScore,
       medianEquip,
+      equipBasis: equipBaseline.basis,
+      equipKnownCount: equipBaseline.knownCount,
       equipDelta,
       rawAdjust: Math.round(rawAdjust),
+      baseSource,
+      adjustCapPct,
       adjustEuro: Math.round(adjust),
       adjustedExpected: Math.round(adjustedExpected),
       devPct: Math.round(devPct * 1e4) / 100,
@@ -3568,8 +3654,12 @@ Kontext: …${item.snippet}…` : "";
       devEuro: Math.round(price - adjustedExpected),
       ownScore,
       medianEquip,
+      equipBasis: equipBaseline.basis,
+      equipKnownCount: equipBaseline.knownCount,
       equipDelta,
       adjustEuro: Math.round(adjust),
+      adjustCapPct,
+      baseSource,
       cohortCount,
       usedMobileFallback,
       insufficientCohort: cohortCount < prCfg.minComparables,
@@ -3853,7 +3943,7 @@ Kontext: …${item.snippet}…` : "";
     p1.textContent = rating.label + " — Angebot " + rating.price.toLocaleString("de-DE") + " € vs. erwartet ~" + rating.adjustedExpected.toLocaleString("de-DE") + " € (" + (rating.devEuro >= 0 ? "+" : "") + rating.devEuro.toLocaleString("de-DE") + " €, " + (rating.devPct * 100).toFixed(1) + " %).";
     box.appendChild(p1);
     const p2 = document.createElement("p");
-    p2.textContent = formatCohortCountText(rating, { forModal: true }) + ". Basispreis Median: " + rating.basePrice.toLocaleString("de-DE") + " €. Ausstattung: dein Score " + rating.ownScore.toFixed(1) + " vs. Median " + (rating.medianEquip || 0).toFixed(1) + " (Δ " + rating.equipDelta.toFixed(1) + " → " + (rating.adjustEuro >= 0 ? "+" : "") + rating.adjustEuro.toLocaleString("de-DE") + " €).";
+    p2.textContent = formatCohortCountText(rating, { forModal: true }) + ". Basispreis Median: " + rating.basePrice.toLocaleString("de-DE") + " €. Ausstattung: dein Score " + rating.ownScore.toFixed(1) + " vs. Median " + (rating.medianEquip || 0).toFixed(1) + (rating.equipBasis === "known" ? " (aus " + rating.equipKnownCount + " Fahrzeugen mit Detaildaten)" : " (unbekannte Ausstattung = 0)") + " (Δ " + rating.equipDelta.toFixed(1) + " → " + (rating.adjustEuro >= 0 ? "+" : "") + rating.adjustEuro.toLocaleString("de-DE") + " €" + (typeof rating.adjustCapPct === "number" ? ", max. " + Math.round(rating.adjustCapPct * 100) + " %" + (rating.baseSource === "mobile" ? " — halbe Kappung auf mobile.de-Marktpreis" : "") : "") + ").";
     box.appendChild(p2);
     if (rating.mobileLabel) {
       const pm = document.createElement("p");
@@ -5852,7 +5942,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.35";
+    const SCRIPT_UI_VERSION = "2.16.37";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };

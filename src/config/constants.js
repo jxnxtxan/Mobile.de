@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 13;
 
 /** Eingebettete Seiten-UI (Ergebnisse, Button, Badges) – unter Konfig-Popup. */
 export const PAGE_UI_Z_INDEX = 2147483000;
@@ -76,9 +76,9 @@ export const PRICE_RATING_DEFAULT = {
         keyYearBucket: 1,
         keyPowerBucket: 10,
         onlyFavoriteWeights: false,
-        minComparables: 20,
+        minComparables: 10,
         punktZuEuro: 800,
-        maxAdjustPct: 0.12,
+        maxAdjustPct: 0.2,
         kmToleranceAbs: 10000,
         yearTolerance: 1,
         powerToleranceKw: 0,
@@ -102,7 +102,26 @@ export const DEFAULT_PREIS_GEWICHT_BY_ANZEIGE = {
         'bose sound system': 1.2,
         'elektr. sitzeinstellung mit memory-funktion': 1.2,
         'anhängerkupplung': 1,
-        'abstandstempomat': 1
+        'abstandstempomat': 1,
+        'nachtsicht assistent': 1.5,
+        'laser licht': 1.5,
+        'luftfederung': 1.5,
+        'massagesitze': 1,
+        'sitzbelüftung': 1,
+        'standheizung': 1,
+        'softclose': 0.8,
+        'standbelüftung': 0.5,
+        'akustikverglasung': 0.5,
+        'seitenscheiben akustikverglasung': 0.5,
+        'volldigitales kombiinstrument': 0.5,
+        'totwinkel-assistent': 0.5,
+        'dachhimmel alcantara': 0.5,
+        'lenkradheizung': 0.3,
+        'hinterachslenkung': 1,
+        'keramikbremse': 2,
+        'adaptives fahrwerk': 1,
+        'lederausstattung': 1,
+        '4-zonen-klimaautomatik': 0.5
     };
 
 export const PRICE_COHORT_CACHE_PREFIX = 'mobilede_price_cohort_';

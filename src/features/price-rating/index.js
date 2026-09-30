@@ -1467,11 +1467,15 @@ export function itemMatchesCohortProfile(item, profile, prCfg) {
     if (!item || !profile) return false;
     if (!sameMakeModelForCohort(item, profile)) return false;
     const pr = prCfg || getPriceRating(runtimeState.featureFlags);
-    if (pr.keyUseMileage !== false && profile.mileageKm != null && item.mileageKm != null) {
+    // Kennt das Profil einen Wert, muss das Vergleichsfahrzeug ihn auch haben —
+    // sonst rutschen Einträge ohne km/EZ/Leistung (Neuwagen, andere Motoren) durch.
+    if (pr.keyUseMileage !== false && profile.mileageKm != null) {
+        if (item.mileageKm == null) return false;
         const tol = Math.max(0, parseInt(pr.kmToleranceAbs, 10) || 0);
         if (Math.abs(item.mileageKm - profile.mileageKm) > tol) return false;
     }
-    if (pr.keyUseYear !== false && profile.firstRegistrationYear != null && item.firstRegistrationYear != null) {
+    if (pr.keyUseYear !== false && profile.firstRegistrationYear != null) {
+        if (item.firstRegistrationYear == null) return false;
         const tol = Math.max(0, parseInt(pr.yearTolerance, 10) || 0);
         if (Math.abs(item.firstRegistrationYear - profile.firstRegistrationYear) > tol) return false;
     }
@@ -1482,7 +1486,8 @@ export function itemMatchesCohortProfile(item, profile, prCfg) {
         const iKw = item.powerKw != null
             ? item.powerKw
             : (item.powerPs != null ? Math.round(item.powerPs * PS_TO_KW) : null);
-        if (pKw != null && iKw != null) {
+        if (pKw != null) {
+            if (iKw == null) return false;
             const tol = Math.max(0, parseInt(pr.powerToleranceKw, 10) || 0);
             if (Math.abs(iKw - pKw) > tol) return false;
         }
@@ -1701,7 +1706,8 @@ export function countCohortComparablePrices(items) {
 /** Cache-Key-Kohorte und Store-Scan zusammenführen (verhindert 5 vs. 21 beim Reload). */
 export function mergeCohortSourcesFromCacheAndStore(profile, prCfg) {
     const cacheKey = cohortCacheKey(profile, prCfg);
-    const cached = readCohortCache(cacheKey) || [];
+    const cached = (readCohortCache(cacheKey) || [])
+        .filter(it => itemMatchesCohortProfile(it, profile, prCfg));
     const storeScan = findCohortItemsFromStoreByProfile(profile, prCfg);
     const byId = new Map();
     cached.forEach(it => {
@@ -1751,6 +1757,16 @@ export function pruneCohortComparablesMemo(nowTs) {
     });
 }
 
+/**
+ * Das bewertete Inserat steht oft selbst im Kohorten-Cache (gleicher Key) und
+ * würde sonst den eigenen Median mitbestimmen.
+ */
+export function excludeOwnAdFromCohort(items, profile) {
+    const ownId = profile && profile.id != null ? String(profile.id) : '';
+    if (!ownId) return items || [];
+    return (items || []).filter(it => !it || String(it.id) !== ownId);
+}
+
 /** Kohorte nur aus localStorage-Cache oder aktueller Suchseite — kein Hintergrund-fetch. */
 export function getCohortComparables(profile, prCfg) {
     const uniqueModelCount = (list) => {
@@ -1774,23 +1790,24 @@ export function getCohortComparables(profile, prCfg) {
         return memo.value;
     }
     const merged = mergeCohortSourcesFromCacheAndStore(profile, prCfg);
-    if (merged.items.length >= 3) {
+    const mergedOthers = excludeOwnAdFromCohort(merged.items, profile);
+    if (mergedOthers.length >= 3) {
         if (merged.shouldWrite) writeCohortCache(merged.cacheKey, merged.items);
         const storeSource = merged.cachedLen && merged.storeScanLen
             ? 'cache+store'
             : (merged.storeScanLen ? 'store-scan' : 'local-cache');
         priceRatingDebugLog('Kohorte aus Cache/Store (vereinigt)', {
             cacheKey: merged.cacheKey,
-            count: merged.items.length,
-            comparablePrices: countCohortComparablePrices(merged.items),
-            vipDetails: countCohortVipDetailCount(merged.items),
+            count: mergedOthers.length,
+            comparablePrices: countCohortComparablePrices(mergedOthers),
+            vipDetails: countCohortVipDetailCount(mergedOthers),
             cachedLen: merged.cachedLen,
             storeScanLen: merged.storeScanLen,
             uniqueModelsInSource: uniqueModelCount(merged.items),
             storeSource
         });
         const out = {
-            items: merged.items,
+            items: mergedOthers,
             fromCache: true,
             cacheKey: merged.cacheKey,
             storeScan: merged.storeScanLen > 0
@@ -1853,19 +1870,20 @@ export function median(nums) {
     return arr.length % 2 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
 }
 
+/**
+ * Marktpreis aus der mobile.de-Bewertung: Mitte des Fair-Bereichs (bei sechs
+ * Grenzen also zwischen der 3. und 4.). `vehiclePriceOffset` taugt dafür nicht —
+ * er ist die Position des Angebots innerhalb *seines eigenen* Bereichs (z. B. 84 =
+ * weit oben in „Guter Preis“), nicht über die ganze Skala.
+ */
 export function mobileMarketPriceFromRating(priceRating) {
     if (!priceRating) return null;
     const labels = priceRating.thresholdLabels;
     if (!Array.isArray(labels) || labels.length < 2) return null;
     const amounts = labels.map(parseEuroAmount).filter(n => n != null);
     if (amounts.length < 2) return null;
-    const offset = typeof priceRating.vehiclePriceOffset === 'number'
-        ? priceRating.vehiclePriceOffset
-        : 50;
-    const t = Math.max(0, Math.min(1, offset / 100));
-    const min = amounts[0];
-    const max = amounts[amounts.length - 1];
-    return min + (max - min) * t;
+    const mid = Math.floor((amounts.length - 1) / 2);
+    return (amounts[mid] + amounts[mid + 1]) / 2;
 }
 
 export function clampAdjust(base, delta, maxPct) {
@@ -1883,6 +1901,33 @@ export function deviationToLevel(devPct, thresholds) {
         }
     }
     return 4;
+}
+
+export const MIN_KNOWN_EQUIPMENT_COMPARABLES = 3;
+
+/**
+ * Der mobile.de-Marktpreis enthält Ausstattung vermutlich schon teilweise —
+ * dort nur die halbe Kappung, sonst würde doppelt gezählt.
+ */
+export function equipmentAdjustCapPct(maxAdjustPct, baseSource) {
+    const cap = typeof maxAdjustPct === 'number' ? maxAdjustPct : 0.12;
+    return baseSource === 'mobile' ? cap / 2 : cap;
+}
+
+/**
+ * Ausstattung kennt man nur von Vergleichsfahrzeugen, deren Detailseite besucht
+ * wurde. Zählten die übrigen mit 0 Punkten, bekäme jedes angesehene Inserat den
+ * vollen Bonus — deshalb ab 3 bekannten nur diese als Vergleichsbasis.
+ */
+export function equipmentBaseline(comparables, equipScores) {
+    const known = (comparables || [])
+        .filter(c => c && c.equipmentFromVipCache && c.equipment && typeof c.equipment.score === 'number')
+        .map(c => c.equipment.score);
+    if (known.length >= MIN_KNOWN_EQUIPMENT_COMPARABLES) {
+        return { medianEquip: median(known), basis: 'known', knownCount: known.length };
+    }
+    const all = equipScores || [];
+    return { medianEquip: all.length ? (median(all) || 0) : 0, basis: 'all', knownCount: known.length };
 }
 
 export function computePriceRating(profile, comparables, options) {
@@ -1917,6 +1962,7 @@ export function computePriceRating(profile, comparables, options) {
     let basePrice = null;
     let cohortCount = 0;
     let usedMobileFallback = false;
+    let baseSource = 'cohort';
     const equipScores = (comparables || []).map(c => (c.equipment && c.equipment.score) || 0);
     const prices = (comparables || []).map(c => c.priceGross).filter(n => n > 0);
 
@@ -1927,6 +1973,7 @@ export function computePriceRating(profile, comparables, options) {
     } else if (prCfg.mobileFallback && profile.priceRating) {
         basePrice = mobileMarketPriceFromRating(profile.priceRating);
         usedMobileFallback = true;
+        baseSource = 'mobile';
         cohortCount = prices.length;
         priceRatingDebugLog('Baseline aus mobile-Fallback', {
             cohortCount,
@@ -1949,10 +1996,12 @@ export function computePriceRating(profile, comparables, options) {
         return { ok: false, reason: 'no_baseline', cohortCount: prices.length };
     }
 
-    const medianEquip = equipScores.length ? median(equipScores) : 0;
+    const equipBaseline = equipmentBaseline(comparables, equipScores);
+    const medianEquip = equipBaseline.medianEquip;
     const equipDelta = ownScore - (medianEquip || 0);
     const rawAdjust = equipDelta * prCfg.punktZuEuro;
-    const adjust = clampAdjust(basePrice, rawAdjust, prCfg.maxAdjustPct);
+    const adjustCapPct = equipmentAdjustCapPct(prCfg.maxAdjustPct, baseSource);
+    const adjust = clampAdjust(basePrice, rawAdjust, adjustCapPct);
     const adjustedExpected = basePrice + adjust;
     const devPct = (price - adjustedExpected) / adjustedExpected;
     const level = deviationToLevel(devPct, prCfg.thresholds);
@@ -1961,8 +2010,12 @@ export function computePriceRating(profile, comparables, options) {
         basePrice: Math.round(basePrice),
         ownScore,
         medianEquip,
+        equipBasis: equipBaseline.basis,
+        equipKnownCount: equipBaseline.knownCount,
         equipDelta,
         rawAdjust: Math.round(rawAdjust),
+        baseSource,
+        adjustCapPct,
         adjustEuro: Math.round(adjust),
         adjustedExpected: Math.round(adjustedExpected),
         devPct: Math.round(devPct * 10000) / 100,
@@ -1991,8 +2044,12 @@ export function computePriceRating(profile, comparables, options) {
         devEuro: Math.round(price - adjustedExpected),
         ownScore,
         medianEquip,
+        equipBasis: equipBaseline.basis,
+        equipKnownCount: equipBaseline.knownCount,
         equipDelta,
         adjustEuro: Math.round(adjust),
+        adjustCapPct,
+        baseSource,
         cohortCount,
         usedMobileFallback,
         insufficientCohort: cohortCount < prCfg.minComparables,
@@ -2317,8 +2374,17 @@ export function openPriceRatingModal(rating, profile) {
     const p2 = document.createElement('p');
     p2.textContent = formatCohortCountText(rating, { forModal: true }) + '. Basispreis Median: ' + rating.basePrice.toLocaleString('de-DE')
         + ' €. Ausstattung: dein Score ' + rating.ownScore.toFixed(1) + ' vs. Median '
-        + (rating.medianEquip || 0).toFixed(1) + ' (Δ ' + rating.equipDelta.toFixed(1) + ' → '
-        + (rating.adjustEuro >= 0 ? '+' : '') + rating.adjustEuro.toLocaleString('de-DE') + ' €).';
+        + (rating.medianEquip || 0).toFixed(1)
+        + (rating.equipBasis === 'known'
+            ? ' (aus ' + rating.equipKnownCount + ' Fahrzeugen mit Detaildaten)'
+            : ' (unbekannte Ausstattung = 0)')
+        + ' (Δ ' + rating.equipDelta.toFixed(1) + ' → '
+        + (rating.adjustEuro >= 0 ? '+' : '') + rating.adjustEuro.toLocaleString('de-DE') + ' €'
+        + (typeof rating.adjustCapPct === 'number'
+            ? ', max. ' + Math.round(rating.adjustCapPct * 100) + ' %'
+                + (rating.baseSource === 'mobile' ? ' — halbe Kappung auf mobile.de-Marktpreis' : '')
+            : '')
+        + ').';
     box.appendChild(p2);
     if (rating.mobileLabel) {
         const pm = document.createElement('p');

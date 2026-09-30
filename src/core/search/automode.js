@@ -107,25 +107,48 @@ export function stringsMatchForHighlight(rawLabel, hit) {
     return false;
 }
 
+/**
+ * Güte eines Treffers Rohlabel ↔ Kandidat (Anzeige oder Begriff):
+ * 3 = identisch, 2 = Kandidat steckt im Rohlabel (je länger, desto spezifischer),
+ * 1 = sonstiger unscharfer Treffer, 0 = kein Treffer.
+ */
+function rawLabelMatchQuality(r, rawLabel, candidate) {
+    const c = cleanText(candidate || '');
+    if (!c) return { quality: 0, len: 0 };
+    if (c === r) return { quality: 3, len: c.length };
+    if (!stringsMatchForHighlight(rawLabel, { anzeige: candidate, begriff: candidate })) {
+        return { quality: 0, len: 0 };
+    }
+    if (r.includes(c)) return { quality: 2, len: c.length };
+    return { quality: 1, len: 0 };
+}
+
+/**
+ * Bester Konfig-Eintrag statt erster Treffer: sonst gewinnt z. B. „Elektr.
+ * Sitzeinstellung“ gegen „Elektr. Sitzeinstellung mit Memory-Funktion“, nur weil
+ * er in der Liste früher steht. Bei Gleichstand bleibt die Listenreihenfolge.
+ */
 export function findConfigEntryForRawLabel(rawLabel) {
     const r = cleanText(rawLabel);
     if (!r) return null;
+    let best = null;
+    let bestQuality = 0;
+    let bestLen = -1;
     for (const cfg of runtimeState.suchKonfigurationen) {
         if (!cfg) continue;
-        const anzeigeKey = cleanText(cfg.anzeige || '');
-        if (anzeigeKey && anzeigeKey === r) return cfg;
-        if (anzeigeKey && stringsMatchForHighlight(rawLabel, { anzeige: cfg.anzeige })) {
-            return cfg;
-        }
-        if (Array.isArray(cfg.begriffe)) {
-            for (const b of cfg.begriffe) {
-                if (stringsMatchForHighlight(rawLabel, { anzeige: b, begriff: b })) {
-                    return cfg;
-                }
+        const candidates = [cfg.anzeige].concat(Array.isArray(cfg.begriffe) ? cfg.begriffe : []);
+        for (const cand of candidates) {
+            const { quality, len } = rawLabelMatchQuality(r, rawLabel, cand);
+            if (quality === 0) continue;
+            if (quality > bestQuality || (quality === bestQuality && len > bestLen)) {
+                best = cfg;
+                bestQuality = quality;
+                bestLen = len;
             }
         }
+        if (bestQuality === 3) break;
     }
-    return null;
+    return best;
 }
 
 export function rawCoveredByEntryLabel(rawLabel, entryAnzeige, entryHighlighted) {
