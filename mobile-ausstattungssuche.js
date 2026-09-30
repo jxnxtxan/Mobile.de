@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.46
+// @version      2.16.47
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -6061,7 +6061,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.46";
+    const SCRIPT_UI_VERSION = "2.16.47";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -6683,7 +6683,8 @@ grid-template-rows:minmax(140px,1fr) auto;
 .mc-toolbar .mc-toolbar-zone--search{order:1;flex:1 1 240px;min-width:180px;}
 .mc-toolbar .mc-toolbar-sort{order:2;}
 .mc-toolbar .mc-toolbar-zone--anzeige{order:3;flex:0 1 auto;}
-.mc-toolbar .mc-toolbar-zone--bulk{order:4;flex:0 0 auto;margin-left:0;padding-left:0;border-left:none;}
+/* Ein/Aus, „+ Neu“ und „?“ immer rechtsbündig — auch wenn sie in eine zweite Zeile umbrechen. */
+.mc-toolbar .mc-toolbar-zone--bulk{order:4;flex:0 0 auto;margin-left:auto;padding-left:0;border-left:none;}
 .mc-toolbar .mc-toolbar__row--meta > .mc-btn--primary{order:5;align-self:center;}
 .mc-toolbar .mc-toolbar-help-slot{order:6;margin-left:0;}
 .mc-toolbar .mc-toolbar-meta-col{order:10;flex:1 1 100%;}
@@ -6694,6 +6695,7 @@ grid-template-rows:minmax(140px,1fr) auto;
 .mc-toolbar--few .mc-toolbar-zone--search,.mc-toolbar--few .mc-toolbar-sort,
 .mc-toolbar--few .mc-toolbar-zone--anzeige,.mc-toolbar--few .mc-toolbar-zone--bulk{display:none!important;}
 .mc-toolbar--few .mc-toolbar-meta-col{order:0;flex:1 1 auto;}
+.mc-toolbar:not(:has(.mc-toolbar-zone--bulk)) .mc-toolbar__row--meta > .mc-btn--primary{margin-left:auto;}
 .mc-col-sort-header{
   padding:6px 10px;margin-bottom:8px;
   background:rgba(0,0,0,.2);border:1px solid var(--mc-border);border-radius:8px;
