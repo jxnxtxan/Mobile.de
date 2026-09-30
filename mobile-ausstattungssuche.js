@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.48
+// @version      2.16.49
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -3422,9 +3422,23 @@ Kontext: …${item.snippet}…` : "";
   function countCohortComparablePrices(items) {
     return (items || []).filter((c) => c && typeof c.priceGross === "number" && c.priceGross > 0).length;
   }
+  function cohortCacheWriteSet(rawCached, storeScan) {
+    const byId = new Map();
+    (rawCached || []).forEach((it) => {
+      if (it && it.id) byId.set(String(it.id), it);
+    });
+    let added = 0;
+    (storeScan || []).forEach((it) => {
+      if (!it || !it.id) return;
+      if (!byId.has(String(it.id))) added++;
+      byId.set(String(it.id), it);
+    });
+    return { items: [...byId.values()], added };
+  }
   function mergeCohortSourcesFromCacheAndStore(profile, prCfg) {
     const cacheKey = cohortCacheKey(profile, prCfg);
-    const cached = (readCohortCache(cacheKey) || []).filter((it) => itemMatchesCohortProfile(it, profile, prCfg));
+    const rawCached = readCohortCache(cacheKey) || [];
+    const cached = rawCached.filter((it) => itemMatchesCohortProfile(it, profile, prCfg));
     const storeScan = findCohortItemsFromStoreByProfile(profile, prCfg);
     const byId = new Map();
     cached.forEach((it) => {
@@ -3434,12 +3448,14 @@ Kontext: …${item.snippet}…` : "";
       if (it && it.id) byId.set(String(it.id), it);
     });
     const items = enrichCohortItemsWithVipCache([...byId.values()]);
+    const write = cohortCacheWriteSet(rawCached, storeScan);
     return {
       cacheKey,
       items,
+      writeItems: write.items,
       cachedLen: cached.length,
       storeScanLen: storeScan.length,
-      shouldWrite: items.length >= 3 && items.length > cached.length
+      shouldWrite: items.length >= 3 && write.added > 0
     };
   }
   function ratingCohortMetaMatches(rating, cohortRes) {
@@ -3473,6 +3489,10 @@ Kontext: …${item.snippet}…` : "";
     if (!ownId) return items || [];
     return (items || []).filter((it) => !it || String(it.id) !== ownId);
   }
+  function cohortMemoSignature(profile) {
+    const p = profile || {};
+    return [p.id, p.mileageKm, p.firstRegistrationYear, p.powerKw, p.powerPs].map((v) => v == null ? "" : String(v)).join("|");
+  }
   function getCohortComparables(profile, prCfg) {
     const uniqueModelCount = (list) => {
       const s = new Set();
@@ -3486,8 +3506,9 @@ Kontext: …${item.snippet}…` : "";
     const now = Date.now();
     pruneCohortComparablesMemo(now);
     const cacheKey = cohortCacheKey(profile, prCfg);
+    const memoSig = cohortMemoSignature(profile);
     const memo = cohortComparablesMemo.get(cacheKey);
-    if (memo && now - memo.ts < COHORT_COMPARABLES_MEMO_TTL_MS) {
+    if (memo && memo.sig === memoSig && now - memo.ts < COHORT_COMPARABLES_MEMO_TTL_MS) {
       priceRatingDebugLog("Kohorte aus Memo", {
         cacheKey,
         count: memo.value && memo.value.items ? memo.value.items.length : 0
@@ -3497,7 +3518,7 @@ Kontext: …${item.snippet}…` : "";
     const merged = mergeCohortSourcesFromCacheAndStore(profile, prCfg);
     const mergedOthers = excludeOwnAdFromCohort(merged.items, profile);
     if (mergedOthers.length >= 3) {
-      if (merged.shouldWrite) writeCohortCache(merged.cacheKey, merged.items);
+      if (merged.shouldWrite) writeCohortCache(merged.cacheKey, merged.writeItems);
       const storeSource = merged.cachedLen && merged.storeScanLen ? "cache+store" : merged.storeScanLen ? "store-scan" : "local-cache";
       priceRatingDebugLog("Kohorte aus Cache/Store (vereinigt)", {
         cacheKey: merged.cacheKey,
@@ -3515,7 +3536,7 @@ Kontext: …${item.snippet}…` : "";
         cacheKey: merged.cacheKey,
         storeScan: merged.storeScanLen > 0
       };
-      cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out2 });
+      cohortComparablesMemo.set(cacheKey, { ts: Date.now(), sig: memoSig, value: out2 });
       return out2;
     }
     if (isSearchResultsPage()) {
@@ -3544,7 +3565,7 @@ Kontext: …${item.snippet}…` : "";
             storeSource: "current-srp"
           });
           const out2 = { items: fromPage, fromCache: false, fromPage: true, cacheKey };
-          cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out2 });
+          cohortComparablesMemo.set(cacheKey, { ts: Date.now(), sig: memoSig, value: out2 });
           return out2;
         }
         priceRatingDebugLog("SRP ohne ausreichend Treffer", { cacheKey, count: fromPage.length });
@@ -3552,7 +3573,7 @@ Kontext: …${item.snippet}…` : "";
     }
     priceRatingDebugLog("Keine Kohorte — Vergleichssuche nötig", { cacheKey });
     const out = { items: [], needsManualSearch: true, cacheKey };
-    cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out });
+    cohortComparablesMemo.set(cacheKey, { ts: Date.now(), sig: memoSig, value: out });
     return out;
   }
   async function openCohortSearchTab(profile) {
@@ -6061,7 +6082,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.48";
+    const SCRIPT_UI_VERSION = "2.16.49";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -7260,7 +7281,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       function setDensity(total) {
         const few = total <= TOOLBAR_FEW_ENTRIES;
         toolbar.classList.toggle("mc-toolbar--few", few);
-        if (few && search._input && search._input.value) search._input.value = "";
+        if (!few) return;
+        if (search._input && search._input.value) search._input.value = "";
+        filterCbs.forEach((cb) => {
+          cb.checked = false;
+        });
       }
       return { toolbar, searchRow, search, metaStats, metaHint, filterCbs, setDensity };
     }
@@ -9430,9 +9455,9 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       sanitizeSelectedAusIndex();
       ausSplit.list.innerHTML = "";
       const { a, t } = countAusaktiv();
+      ausTb.setDensity(t);
       const { vis, sortedFav, sortedRest, favVis } = getSortedAusVisibleIndices();
       ausMetaStats.textContent = vis.length + " sichtbar · " + a + " von " + t + " aktiv · " + favVis + " Favoriten";
-      ausTb.setDensity(t);
       ausMetaHint.textContent = listOrderMetaHint("aus");
       syncSplitToolbarVisibility();
       if (aktuelleAusstattungsKonfig.length === 0) {
@@ -9475,11 +9500,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       sanitizeExpandedAusstattungIndex();
       purgeListDragArtifacts();
       ausstattungContainer.innerHTML = "";
-      const vis = getVisibleAusIndices();
       const { a, t } = countAusaktiv();
+      ausTb.setDensity(t);
+      const vis = getVisibleAusIndices();
       const favVis = vis.filter((i) => aktuelleAusstattungsKonfig[i].favorit === true).length;
       ausMetaStats.textContent = vis.length + " sichtbar · " + a + " von " + t + " aktiv · " + favVis + " Favoriten";
-      ausTb.setDensity(t);
       ausMetaHint.textContent = listOrderMetaHint("aus");
       if (aktuelleAusstattungsKonfig.length === 0) {
         ausstattungContainer.appendChild(mkEmptyState("Noch keine Einträge."));
@@ -9778,11 +9803,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function renderTechDataSplit() {
       sanitizeSelectedTechIndex();
       techSplit.list.innerHTML = "";
-      const vis = getVisibleTechIndices();
       const total = aktuelleTechKonfigurationen.length;
+      techTb.setDensity(total);
+      const vis = getVisibleTechIndices();
       const act = aktuelleTechKonfigurationen.filter((t) => t.aktiv).length;
       techMetaStats.textContent = vis.length + " von " + total + " sichtbar · " + act + " aktiv";
-      techTb.setDensity(total);
       renderTechSuggestions();
       techMetaHint.textContent = listOrderMetaHint("tech");
       techSortDropdown.querySelector("select").disabled = columnSortLockedForTech();
@@ -9817,12 +9842,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function renderTechDataClassic() {
       purgeListDragArtifacts();
       techContainer.innerHTML = "";
-      const vis = getVisibleTechIndices();
       const total = aktuelleTechKonfigurationen.length;
+      techTb.setDensity(total);
+      const vis = getVisibleTechIndices();
       const act = aktuelleTechKonfigurationen.filter((t) => t.aktiv).length;
       const sortedVis = getSortedTechVisibleIndices();
       techMetaStats.textContent = vis.length + " von " + total + " sichtbar · " + act + " aktiv";
-      techTb.setDensity(total);
       renderTechSuggestions();
       techMetaHint.textContent = listOrderMetaHint("tech");
       if (aktuelleTechKonfigurationen.length === 0) {
@@ -10174,11 +10199,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function renderMergeConfigSplit() {
       sanitizeSelectedMergeIndex();
       mergeSplit.list.innerHTML = "";
-      const vis = getVisibleMergeIndices();
       const total = aktuelleMergeGruppen.length;
+      mergeTb.setDensity(total);
+      const vis = getVisibleMergeIndices();
       const act = aktuelleMergeGruppen.filter((g) => g.aktiv !== false).length;
       mergeMetaStats.textContent = vis.length + " von " + total + " sichtbar · " + act + " aktiv";
-      mergeTb.setDensity(total);
       mergeMetaHint.textContent = mergeMetaHintText();
       if (aktuelleMergeGruppen.length === 0) {
         mergeSplit.list.appendChild(mkEmptyState("Keine Merge-Gruppen."));
@@ -10206,12 +10231,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function renderMergeConfigClassic() {
       purgeListDragArtifacts();
       mergeContainer.innerHTML = "";
-      const vis = getVisibleMergeIndices();
       const total = aktuelleMergeGruppen.length;
+      mergeTb.setDensity(total);
+      const vis = getVisibleMergeIndices();
       const act = aktuelleMergeGruppen.filter((g) => g.aktiv !== false).length;
       const sortedVis = getSortedMergeVisibleIndices();
       mergeMetaStats.textContent = vis.length + " von " + total + " sichtbar · " + act + " aktiv";
-      mergeTb.setDensity(total);
       mergeMetaHint.textContent = mergeMetaHintText();
       if (aktuelleMergeGruppen.length === 0) {
         mergeContainer.appendChild(mkEmptyState("Keine Merge-Gruppen."));
@@ -10811,6 +10836,9 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function jumpToAusEntry(idx) {
       if (!aktuelleAusstattungsKonfig[idx]) return;
       if (ausSearch && ausSearch._input && ausSearch._input.value) ausSearch._input.value = "";
+      ausTb.filterCbs.forEach((cb) => {
+        cb.checked = false;
+      });
       setActiveTab(0);
       if (useConfigSplitView()) {
         renderAusstattung();
@@ -11299,7 +11327,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         const on = pr.enabled !== false;
         prBody.classList.toggle("mc-pr-body--disabled", !on);
       }
-      function mkPrToggleRow(label, getVal, setVal, impactMsg) {
+      function mkPrToggleRow(label, getVal, setVal, impactMsg, afterChange) {
         const row = document.createElement("div");
         row.className = "mc-card__main-row mc-card__main-row--feature";
         const txt = document.createElement("div");
@@ -11327,6 +11355,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           st.textContent = v ? "Aktiv" : "Aus";
           st.classList.toggle("mc-feature-status--on", v);
           updateTabBadges();
+          if (afterChange) afterChange();
         });
         aside.appendChild(st);
         aside.appendChild(tog);
@@ -11449,7 +11478,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         (v) => {
           pr.onlyFavoriteWeights = v;
         },
-        "Nur Ausstattungen mit Stern zählen für die Preis-Korrektur — alle anderen Gewichte werden ignoriert."
+        "Nur Ausstattungen mit Stern zählen für die Preis-Korrektur — alle anderen Gewichte werden ignoriert.",
+() => {
+          renderAusstattung();
+          renderConfig();
+        }
       ));
       const equipGrid = mkPrGridIn(grpEquip);
       equipGrid.appendChild(mkPrNumberField("€ pro Ausstattungspunkt", "punktZuEuro", 100, 5e3, {

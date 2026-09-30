@@ -1734,10 +1734,31 @@ export function countCohortComparablePrices(items) {
 }
 
 /** Cache-Key-Kohorte und Store-Scan zusammenführen (verhindert 5 vs. 21 beim Reload). */
+/**
+ * Was in den Kohorten-Cache zurückgeschrieben wird: der ungefilterte Cache plus
+ * neue Store-Treffer. So schrumpft ein Profil den gemeinsamen Cache nicht auf
+ * seine eigene Toleranz-Auswahl.
+ */
+export function cohortCacheWriteSet(rawCached, storeScan) {
+    const byId = new Map();
+    (rawCached || []).forEach(it => {
+        if (it && it.id) byId.set(String(it.id), it);
+    });
+    let added = 0;
+    (storeScan || []).forEach(it => {
+        if (!it || !it.id) return;
+        if (!byId.has(String(it.id))) added++;
+        byId.set(String(it.id), it);
+    });
+    return { items: [...byId.values()], added };
+}
+
 export function mergeCohortSourcesFromCacheAndStore(profile, prCfg) {
     const cacheKey = cohortCacheKey(profile, prCfg);
-    const cached = (readCohortCache(cacheKey) || [])
-        .filter(it => itemMatchesCohortProfile(it, profile, prCfg));
+    const rawCached = readCohortCache(cacheKey) || [];
+    // Die Toleranz gilt für dieses Profil — andere Profile mit demselben Key
+    // brauchen evtl. genau die hier aussortierten Einträge.
+    const cached = rawCached.filter(it => itemMatchesCohortProfile(it, profile, prCfg));
     const storeScan = findCohortItemsFromStoreByProfile(profile, prCfg);
     const byId = new Map();
     cached.forEach(it => {
@@ -1747,12 +1768,14 @@ export function mergeCohortSourcesFromCacheAndStore(profile, prCfg) {
         if (it && it.id) byId.set(String(it.id), it);
     });
     const items = enrichCohortItemsWithVipCache([...byId.values()]);
+    const write = cohortCacheWriteSet(rawCached, storeScan);
     return {
         cacheKey,
         items,
+        writeItems: write.items,
         cachedLen: cached.length,
         storeScanLen: storeScan.length,
-        shouldWrite: items.length >= 3 && items.length > cached.length
+        shouldWrite: items.length >= 3 && write.added > 0
     };
 }
 
@@ -1798,6 +1821,14 @@ export function excludeOwnAdFromCohort(items, profile) {
 }
 
 /** Kohorte nur aus localStorage-Cache oder aktueller Suchseite — kein Hintergrund-fetch. */
+/** Profil-Merkmale, von denen das Kohorten-Ergebnis abhängt (Memo-Gültigkeit). */
+export function cohortMemoSignature(profile) {
+    const p = profile || {};
+    return [p.id, p.mileageKm, p.firstRegistrationYear, p.powerKw, p.powerPs]
+        .map(v => (v == null ? '' : String(v)))
+        .join('|');
+}
+
 export function getCohortComparables(profile, prCfg) {
     const uniqueModelCount = (list) => {
         const s = new Set();
@@ -1811,8 +1842,11 @@ export function getCohortComparables(profile, prCfg) {
     const now = Date.now();
     pruneCohortComparablesMemo(now);
     const cacheKey = cohortCacheKey(profile, prCfg);
+    // Das Ergebnis hängt vom Profil ab (eigenes Inserat raus, Toleranz ab dessen
+    // km/EZ/kW) — der Memo gilt deshalb nur für dasselbe Profil, nicht den ganzen Key.
+    const memoSig = cohortMemoSignature(profile);
     const memo = cohortComparablesMemo.get(cacheKey);
-    if (memo && (now - memo.ts) < COHORT_COMPARABLES_MEMO_TTL_MS) {
+    if (memo && memo.sig === memoSig && (now - memo.ts) < COHORT_COMPARABLES_MEMO_TTL_MS) {
         priceRatingDebugLog('Kohorte aus Memo', {
             cacheKey,
             count: memo.value && memo.value.items ? memo.value.items.length : 0
@@ -1822,7 +1856,7 @@ export function getCohortComparables(profile, prCfg) {
     const merged = mergeCohortSourcesFromCacheAndStore(profile, prCfg);
     const mergedOthers = excludeOwnAdFromCohort(merged.items, profile);
     if (mergedOthers.length >= 3) {
-        if (merged.shouldWrite) writeCohortCache(merged.cacheKey, merged.items);
+        if (merged.shouldWrite) writeCohortCache(merged.cacheKey, merged.writeItems);
         const storeSource = merged.cachedLen && merged.storeScanLen
             ? 'cache+store'
             : (merged.storeScanLen ? 'store-scan' : 'local-cache');
@@ -1842,7 +1876,7 @@ export function getCohortComparables(profile, prCfg) {
             cacheKey: merged.cacheKey,
             storeScan: merged.storeScanLen > 0
         };
-        cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out });
+        cohortComparablesMemo.set(cacheKey, { ts: Date.now(), sig: memoSig, value: out });
         return out;
     }
 
@@ -1874,7 +1908,7 @@ export function getCohortComparables(profile, prCfg) {
                     storeSource: 'current-srp'
                 });
                 const out = { items: fromPage, fromCache: false, fromPage: true, cacheKey };
-                cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out });
+                cohortComparablesMemo.set(cacheKey, { ts: Date.now(), sig: memoSig, value: out });
                 return out;
             }
             priceRatingDebugLog('SRP ohne ausreichend Treffer', { cacheKey, count: fromPage.length });
@@ -1883,7 +1917,7 @@ export function getCohortComparables(profile, prCfg) {
 
     priceRatingDebugLog('Keine Kohorte — Vergleichssuche nötig', { cacheKey });
     const out = { items: [], needsManualSearch: true, cacheKey };
-    cohortComparablesMemo.set(cacheKey, { ts: Date.now(), value: out });
+    cohortComparablesMemo.set(cacheKey, { ts: Date.now(), sig: memoSig, value: out });
     return out;
 }
 

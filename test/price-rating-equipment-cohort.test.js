@@ -7,6 +7,8 @@ import {
     equipmentBaseline,
     equipmentAdjustCapPct,
     mobileMarketPriceFromRating,
+    cohortCacheWriteSet,
+    cohortMemoSignature,
 } from '../src/features/price-rating/index.js';
 import { findConfigEntryForRawLabel } from '../src/core/search/automode.js';
 import { runtimeState } from '../src/config/runtime-state.js';
@@ -129,4 +131,24 @@ test('Migration senkt nur den alten Default 20 Vergleichsfahrzeuge auf 10', () =
     assert.equal(migratePriceRatingMinComparables({ minComparables: 20 }, 12).minComparables, 10);
     assert.equal(migratePriceRatingMinComparables({ minComparables: 15 }, 12).minComparables, 15);
     assert.equal(migratePriceRatingMinComparables({ minComparables: 20 }, 13).minComparables, 20);
+});
+
+test('Cache-Rückschrieb behält Einträge, die nur andere Profile brauchen', () => {
+    const cached = [{ id: 'a', mileageKm: 52000 }, { id: 'b', mileageKm: 41000 }];
+    const store = [{ id: 'b', mileageKm: 41000 }, { id: 'c', mileageKm: 39000 }];
+    const w = cohortCacheWriteSet(cached, store);
+    assert.deepEqual(w.items.map(i => i.id).sort(), ['a', 'b', 'c']);
+    assert.equal(w.added, 1);
+});
+
+test('Cache-Rückschrieb ohne neue Store-Treffer meldet nichts Neues', () => {
+    const w = cohortCacheWriteSet([{ id: 'a' }], [{ id: 'a' }]);
+    assert.equal(w.added, 0);
+});
+
+test('Kohorten-Memo unterscheidet Profile mit gleichem Cache-Key', () => {
+    const a = { ...profil, id: '1', mileageKm: 37600 };
+    const b = { ...profil, id: '2', mileageKm: 42400 };
+    assert.notEqual(cohortMemoSignature(a), cohortMemoSignature(b));
+    assert.equal(cohortMemoSignature(a), cohortMemoSignature({ ...a }));
 });

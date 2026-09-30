@@ -1379,11 +1379,17 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         }
         toolbar.appendChild(metaRow);
 
-        /** Ab wenigen Einträgen nur Statistik, „+ Neu“ und Hilfe zeigen. */
+        /**
+         * Ab wenigen Einträgen nur Statistik, „+ Neu“ und Hilfe zeigen. Suche und
+         * Filter werden dabei zurückgesetzt — ausgeblendet, aber noch aktiv, wären
+         * gefilterte Einträge sonst unerreichbar. Vor dem Sichtbarkeits-Filter aufrufen.
+         */
         function setDensity(total) {
             const few = total <= TOOLBAR_FEW_ENTRIES;
             toolbar.classList.toggle('mc-toolbar--few', few);
-            if (few && search._input && search._input.value) search._input.value = '';
+            if (!few) return;
+            if (search._input && search._input.value) search._input.value = '';
+            filterCbs.forEach(cb => { cb.checked = false; });
         }
 
         return { toolbar, searchRow, search, metaStats, metaHint, filterCbs, setDensity };
@@ -3712,9 +3718,9 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         sanitizeSelectedAusIndex();
         ausSplit.list.innerHTML = '';
         const { a, t } = countAusaktiv();
+        ausTb.setDensity(t);
         const { vis, sortedFav, sortedRest, favVis } = getSortedAusVisibleIndices();
         ausMetaStats.textContent = vis.length + ' sichtbar · ' + a + ' von ' + t + ' aktiv · ' + favVis + ' Favoriten';
-        ausTb.setDensity(t);
         ausMetaHint.textContent = listOrderMetaHint('aus');
         syncSplitToolbarVisibility();
         if (aktuelleAusstattungsKonfig.length === 0) {
@@ -3758,11 +3764,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         sanitizeExpandedAusstattungIndex();
         purgeListDragArtifacts();
         ausstattungContainer.innerHTML = '';
-        const vis = getVisibleAusIndices();
         const { a, t } = countAusaktiv();
+        ausTb.setDensity(t);
+        const vis = getVisibleAusIndices();
         const favVis = vis.filter(i => aktuelleAusstattungsKonfig[i].favorit === true).length;
         ausMetaStats.textContent = vis.length + ' sichtbar · ' + a + ' von ' + t + ' aktiv · ' + favVis + ' Favoriten';
-        ausTb.setDensity(t);
         ausMetaHint.textContent = listOrderMetaHint('aus');
         if (aktuelleAusstattungsKonfig.length === 0) {
             ausstattungContainer.appendChild(mkEmptyState('Noch keine Einträge.'));
@@ -4077,11 +4083,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function renderTechDataSplit() {
         sanitizeSelectedTechIndex();
         techSplit.list.innerHTML = '';
-        const vis = getVisibleTechIndices();
         const total = aktuelleTechKonfigurationen.length;
+        techTb.setDensity(total);
+        const vis = getVisibleTechIndices();
         const act = aktuelleTechKonfigurationen.filter(t => t.aktiv).length;
         techMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
-        techTb.setDensity(total);
         renderTechSuggestions();
         techMetaHint.textContent = listOrderMetaHint('tech');
         techSortDropdown.querySelector('select').disabled = columnSortLockedForTech();
@@ -4125,12 +4131,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function renderTechDataClassic() {
         purgeListDragArtifacts();
         techContainer.innerHTML = '';
-        const vis = getVisibleTechIndices();
         const total = aktuelleTechKonfigurationen.length;
+        techTb.setDensity(total);
+        const vis = getVisibleTechIndices();
         const act = aktuelleTechKonfigurationen.filter(t => t.aktiv).length;
         const sortedVis = getSortedTechVisibleIndices();
         techMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
-        techTb.setDensity(total);
         renderTechSuggestions();
         techMetaHint.textContent = listOrderMetaHint('tech');
 
@@ -4505,11 +4511,11 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function renderMergeConfigSplit() {
         sanitizeSelectedMergeIndex();
         mergeSplit.list.innerHTML = '';
-        const vis = getVisibleMergeIndices();
         const total = aktuelleMergeGruppen.length;
+        mergeTb.setDensity(total);
+        const vis = getVisibleMergeIndices();
         const act = aktuelleMergeGruppen.filter(g => g.aktiv !== false).length;
         mergeMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
-        mergeTb.setDensity(total);
         mergeMetaHint.textContent = mergeMetaHintText();
         if (aktuelleMergeGruppen.length === 0) {
             mergeSplit.list.appendChild(mkEmptyState('Keine Merge-Gruppen.'));
@@ -4538,12 +4544,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     function renderMergeConfigClassic() {
         purgeListDragArtifacts();
         mergeContainer.innerHTML = '';
-        const vis = getVisibleMergeIndices();
         const total = aktuelleMergeGruppen.length;
+        mergeTb.setDensity(total);
+        const vis = getVisibleMergeIndices();
         const act = aktuelleMergeGruppen.filter(g => g.aktiv !== false).length;
         const sortedVis = getSortedMergeVisibleIndices();
         mergeMetaStats.textContent = vis.length + ' von ' + total + ' sichtbar · ' + act + ' aktiv';
-        mergeTb.setDensity(total);
         mergeMetaHint.textContent = mergeMetaHintText();
         if (aktuelleMergeGruppen.length === 0) {
             mergeContainer.appendChild(mkEmptyState('Keine Merge-Gruppen.'));
@@ -5155,7 +5161,9 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     /** Aus der Gewichts-Übersicht zum Eintrag im Reiter Ausstattung springen. */
     function jumpToAusEntry(idx) {
         if (!aktuelleAusstattungsKonfig[idx]) return;
+        // Suche und Filter zurücksetzen — sonst ist der Zieleintrag evtl. gar nicht in der Liste.
         if (ausSearch && ausSearch._input && ausSearch._input.value) ausSearch._input.value = '';
+        ausTb.filterCbs.forEach(cb => { cb.checked = false; });
         setActiveTab(0);
         if (useConfigSplitView()) {
             renderAusstattung();
@@ -5689,7 +5697,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             prBody.classList.toggle('mc-pr-body--disabled', !on);
         }
 
-        function mkPrToggleRow(label, getVal, setVal, impactMsg) {
+        function mkPrToggleRow(label, getVal, setVal, impactMsg, afterChange) {
             const row = document.createElement('div');
             row.className = 'mc-card__main-row mc-card__main-row--feature';
             const txt = document.createElement('div');
@@ -5717,6 +5725,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                 st.textContent = v ? 'Aktiv' : 'Aus';
                 st.classList.toggle('mc-feature-status--on', v);
                 updateTabBadges();
+                if (afterChange) afterChange();
             });
             aside.appendChild(st);
             aside.appendChild(tog);
@@ -5836,7 +5845,12 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             'Nur Favoriten-Gewichte',
             () => !!pr.onlyFavoriteWeights,
             v => { pr.onlyFavoriteWeights = v; },
-            'Nur Ausstattungen mit Stern zählen für die Preis-Korrektur — alle anderen Gewichte werden ignoriert.'
+            'Nur Ausstattungen mit Stern zählen für die Preis-Korrektur — alle anderen Gewichte werden ignoriert.',
+            // Gewichts-Übersicht unten und ⚖-Badges im Reiter Ausstattung hängen daran.
+            () => {
+                renderAusstattung();
+                renderConfig();
+            }
         ));
         const equipGrid = mkPrGridIn(grpEquip);
         equipGrid.appendChild(mkPrNumberField('€ pro Ausstattungspunkt', 'punktZuEuro', 100, 5000, {
