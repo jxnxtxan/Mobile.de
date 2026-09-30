@@ -1431,6 +1431,26 @@ export function cohortItemsFromSrpCards(excludeId) {
     return items;
 }
 
+/** Anzahl erkannter Inseratskarten auf der Ergebnisliste (Diagnose). */
+export function countSrpListingCards() {
+    if (typeof document === 'undefined') return 0;
+    return listingRootsFromRoot(document.body).length;
+}
+
+/**
+ * Quelle für den SRP-Status: __INITIAL_STATE__, falls er Inserate liefert,
+ * sonst die Inseratskarten — dieselbe Reihenfolge wie cohortItemsFromSearchPage.
+ */
+export function pickSrpStatusSource(stateItems, stateRawCount, cardItems, cardCount) {
+    if (Array.isArray(stateItems) && stateItems.length) {
+        return { source: 'state', items: stateItems, rawListings: stateRawCount || 0 };
+    }
+    if (Array.isArray(cardItems) && cardItems.length) {
+        return { source: 'cards', items: cardItems, rawListings: cardCount || cardItems.length };
+    }
+    return { source: null, items: [], rawListings: Math.max(stateRawCount || 0, cardCount || 0) };
+}
+
 /**
  * Vergleichsfahrzeuge der aktuellen Ergebnisliste. Seit mobile.de die Seiten
  * über Next.js ausliefert, fehlt __INITIAL_STATE__; ohne den Kartenfallback

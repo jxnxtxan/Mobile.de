@@ -90,3 +90,16 @@ test('splitMakeModelFromTitle bleibt bei unvollständigen Titeln stabil', () => 
     assert.deepEqual(splitMakeModelFromTitle(null, []), { make: '', model: '' });
     assert.deepEqual(splitMakeModelFromTitle('Smart', []), { make: 'Smart', model: '' });
 });
+
+/**
+ * „SRP-Status jetzt loggen“ brach ohne __INITIAL_STATE__ immer ab, obwohl die
+ * Karten längst die Vergleichsfahrzeuge liefern.
+ */
+test('SRP-Status nimmt __INITIAL_STATE__, sonst die Karten', async () => {
+    const { pickSrpStatusSource } = await import('../src/features/price-rating/index.js');
+    const a = [{ id: '1' }];
+    const b = [{ id: '2' }, { id: '3' }];
+    assert.deepEqual(pickSrpStatusSource(a, 20, b, 30), { source: 'state', items: a, rawListings: 20 });
+    assert.deepEqual(pickSrpStatusSource([], 0, b, 30), { source: 'cards', items: b, rawListings: 30 });
+    assert.deepEqual(pickSrpStatusSource([], 0, [], 4), { source: null, items: [], rawListings: 4 });
+});

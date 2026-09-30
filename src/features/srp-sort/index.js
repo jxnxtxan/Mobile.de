@@ -27,6 +27,9 @@ import {
     mergePriceDataStoreImport,
     notifyCohortCacheUpdated,
     firstSrpListingCard,
+    cohortItemsFromSrpCards,
+    countSrpListingCards,
+    pickSrpStatusSource,
 } from '../price-rating/index.js';
 
 export { isSearchResultsPage };
@@ -160,15 +163,30 @@ export function runManualSrpStatusLog() {
         notifyUser('Nur auf einer Suchergebnisseite (SRP)', 'warn');
         return;
     }
+    // mobile.de liefert __INITIAL_STATE__ seit Next.js nicht mehr — dann die
+    // Inseratskarten lesen, wie es die Preisbewertung auch tut.
     const state = getPageInitialState();
-    if (!state) {
-        console.warn('[mobilede Preis]', 'SRP-Status: kein __INITIAL_STATE__ vorhanden');
-        appendSrpDebugLog('warn', 'SRP-Status ohne __INITIAL_STATE__', null);
-        notifyUser('Kein __INITIAL_STATE__ auf dieser SRP', 'warn');
+    const stateItems = state ? parseCohortItemsFromState(state, null) : [];
+    const stateRawCount = state ? findSrpListingsInState(state).length : 0;
+    const needCards = !stateItems.length;
+    const picked = pickSrpStatusSource(
+        stateItems,
+        stateRawCount,
+        needCards ? cohortItemsFromSrpCards(null) : [],
+        needCards ? countSrpListingCards() : 0
+    );
+    if (!picked.source) {
+        const reason = 'Weder __INITIAL_STATE__ noch Inseratskarten mit Preis gefunden';
+        console.warn('[mobilede Preis]', 'SRP-Status: ' + reason);
+        appendSrpDebugLog('warn', 'SRP-Status ohne Inserate', {
+            reason,
+            hasInitialState: !!state,
+            cardsFound: picked.rawListings
+        });
+        notifyUser('Keine Inserate auf dieser Ergebnisliste erkannt', 'warn');
         return;
     }
-    const rawList = findSrpListingsInState(state);
-    const items = parseCohortItemsFromState(state, null);
+    const items = picked.items;
     const prof = profileFromSearchPageUrl(location.href);
     const prCfg = getPriceRating(runtimeState.featureFlags);
     const enrichedForLog = prof
@@ -192,7 +210,8 @@ export function runManualSrpStatusLog() {
     const anchorCount = readVipCohortAnchors().length;
     const payload = {
         url: location.href,
-        rawListings: rawList.length,
+        source: picked.source,
+        rawListings: picked.rawListings,
         parsedComparables: items.length,
         cacheKey,
         cohortHuman: prof ? cohortHumanLabel(prof, prCfg) : null,

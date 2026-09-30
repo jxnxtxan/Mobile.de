@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.42
+// @version      2.16.43
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -3139,6 +3139,19 @@ Kontext: …${item.snippet}…` : "";
     });
     return items;
   }
+  function countSrpListingCards() {
+    if (typeof document === "undefined") return 0;
+    return listingRootsFromRoot(document.body).length;
+  }
+  function pickSrpStatusSource(stateItems, stateRawCount, cardItems, cardCount) {
+    if (Array.isArray(stateItems) && stateItems.length) {
+      return { source: "state", items: stateItems, rawListings: stateRawCount || 0 };
+    }
+    if (Array.isArray(cardItems) && cardItems.length) {
+      return { source: "cards", items: cardItems, rawListings: cardCount || cardItems.length };
+    }
+    return { source: null, items: [], rawListings: Math.max(stateRawCount || 0, cardCount || 0) };
+  }
   function cohortItemsFromSearchPage(excludeId) {
     const state = getPageInitialState();
     const fromState = state ? parseCohortItemsFromState(state, excludeId) : [];
@@ -4727,14 +4740,27 @@ Kontext: …${item.snippet}…` : "";
       return;
     }
     const state = getPageInitialState();
-    if (!state) {
-      console.warn("[mobilede Preis]", "SRP-Status: kein __INITIAL_STATE__ vorhanden");
-      appendSrpDebugLog("warn", "SRP-Status ohne __INITIAL_STATE__", null);
-      notifyUser("Kein __INITIAL_STATE__ auf dieser SRP", "warn");
+    const stateItems = state ? parseCohortItemsFromState(state, null) : [];
+    const stateRawCount = state ? findSrpListingsInState(state).length : 0;
+    const needCards = !stateItems.length;
+    const picked = pickSrpStatusSource(
+      stateItems,
+      stateRawCount,
+      needCards ? cohortItemsFromSrpCards(null) : [],
+      needCards ? countSrpListingCards() : 0
+    );
+    if (!picked.source) {
+      const reason = "Weder __INITIAL_STATE__ noch Inseratskarten mit Preis gefunden";
+      console.warn("[mobilede Preis]", "SRP-Status: " + reason);
+      appendSrpDebugLog("warn", "SRP-Status ohne Inserate", {
+        reason,
+        hasInitialState: !!state,
+        cardsFound: picked.rawListings
+      });
+      notifyUser("Keine Inserate auf dieser Ergebnisliste erkannt", "warn");
       return;
     }
-    const rawList = findSrpListingsInState(state);
-    const items = parseCohortItemsFromState(state, null);
+    const items = picked.items;
     const prof = profileFromSearchPageUrl(location.href);
     const prCfg = getPriceRating(runtimeState.featureFlags);
     const enrichedForLog = prof ? items.map((it) => enrichCohortItemFromSearchContext(it, prof)) : items;
@@ -4751,7 +4777,8 @@ Kontext: …${item.snippet}…` : "";
     const anchorCount = readVipCohortAnchors().length;
     const payload = {
       url: location.href,
-      rawListings: rawList.length,
+      source: picked.source,
+      rawListings: picked.rawListings,
       parsedComparables: items.length,
       cacheKey,
       cohortHuman: prof ? cohortHumanLabel(prof, prCfg) : null,
@@ -5967,7 +5994,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.42";
+    const SCRIPT_UI_VERSION = "2.16.43";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
