@@ -99,6 +99,6 @@ export const KONFIG_TAB_HELP_HTML = new Map([
 <li><strong>Listen-Layout:</strong> Schaltet die Tabs Ausstattung, Tech-Daten und Merge-Gruppen zwischen klassischem Grid und Split-View (Liste + Editor) um. Gilt nach <strong>Speichern</strong>.</li>
 <li><strong>Bereiche:</strong> Links wählst du Allgemein, Listen &amp; Sortierung, Suchergebnisse, Preisbewertung und — wenn freigeschaltet — Debug.</li>
 <li><strong>Preisbewertung:</strong> Vergleichsgruppe, Ausstattungs-Aufschlag, Preis-Stufen; Cache-Key-Details unter „Erweitert“. Die <strong>Gewichte</strong> pflegst du am Eintrag im Reiter <strong>Ausstattung</strong> (Feld „Preisgewicht“: leer = Standard, 0 = aus). Änderungen mit starker Auswirkung fragen per Warnung nach.</li>
-<li><strong>Debug:</strong> 5× auf den Einleitungstext klicken blendet den Bereich ein. Debug-Schalter wirken sofort und lassen offene Änderungen unberührt.</li>
+<li><strong>Debug:</strong> 5× auf den Einleitungstext klicken blendet den Bereich ein, nochmal 5× blendet ihn aus und schaltet alle Debug-Ausgaben ab. Beim Öffnen ist er nur sichtbar, wenn ein Modul oder die Log-Cards an sind. Debug-Schalter wirken sofort und lassen offene Änderungen unberührt.</li>
 </ul>`]
 ]);

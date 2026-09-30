@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.41
+// @version      2.16.42
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -539,11 +539,6 @@
       scopes: { ...dbg.scopes, ...patch && patch.scopes || {} }
     };
     persistDebugConfig(withDerivedDebugMaster(next));
-  }
-  function persistDebugMaster(enabled) {
-    const merged = ladeFeatureFlags();
-    const dbg = getDebugConfig(merged);
-    persistDebugConfig({ ...dbg, enabled: !!enabled });
   }
   function featureFlagsDefault() {
     const obj = {};
@@ -5917,7 +5912,7 @@ Kontext: …${item.snippet}…` : "";
 <li><strong>Listen-Layout:</strong> Schaltet die Tabs Ausstattung, Tech-Daten und Merge-Gruppen zwischen klassischem Grid und Split-View (Liste + Editor) um. Gilt nach <strong>Speichern</strong>.</li>
 <li><strong>Bereiche:</strong> Links wählst du Allgemein, Listen &amp; Sortierung, Suchergebnisse, Preisbewertung und — wenn freigeschaltet — Debug.</li>
 <li><strong>Preisbewertung:</strong> Vergleichsgruppe, Ausstattungs-Aufschlag, Preis-Stufen; Cache-Key-Details unter „Erweitert“. Die <strong>Gewichte</strong> pflegst du am Eintrag im Reiter <strong>Ausstattung</strong> (Feld „Preisgewicht“: leer = Standard, 0 = aus). Änderungen mit starker Auswirkung fragen per Warnung nach.</li>
-<li><strong>Debug:</strong> 5× auf den Einleitungstext klicken blendet den Bereich ein. Debug-Schalter wirken sofort und lassen offene Änderungen unberührt.</li>
+<li><strong>Debug:</strong> 5× auf den Einleitungstext klicken blendet den Bereich ein, nochmal 5× blendet ihn aus und schaltet alle Debug-Ausgaben ab. Beim Öffnen ist er nur sichtbar, wenn ein Modul oder die Log-Cards an sind. Debug-Schalter wirken sofort und lassen offene Änderungen unberührt.</li>
 </ul>`]
   ]);
   function oeffneKonfigPopup() {
@@ -5972,7 +5967,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.41";
+    const SCRIPT_UI_VERSION = "2.16.42";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -10553,17 +10548,25 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       }, 1500);
       if (configDebugUnlockClicks < 5) return;
       configDebugUnlockClicks = 0;
-      configDebugUiUnlocked = true;
-      const currentDebug = getDebugConfig(aktuelleFeatureFlags);
-      const next = !currentDebug.enabled;
-      persistDebugMaster(next);
-      syncDebugFromStorage();
-      renderConfig();
-      showToast(
-        next ? "Debug-Modus aktiv — Ausgaben in der Browser-Konsole (F12)" : "Debug-Modus deaktiviert",
-        "success"
-      );
-      debugLog("ui", "Debug-Mode über Hidden-Unlock umgeschaltet", { enabled: next });
+      const visible = !!getDebugConfig(aktuelleFeatureFlags).enabled || configDebugUiUnlocked;
+      if (visible) {
+        const scopes = {};
+        DEBUG_SCOPE_DEFINITIONS.forEach((def) => {
+          scopes[def.key] = false;
+        });
+        persistDebugConfig({ enabled: false, showSrpLogCard: false, scopes });
+        syncDebugLogCardsOnPage();
+        configDebugUiUnlocked = false;
+        syncDebugFromStorage();
+        if (activeConfigSection === "debug") activeConfigSection = "general";
+        renderConfig();
+        showToast("Debug-Bereich ausgeblendet — alle Debug-Ausgaben aus", "success");
+      } else {
+        configDebugUiUnlocked = true;
+        activeConfigSection = "debug";
+        renderConfig();
+        showToast("Debug-Bereich eingeblendet", "success");
+      }
     });
     footerResetHandlers[4] = async () => {
       const ok = await confirmAsync("Alle Feature-Flags auf Standard zurücksetzen?");
@@ -11437,7 +11440,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         dbgCard.className = "mc-card mc-list-order-card";
         const dbgDesc = document.createElement("div");
         dbgDesc.className = "mc-feature-desc";
-        dbgDesc.textContent = "Schreibt modulare Debug-Infos in die Browser-Konsole. Schalter wirken sofort (ohne Speichern) und lassen offene Änderungen unberührt. Bereich ein-/ausblenden: 5× auf den Einleitungstext oben klicken.";
+        dbgDesc.textContent = "Schreibt modulare Debug-Infos in die Browser-Konsole. Schalter wirken sofort (ohne Speichern) und lassen offene Änderungen unberührt. 5× auf den Einleitungstext oben klicken blendet diesen Bereich aus und schaltet dabei alle Debug-Ausgaben ab. Beim nächsten Öffnen ist er nur sichtbar, wenn ein Modul oder die Log-Cards an sind.";
         dbgCard.appendChild(dbgDesc);
         const dbgRow = document.createElement("div");
         dbgRow.className = "mc-pr-actions";

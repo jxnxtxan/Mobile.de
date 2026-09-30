@@ -27,9 +27,7 @@ import {
     mergeConfigListUi,
     getDebugConfig,
     mergeDebugConfig,
-    debugLog,
     persistDebugConfig,
-    persistDebugMaster,
     persistDebugDerived,
     featureFlagsDefault,
     ladeFeatureFlags,
@@ -4965,19 +4963,25 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         configDebugUnlockTimer = setTimeout(() => { configDebugUnlockClicks = 0; }, 1500);
         if (configDebugUnlockClicks < 5) return;
         configDebugUnlockClicks = 0;
-        configDebugUiUnlocked = true;
-        const currentDebug = getDebugConfig(aktuelleFeatureFlags);
-        const next = !currentDebug.enabled;
-        persistDebugMaster(next);
-        syncDebugFromStorage();
-        renderConfig();
-        showToast(
-            next
-                ? 'Debug-Modus aktiv — Ausgaben in der Browser-Konsole (F12)'
-                : 'Debug-Modus deaktiviert',
-            'success'
-        );
-        debugLog('ui', 'Debug-Mode über Hidden-Unlock umgeschaltet', { enabled: next });
+        // Echtes Ein-/Ausblenden des Debug-Bereichs. Ausblenden schaltet alle
+        // Debug-Ausgaben ab — sonst liefe unsichtbar weiter Logging.
+        const visible = !!getDebugConfig(aktuelleFeatureFlags).enabled || configDebugUiUnlocked;
+        if (visible) {
+            const scopes = {};
+            DEBUG_SCOPE_DEFINITIONS.forEach(def => { scopes[def.key] = false; });
+            persistDebugConfig({ enabled: false, showSrpLogCard: false, scopes });
+            syncDebugLogCardsOnPage();
+            configDebugUiUnlocked = false;
+            syncDebugFromStorage();
+            if (activeConfigSection === 'debug') activeConfigSection = 'general';
+            renderConfig();
+            showToast('Debug-Bereich ausgeblendet — alle Debug-Ausgaben aus', 'success');
+        } else {
+            configDebugUiUnlocked = true;
+            activeConfigSection = 'debug';
+            renderConfig();
+            showToast('Debug-Bereich eingeblendet', 'success');
+        }
     });
     footerResetHandlers[4] = async () => {
         const ok = await confirmAsync('Alle Feature-Flags auf Standard zurücksetzen?');
@@ -5912,7 +5916,8 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             dbgDesc.className = 'mc-feature-desc';
             dbgDesc.textContent = 'Schreibt modulare Debug-Infos in die Browser-Konsole. Schalter wirken sofort '
                 + '(ohne Speichern) und lassen offene Änderungen unberührt. '
-                + 'Bereich ein-/ausblenden: 5× auf den Einleitungstext oben klicken.';
+                + '5× auf den Einleitungstext oben klicken blendet diesen Bereich aus und schaltet dabei alle '
+                + 'Debug-Ausgaben ab. Beim nächsten Öffnen ist er nur sichtbar, wenn ein Modul oder die Log-Cards an sind.';
             dbgCard.appendChild(dbgDesc);
             const dbgRow = document.createElement('div');
             dbgRow.className = 'mc-pr-actions';
