@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.49
+// @version      2.16.50
 // @author       jxnxtxan
 // @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
@@ -268,7 +268,7 @@
     { begriff: "Farbe", aktiv: true }
   ];
   const mergeGruppenConfigDefault = [
-    { basis: "außenspiegel", order: ["elektr. verstellbar", "beheizbar", "anklappbar", "klappbar", "automatisch abblend.", "auto. abblend."], aktiv: true }
+    { basis: "außenspiegel", order: ["elektr. verstellbar", "beheizbar", "anklappbar", "automatisch abblend."], aktiv: true }
   ];
   function gmGetValue(key, defaultValue) {
     return GM_getValue(key, defaultValue);
@@ -1135,6 +1135,24 @@
     if (/innenspiegel/.test(c) && !/aussenspiegel|seitenspiegel/.test(c)) return false;
     return /aussenspiegel|seitenspiegel/.test(c);
   }
+  function normalizeOrderKey(text) {
+    return cleanText(text || "").replace(/\./g, "").replace(/\s{2,}/g, " ").trim();
+  }
+  function orderIndexOf(modifier, order) {
+    const m = normalizeOrderKey(modifier);
+    if (!m || !Array.isArray(order)) return -1;
+    return order.findIndex((key) => {
+      const k = normalizeOrderKey(key);
+      return !!k && m.includes(k);
+    });
+  }
+  function sortByOrder(mods, order) {
+    const rank = (mod) => {
+      const i = orderIndexOf(mod, order);
+      return i === -1 ? 999 : i;
+    };
+    return mods.sort((a, b) => rank(a) - rank(b));
+  }
   function entryMatchesMergeGroup(entry, group) {
     if (!group || group.aktiv === false || !group.basis) return false;
     const a = cleanText(entry.anzeige || "");
@@ -1176,7 +1194,6 @@
     if (!group) return entries;
     const basisClean = cleanText(group.basis);
     const basisCap = group.basis.charAt(0).toUpperCase() + group.basis.slice(1);
-    const order = (group.order || []).map((item) => item.toLowerCase());
     const targetIdx = entries.findIndex((e) => {
       const c = cleanText(e.anzeige || "");
       if (!c.startsWith(basisClean)) return false;
@@ -1200,13 +1217,7 @@
         mods.push(h);
       }
     });
-    mods.sort((a, b) => {
-      let ia = order.findIndex((key) => a.toLowerCase().includes(key.replace(/\./g, "").trim()));
-      let ib = order.findIndex((key) => b.toLowerCase().includes(key.replace(/\./g, "").trim()));
-      if (ia === -1) ia = 999;
-      if (ib === -1) ib = 999;
-      return ia - ib;
-    });
+    sortByOrder(mods, group.order || []);
     const out = [...entries];
     out[targetIdx] = {
       ...entry,
@@ -1265,24 +1276,84 @@
       to: basisCap + " " + mods.join(", ")
     };
   }
+  function displayModifier(anzeige, group) {
+    const basis = String(group.basis || "").trim();
+    const re = new RegExp("^\\s*" + escapeRegex(basis) + "\\s*", "i");
+    if (basis && re.test(anzeige)) {
+      const rest = anzeige.replace(re, "").trim();
+      if (rest) return rest;
+    }
+    return mergeModifierFromEntry(anzeige, group);
+  }
+  function mergeModifierCandidates(group, ausstattung) {
+    if (!group || !String(group.basis || "").trim()) return [];
+    const g = { ...group, aktiv: true };
+    const seen = new Set();
+    const out = [];
+    (ausstattung || []).forEach((e) => {
+      if (!e || e.aktiv === false || !e.anzeige) return;
+      if (!entryMatchesMergeGroup(e, g)) return;
+      const key = normalizeOrderKey(mergeModifierFromEntry(e.anzeige, g));
+      if (!key || key === normalizeOrderKey(g.basis) || seen.has(key)) return;
+      seen.add(key);
+      out.push({ anzeige: e.anzeige, modifier: displayModifier(e.anzeige, g), key });
+    });
+    return out;
+  }
+  function analyzeMergeOrder(group, candidates) {
+    const order = group && group.order || [];
+    const chips = order.map(() => ({ state: "unmatched", hits: [], shadowedBy: [] }));
+    const uncovered = [];
+    (candidates || []).forEach((c) => {
+      const first = orderIndexOf(c.key, order);
+      if (first === -1) {
+        uncovered.push(c);
+        return;
+      }
+      chips[first].hits.push(c);
+      order.forEach((key, i) => {
+        if (i === first) return;
+        const k = normalizeOrderKey(key);
+        if (k && c.key.includes(k) && !chips[i].shadowedBy.includes(first)) {
+          chips[i].shadowedBy.push(first);
+        }
+      });
+    });
+    chips.forEach((ch) => {
+      if (ch.hits.length) ch.state = "ok";
+      else if (ch.shadowedBy.length) ch.state = "shadowed";
+    });
+    return { chips, uncovered };
+  }
+  function mergePreviewFromCandidates(group, candidates, max = 4) {
+    if (!group || !String(group.basis || "").trim()) return null;
+    const list = [...candidates || []];
+    const order = group.order || [];
+    list.sort((a, b) => {
+      const ia = orderIndexOf(a.key, order);
+      const ib = orderIndexOf(b.key, order);
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
+    const pick = list.slice(0, max);
+    if (pick.length < 2) return null;
+    const merged = generalizedMergeEntries(
+      pick.map((c) => ({ anzeige: c.anzeige })),
+      [{ ...group, aktiv: true }]
+    );
+    if (merged.length !== 1) return null;
+    return { from: pick.map((c) => c.anzeige), to: merged[0].anzeige, total: list.length };
+  }
   function generalizedMergeEntries(entries, gruppen) {
     if (!Array.isArray(gruppen) || gruppen.length === 0) return entries;
     let result = [...entries];
     gruppen.forEach((group) => {
       if (!group || !group.basis || group.aktiv === false) return;
-      const order = (group.order || []).map((item) => item.toLowerCase());
       const matching = result.filter((e) => entryMatchesMergeGroup(e, group));
       if (matching.length <= 1) return;
       result = result.filter((e) => !entryMatchesMergeGroup(e, group));
       let modifiers = matching.map((e) => mergeModifierFromEntry(e.anzeige, group)).filter(Boolean);
       modifiers = Array.from(new Set(modifiers));
-      modifiers.sort((a, b) => {
-        let ia = order.findIndex((key) => a.includes(key.replace(/\./g, "").trim()));
-        let ib = order.findIndex((key) => b.includes(key.replace(/\./g, "").trim()));
-        if (ia === -1) ia = 999;
-        if (ib === -1) ib = 999;
-        return ia - ib;
-      });
+      sortByOrder(modifiers, group.order || []);
       const basisCap = group.basis.charAt(0).toUpperCase() + group.basis.slice(1);
       const merged = basisCap + (modifiers.length ? " " + modifiers.join(", ") : "");
       const bestConf = matching.some((e) => e.confidence === "high") ? "high" : "low";
@@ -5990,7 +6061,7 @@ Kontext: …${item.snippet}…` : "";
 <ul>
 <li><strong>Aktiv-Schalter</strong>: Inaktive Gruppen werden beim Zusammenfassen auf der Fahrzeugseite ignoriert.</li>
 <li><strong>Basis</strong>: Das gemeinsame Wort, nach dem gruppiert wird (z.B. <code>außenspiegel</code>). Klein- und Großschreibung egal.</li>
-<li><strong>Reihenfolge</strong>: Komma-getrennte Liste der Modifizierer-Schlüsselwörter in der gewünschten Reihenfolge im zusammengefassten Eintrag (z.B. <code>elektr. verstellbar, beheizbar, anklappbar</code>). Treffer, die in keiner Reihenfolge auftauchen, kommen ans Ende.</li>
+<li><strong>Reihenfolge</strong>: Komma-getrennte Liste der Modifizierer-Schlüsselwörter in der gewünschten Reihenfolge im zusammengefassten Eintrag (z.B. <code>elektr. verstellbar, beheizbar, anklappbar</code>). Ein Schlüsselwort greift, wenn es im Zusatz des Anzeige-Namens vorkommt (Groß/klein, Umlaute und Punkte egal). Treffer, die in keiner Reihenfolge auftauchen, kommen ans Ende. Vorschläge aus der Ausstattung und Treffer-Prüfung gibt es im Split-View.</li>
 <li><strong>Spaltenköpfe</strong> zum Sortieren, <strong>Filter „nur aktive“</strong> und <strong>Alle Einträge</strong> (Ein/Aus) in einer Zeile wie bei Ausstattung. Speichern sortiert alphabetisch nach Basis. <strong>Auf Standard zurücksetzen…</strong> unten links im Footer. Bei bis zu 8 Einträgen blendet die Werkzeugleiste Suche, Filter und Sortierung aus.</li>
 <li><strong>Listen-Layout</strong> (Tab Config): optional Split-View.</li>
 </ul>`],
@@ -6000,7 +6071,11 @@ Kontext: …${item.snippet}…` : "";
 <h4>Split-View:</h4>
 <ul>
 <li><strong>Liste links</strong>: Aktiv, Basis (gekürzt), Badge mit Anzahl Modifier.</li>
-<li><strong>Editor rechts</strong>: Basis-Feld; Modifier-Reihenfolge als <strong>Chips</strong> (Enter/Komma); <strong>Beispiel</strong> zeigt, was auf der Fahrzeugseite daraus wird. Löschen oben, Aktiv per Schalter in der Liste.</li>
+<li><strong>Editor rechts</strong>: Basis-Feld; Modifier-Reihenfolge als <strong>Chips</strong>. Löschen oben, Aktiv per Schalter in der Liste.</li>
+<li><strong>Aus Ausstattung</strong>: Vorschläge aus aktiven Einträgen im Reiter Ausstattung, die mit der Basis beginnen und noch keinen Chip haben — Klick übernimmt, <strong>Alle übernehmen</strong> fügt alle an. Eigene Begriffe gehen weiter per Enter/Komma.</li>
+<li><strong>Sortieren</strong>: Chips am <strong>⠿</strong> ziehen. Die Reihenfolge bestimmt die Reihenfolge im zusammengefassten Eintrag.</li>
+<li><strong>Markierung</strong>: grün umrandet = wirkt; orange = überflüssig, weil ein früherer Chip denselben Eintrag schon abdeckt (z. B. „klappbar“ nach „anklappbar“); gestrichelt = trifft keinen Eintrag. <strong>Unwirksame entfernen</strong> räumt beides auf.</li>
+<li><strong>Beispiel</strong> zeigt mit echten Einträgen, was auf der Fahrzeugseite daraus wird.</li>
 <li><strong>Sortierung</strong> per Dropdown in der Toolbar.</li>
 <li>Layout: Tab <strong>Config</strong> → <strong>Listen-Layout</strong>.</li>
 </ul>`],
@@ -6082,7 +6157,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.49";
+    const SCRIPT_UI_VERSION = "2.16.50";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -6903,6 +6978,21 @@ grid-template-rows:minmax(140px,1fr) auto;
 .mc-merge-preview__from{color:var(--mc-muted);}
 .mc-merge-preview__arrow{font-size:11px;margin:2px 0;}
 .mc-merge-preview__to{color:var(--mc-text);font-weight:600;}
+.mc-merge-order{display:flex;flex-direction:column;gap:8px;}
+.mc-merge-assist{display:flex;flex-direction:column;gap:6px;}
+.mc-merge-assist[hidden]{display:none;}
+.mc-merge-assist .mc-tech-suggest{margin:0;}
+.mc-merge-assist__status{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12px;color:var(--mc-muted);}
+.mc-merge-assist__status--warn{color:var(--mc-warn);}
+.mc-chip-input--sortable .mc-chip{cursor:grab;}
+.mc-chip__grip{color:var(--mc-muted);font-size:11px;margin:0 4px 0 -4px;cursor:grab;user-select:none;}
+.mc-chip--dragging{opacity:.4;}
+.mc-chip--drop-before{box-shadow:-3px 0 0 var(--mc-accent);}
+.mc-chip--drop-after{box-shadow:3px 0 0 var(--mc-accent);}
+.mc-chip--hit{border-color:rgba(76,175,80,.45);}
+.mc-chip--shadowed{border-color:rgba(255,152,0,.45);background:rgba(255,152,0,.10);}
+.mc-chip--unmatched{border-style:dashed;opacity:.6;}
+.mc-chip--unmatched .mc-chip__text{text-decoration:line-through;text-decoration-color:rgba(255,255,255,.35);}
 .mc-tech-suggest[hidden]{display:none;}
 .mc-tech-suggest__label{font-size:12px;color:var(--mc-muted);margin-right:2px;}
 .mc-weight-editor__input{max-width:160px;}
@@ -7393,9 +7483,10 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       renderMergeConfig();
     }
     function mkChipInput(tokens, opts) {
-      const { variant = "neutral", onChange } = opts || {};
+      const { variant = "neutral", onChange, sortable = false, decorateChip } = opts || {};
       const wrap = document.createElement("div");
-      wrap.className = "mc-chip-input";
+      wrap.className = "mc-chip-input" + (sortable ? " mc-chip-input--sortable" : "");
+      let dragFrom = -1;
       const inp = document.createElement("input");
       inp.type = "text";
       inp.setAttribute("autocomplete", "off");
@@ -7479,6 +7570,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           const k = String(tok).trim().toLowerCase();
           chip.className = "mc-chip" + (variant === "warn" ? " mc-chip--warn" : "");
           if (dup.get(k) > 1) chip.classList.add("mc-chip--dup");
+          if (sortable) bindChipDrag(chip, i);
           const textEl = document.createElement("span");
           textEl.className = "mc-chip__text";
           textEl.textContent = tok;
@@ -7497,10 +7589,66 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             renderChips();
           });
           chip.appendChild(x);
+          if (decorateChip) decorateChip(chip, tok, i);
           wrap.insertBefore(chip, inp);
         });
       }
-      function addToken(raw) {
+      function clearDropMarks() {
+        wrap.querySelectorAll(".mc-chip--drop-before, .mc-chip--drop-after").forEach((c) => {
+          c.classList.remove("mc-chip--drop-before", "mc-chip--drop-after");
+        });
+      }
+      function bindChipDrag(chip, index) {
+        const grip = document.createElement("span");
+        grip.className = "mc-chip__grip";
+        grip.textContent = "⠿";
+        grip.title = "Ziehen zum Sortieren";
+        grip.setAttribute("aria-hidden", "true");
+        chip.appendChild(grip);
+        chip.draggable = true;
+        chip.addEventListener("dragstart", (e) => {
+          if (wrap._chipEditEnd) wrap._chipEditEnd(true);
+          dragFrom = index;
+          chip.classList.add("mc-chip--dragging");
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", String(index));
+          e.stopPropagation();
+        });
+        chip.addEventListener("dragend", (e) => {
+          dragFrom = -1;
+          chip.classList.remove("mc-chip--dragging");
+          clearDropMarks();
+          e.stopPropagation();
+        });
+        chip.addEventListener("dragover", (e) => {
+          if (dragFrom < 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "move";
+          const r = chip.getBoundingClientRect();
+          const after = e.clientX > r.left + r.width / 2;
+          clearDropMarks();
+          if (dragFrom !== index) chip.classList.add(after ? "mc-chip--drop-after" : "mc-chip--drop-before");
+        });
+        chip.addEventListener("drop", (e) => {
+          if (dragFrom < 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const r = chip.getBoundingClientRect();
+          const after = e.clientX > r.left + r.width / 2;
+          const from = dragFrom;
+          dragFrom = -1;
+          clearDropMarks();
+          let to = index + (after ? 1 : 0);
+          if (from < to) to--;
+          if (from === to) return;
+          const [moved] = tokens.splice(from, 1);
+          tokens.splice(to, 0, moved);
+          onChange([...tokens]);
+          renderChips();
+        });
+      }
+      function addToken(raw, keepInput) {
         const parts = String(raw).split(",").map((s) => s.trim()).filter(Boolean);
         if (!parts.length) return;
         if (wrap._chipEditEnd) wrap._chipEditEnd(true);
@@ -7515,7 +7663,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           onChange([...tokens]);
           renderChips();
         }
-        inp.value = "";
+        if (!keepInput) inp.value = "";
       }
       inp.addEventListener("keydown", (e) => {
         if (wrap.querySelector(".mc-chip__edit")) return;
@@ -7534,7 +7682,19 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       });
       wrap.appendChild(inp);
       renderChips();
-      return { wrap, focusInput: () => inp.focus(), refresh: renderChips };
+      return {
+        wrap,
+        focusInput: () => inp.focus(),
+        refresh: renderChips,
+        addTokens: (list) => addToken((list || []).join(","), true),
+        removeIndices: (idxs) => {
+          const drop2 = new Set(idxs || []);
+          if (!drop2.size) return;
+          for (let i = tokens.length - 1; i >= 0; i--) if (drop2.has(i)) tokens.splice(i, 1);
+          onChange([...tokens]);
+          renderChips();
+        }
+      };
     }
     function mkConfigSplitShell(tabId) {
       const root = document.createElement("div");
@@ -10095,21 +10255,110 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       });
       fields.appendChild(mkConfigSplitEditorField("Basis", inpB));
       if (!Array.isArray(group.order)) group.order = [];
+      let analysis = { chips: [], uncovered: [] };
+      let candidates = [];
+      function recompute() {
+        candidates = mergeModifierCandidates(group, aktuelleAusstattungsKonfig);
+        analysis = analyzeMergeOrder(group, candidates);
+      }
+      recompute();
+      function decorateMergeChip(chip, tok, i) {
+        const st = analysis.chips[i];
+        if (!st) return;
+        const textEl = chip.querySelector(".mc-chip__text");
+        if (st.state === "ok") {
+          chip.classList.add("mc-chip--hit");
+          if (textEl) textEl.title = "Trifft: " + st.hits.map((h) => h.anzeige).join(", ") + " · Klicken zum Bearbeiten";
+        } else if (st.state === "shadowed") {
+          chip.classList.add("mc-chip--shadowed");
+          const by = st.shadowedBy.map((j) => "„" + group.order[j] + "“").join(", ");
+          if (textEl) textEl.title = "Überflüssig: wird schon von " + by + " abgedeckt";
+        } else {
+          chip.classList.add("mc-chip--unmatched");
+          if (textEl) textEl.title = "Trifft keinen aktiven Eintrag im Reiter Ausstattung";
+        }
+      }
       const chipO = mkChipInput(group.order, {
+        sortable: true,
+        placeholder: "Eigener Begriff…",
+        decorateChip: decorateMergeChip,
         onChange: (arr) => {
           group.order = arr;
+          recompute();
+          syncMergeAssist();
           syncMergePreview();
           markDirty();
           refreshValidationUI();
           renderMergeSplitListOnly();
         }
       });
-      fields.appendChild(mkConfigSplitEditorField("Modifier-Reihenfolge (Komma oder Enter)", chipO.wrap));
+      const assist = document.createElement("div");
+      assist.className = "mc-merge-assist";
+      function syncMergeAssist() {
+        assist.innerHTML = "";
+        chipO.refresh();
+        const basisLeer = !(group.basis || "").trim();
+        if (basisLeer) {
+          assist.hidden = true;
+          return;
+        }
+        assist.hidden = false;
+        if (!candidates.length) {
+          const p = document.createElement("div");
+          p.className = "mc-merge-assist__status mc-merge-assist__status--warn";
+          p.textContent = "Kein aktiver Eintrag im Reiter Ausstattung beginnt mit dieser Basis — die Gruppe greift dann nur bei automatisch erkannten Treffern.";
+          assist.appendChild(p);
+          return;
+        }
+        if (analysis.uncovered.length) {
+          const row = document.createElement("div");
+          row.className = "mc-tech-suggest mc-merge-assist__suggest";
+          const lab = document.createElement("span");
+          lab.className = "mc-tech-suggest__label";
+          lab.textContent = "Aus Ausstattung:";
+          row.appendChild(lab);
+          analysis.uncovered.forEach((c) => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "mc-pr-weight-chip mc-tech-suggest__chip";
+            b.textContent = "+ " + c.modifier;
+            b.title = c.anzeige;
+            b.addEventListener("click", () => chipO.addTokens([c.modifier]));
+            row.appendChild(b);
+          });
+          if (analysis.uncovered.length > 1) {
+            row.appendChild(mkBtn("ghost", "Alle übernehmen", () => {
+              chipO.addTokens(analysis.uncovered.map((c) => c.modifier));
+            }));
+          }
+          assist.appendChild(row);
+        }
+        const unwirksam = [];
+        analysis.chips.forEach((c, i) => {
+          if (c.state !== "ok") unwirksam.push(i);
+        });
+        const status = document.createElement("div");
+        status.className = "mc-merge-assist__status" + (unwirksam.length ? " mc-merge-assist__status--warn" : "");
+        const nSortiert = candidates.length - analysis.uncovered.length;
+        const txt = document.createElement("span");
+        txt.textContent = nSortiert + " von " + candidates.length + " Ausstattungs-Einträgen einsortiert" + (unwirksam.length ? " · " + unwirksam.length + " Chip" + (unwirksam.length === 1 ? "" : "s") + " ohne Wirkung" : "") + " · Chips am ⠿ ziehen zum Sortieren";
+        status.appendChild(txt);
+        if (unwirksam.length) {
+          status.appendChild(mkBtn("ghost", "Unwirksame entfernen", () => chipO.removeIndices(unwirksam)));
+        }
+        assist.appendChild(status);
+      }
+      const orderWrap = document.createElement("div");
+      orderWrap.className = "mc-merge-order";
+      orderWrap.appendChild(chipO.wrap);
+      orderWrap.appendChild(assist);
+      fields.appendChild(mkConfigSplitEditorField("Modifier-Reihenfolge", orderWrap));
       const preview = document.createElement("div");
       preview.className = "mc-merge-preview";
       function syncMergePreview() {
         preview.innerHTML = "";
-        const pv = mergePreviewText(group);
+        const real = mergePreviewFromCandidates(group, candidates);
+        const pv = real || mergePreviewText(group);
         if (!pv) {
           preview.textContent = "Mindestens zwei Modifier eintragen, dann erscheint hier ein Beispiel.";
           return;
@@ -10126,9 +10375,20 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         preview.appendChild(from);
         preview.appendChild(arrow);
         preview.appendChild(to);
+        if (!real || real.total > real.from.length) {
+          const note = document.createElement("div");
+          note.className = "mc-merge-preview__arrow";
+          note.textContent = real ? "Beispiel mit " + real.from.length + " von " + real.total + " passenden Einträgen" : "Nur aus den Chips gebildet — es gibt keine zwei passenden Ausstattungs-Einträge";
+          preview.appendChild(note);
+        }
       }
+      syncMergeAssist();
       syncMergePreview();
-      inpB.addEventListener("input", syncMergePreview);
+      inpB.addEventListener("input", () => {
+        recompute();
+        syncMergeAssist();
+        syncMergePreview();
+      });
       fields.appendChild(mkConfigSplitEditorField("Beispiel", preview));
       editor.appendChild(fields);
       const footer = mkConfigSplitEditorFooter();

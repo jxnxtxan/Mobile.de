@@ -84,3 +84,54 @@ test('Merge-Vorschau zeigt Einzeltreffer und zusammengefasste Zeile', async () =
     assert.equal(mergePreviewText({ basis: 'x', order: ['a'] }), null);
     assert.equal(mergePreviewText({ basis: '', order: ['a', 'b'] }), null);
 });
+
+test('Merge-Reihenfolge greift auch bei Schlüsseln mit Punkt', async () => {
+    const { generalizedMergeEntries } = await import('../src/core/search/merge-groups.js');
+    const out = generalizedMergeEntries(
+        [{ anzeige: 'Außenspiegel beheizbar' }, { anzeige: 'Außenspiegel elektr. verstellbar' }, { anzeige: 'Außenspiegel anklappbar' }],
+        [{ basis: 'außenspiegel', order: ['elektr. verstellbar', 'beheizbar', 'anklappbar'], aktiv: true }]
+    );
+    assert.deepEqual(out.map(e => e.anzeige), ['Außenspiegel elektr. verstellbar, beheizbar, anklappbar']);
+});
+
+test('Merge-Kandidaten: nur aktive Einträge der Basis, ohne Kombi-Spiegel', async () => {
+    const { mergeModifierCandidates } = await import('../src/core/search/merge-groups.js');
+    const aus = [
+        { anzeige: 'Außenspiegel anklappbar', aktiv: true },
+        { anzeige: 'Außenspiegel beheizbar', aktiv: true },
+        { anzeige: 'Außenspiegel elektr. verstellbar', aktiv: false },
+        { anzeige: 'Außen-/Innenspiegel automatisch abblendend', aktiv: true },
+        { anzeige: 'Sitzheizung', aktiv: true }
+    ];
+    const c = mergeModifierCandidates({ basis: 'außenspiegel', aktiv: false }, aus);
+    assert.deepEqual(c.map(x => x.modifier), ['anklappbar', 'beheizbar']);
+    assert.deepEqual(mergeModifierCandidates({ basis: '' }, aus), []);
+});
+
+test('Merge-Reihenfolge prüfen: wirksam, überflüssig, ohne Treffer, fehlend', async () => {
+    const { mergeModifierCandidates, analyzeMergeOrder } = await import('../src/core/search/merge-groups.js');
+    const aus = [
+        { anzeige: 'Außenspiegel anklappbar' },
+        { anzeige: 'Außenspiegel beheizbar' },
+        { anzeige: 'Außenspiegel automatisch abblendend' }
+    ];
+    const group = { basis: 'außenspiegel', order: ['anklappbar', 'klappbar', 'automatisch abblend.', 'auto. abblend.'] };
+    const r = analyzeMergeOrder(group, mergeModifierCandidates(group, aus));
+    assert.deepEqual(r.chips.map(c => c.state), ['ok', 'shadowed', 'ok', 'unmatched']);
+    assert.deepEqual(r.chips[1].shadowedBy, [0]);
+    assert.deepEqual(r.uncovered.map(c => c.modifier), ['beheizbar']);
+});
+
+test('Merge-Beispiel aus echten Einträgen in Reihenfolge', async () => {
+    const { mergeModifierCandidates, mergePreviewFromCandidates } = await import('../src/core/search/merge-groups.js');
+    const aus = [
+        { anzeige: 'Außenspiegel anklappbar' },
+        { anzeige: 'Außenspiegel beheizbar' },
+        { anzeige: 'Außenspiegel elektr. verstellbar' }
+    ];
+    const group = { basis: 'außenspiegel', order: ['elektr. verstellbar', 'beheizbar'] };
+    const pv = mergePreviewFromCandidates(group, mergeModifierCandidates(group, aus));
+    assert.deepEqual(pv.from, ['Außenspiegel elektr. verstellbar', 'Außenspiegel beheizbar', 'Außenspiegel anklappbar']);
+    assert.equal(pv.to, 'Außenspiegel elektr. verstellbar, beheizbar, anklappbar');
+    assert.equal(mergePreviewFromCandidates(group, mergeModifierCandidates(group, aus.slice(0, 1))), null);
+});

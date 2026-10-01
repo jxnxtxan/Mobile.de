@@ -45,7 +45,12 @@ import {
 } from '../config/ordering.js';
 import { clearResults } from '../ui/results/render.js';
 import { verfuegbareTechFelder } from '../ui/results/tech.js';
-import { mergePreviewText } from '../core/search/merge-groups.js';
+import {
+    mergePreviewText,
+    mergeModifierCandidates,
+    analyzeMergeOrder,
+    mergePreviewFromCandidates
+} from '../core/search/merge-groups.js';
 import { summarizeConfigImport } from './import-summary.js';
 import { invalidateAndRefreshVehicleResults } from '../ui/results/refresh.js';
 import {
@@ -980,6 +985,21 @@ grid-template-rows:minmax(140px,1fr) auto;
 .mc-merge-preview__from{color:var(--mc-muted);}
 .mc-merge-preview__arrow{font-size:11px;margin:2px 0;}
 .mc-merge-preview__to{color:var(--mc-text);font-weight:600;}
+.mc-merge-order{display:flex;flex-direction:column;gap:8px;}
+.mc-merge-assist{display:flex;flex-direction:column;gap:6px;}
+.mc-merge-assist[hidden]{display:none;}
+.mc-merge-assist .mc-tech-suggest{margin:0;}
+.mc-merge-assist__status{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12px;color:var(--mc-muted);}
+.mc-merge-assist__status--warn{color:var(--mc-warn);}
+.mc-chip-input--sortable .mc-chip{cursor:grab;}
+.mc-chip__grip{color:var(--mc-muted);font-size:11px;margin:0 4px 0 -4px;cursor:grab;user-select:none;}
+.mc-chip--dragging{opacity:.4;}
+.mc-chip--drop-before{box-shadow:-3px 0 0 var(--mc-accent);}
+.mc-chip--drop-after{box-shadow:3px 0 0 var(--mc-accent);}
+.mc-chip--hit{border-color:rgba(76,175,80,.45);}
+.mc-chip--shadowed{border-color:rgba(255,152,0,.45);background:rgba(255,152,0,.10);}
+.mc-chip--unmatched{border-style:dashed;opacity:.6;}
+.mc-chip--unmatched .mc-chip__text{text-decoration:line-through;text-decoration-color:rgba(255,255,255,.35);}
 .mc-tech-suggest[hidden]{display:none;}
 .mc-tech-suggest__label{font-size:12px;color:var(--mc-muted);margin-right:2px;}
 .mc-weight-editor__input{max-width:160px;}
@@ -1510,9 +1530,10 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
     }
 
     function mkChipInput(tokens, opts) {
-        const { variant = 'neutral', onChange } = opts || {};
+        const { variant = 'neutral', onChange, sortable = false, decorateChip } = opts || {};
         const wrap = document.createElement('div');
-        wrap.className = 'mc-chip-input';
+        wrap.className = 'mc-chip-input' + (sortable ? ' mc-chip-input--sortable' : '');
+        let dragFrom = -1;
         const inp = document.createElement('input');
         inp.type = 'text';
         inp.setAttribute('autocomplete', 'off');
@@ -1601,6 +1622,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                 const k = String(tok).trim().toLowerCase();
                 chip.className = 'mc-chip' + (variant === 'warn' ? ' mc-chip--warn' : '');
                 if (dup.get(k) > 1) chip.classList.add('mc-chip--dup');
+                if (sortable) bindChipDrag(chip, i);
                 const textEl = document.createElement('span');
                 textEl.className = 'mc-chip__text';
                 textEl.textContent = tok;
@@ -1619,11 +1641,70 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                     renderChips();
                 });
                 chip.appendChild(x);
+                if (decorateChip) decorateChip(chip, tok, i);
                 wrap.insertBefore(chip, inp);
             });
         }
 
-        function addToken(raw) {
+        function clearDropMarks() {
+            wrap.querySelectorAll('.mc-chip--drop-before, .mc-chip--drop-after').forEach(c => {
+                c.classList.remove('mc-chip--drop-before', 'mc-chip--drop-after');
+            });
+        }
+
+        // Reihenfolge per Ziehen am Griff; der Text bleibt zum Bearbeiten klickbar.
+        function bindChipDrag(chip, index) {
+            const grip = document.createElement('span');
+            grip.className = 'mc-chip__grip';
+            grip.textContent = '⠿';
+            grip.title = 'Ziehen zum Sortieren';
+            grip.setAttribute('aria-hidden', 'true');
+            chip.appendChild(grip);
+            chip.draggable = true;
+            chip.addEventListener('dragstart', e => {
+                if (wrap._chipEditEnd) wrap._chipEditEnd(true);
+                dragFrom = index;
+                chip.classList.add('mc-chip--dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', String(index));
+                e.stopPropagation();
+            });
+            chip.addEventListener('dragend', e => {
+                dragFrom = -1;
+                chip.classList.remove('mc-chip--dragging');
+                clearDropMarks();
+                e.stopPropagation();
+            });
+            chip.addEventListener('dragover', e => {
+                if (dragFrom < 0) return;
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = 'move';
+                const r = chip.getBoundingClientRect();
+                const after = e.clientX > r.left + r.width / 2;
+                clearDropMarks();
+                if (dragFrom !== index) chip.classList.add(after ? 'mc-chip--drop-after' : 'mc-chip--drop-before');
+            });
+            chip.addEventListener('drop', e => {
+                if (dragFrom < 0) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const r = chip.getBoundingClientRect();
+                const after = e.clientX > r.left + r.width / 2;
+                const from = dragFrom;
+                dragFrom = -1;
+                clearDropMarks();
+                let to = index + (after ? 1 : 0);
+                if (from < to) to--;
+                if (from === to) return;
+                const [moved] = tokens.splice(from, 1);
+                tokens.splice(to, 0, moved);
+                onChange([...tokens]);
+                renderChips();
+            });
+        }
+
+        function addToken(raw, keepInput) {
             const parts = String(raw).split(',').map(s => s.trim()).filter(Boolean);
             if (!parts.length) return;
             if (wrap._chipEditEnd) wrap._chipEditEnd(true);
@@ -1638,7 +1719,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                 onChange([...tokens]);
                 renderChips();
             }
-            inp.value = '';
+            if (!keepInput) inp.value = '';
         }
 
         inp.addEventListener('keydown', e => {
@@ -1659,7 +1740,19 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
 
         wrap.appendChild(inp);
         renderChips();
-        return { wrap, focusInput: () => inp.focus(), refresh: renderChips };
+        return {
+            wrap,
+            focusInput: () => inp.focus(),
+            refresh: renderChips,
+            addTokens: list => addToken((list || []).join(','), true),
+            removeIndices: idxs => {
+                const drop = new Set(idxs || []);
+                if (!drop.size) return;
+                for (let i = tokens.length - 1; i >= 0; i--) if (drop.has(i)) tokens.splice(i, 1);
+                onChange([...tokens]);
+                renderChips();
+            }
+        };
     }
 
     function mkConfigSplitShell(tabId) {
@@ -4398,22 +4491,116 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
         });
         fields.appendChild(mkConfigSplitEditorField('Basis', inpB));
         if (!Array.isArray(group.order)) group.order = [];
+        // Kandidaten = aktive Ausstattungs-Einträge mit dieser Basis; pro Render neu,
+        // damit Basis-Änderungen sofort greifen.
+        let analysis = { chips: [], uncovered: [] };
+        let candidates = [];
+        function recompute() {
+            candidates = mergeModifierCandidates(group, aktuelleAusstattungsKonfig);
+            analysis = analyzeMergeOrder(group, candidates);
+        }
+        recompute();
+        function decorateMergeChip(chip, tok, i) {
+            const st = analysis.chips[i];
+            if (!st) return;
+            const textEl = chip.querySelector('.mc-chip__text');
+            if (st.state === 'ok') {
+                chip.classList.add('mc-chip--hit');
+                if (textEl) textEl.title = 'Trifft: ' + st.hits.map(h => h.anzeige).join(', ') + ' · Klicken zum Bearbeiten';
+            } else if (st.state === 'shadowed') {
+                chip.classList.add('mc-chip--shadowed');
+                const by = st.shadowedBy.map(j => '„' + group.order[j] + '“').join(', ');
+                if (textEl) textEl.title = 'Überflüssig: wird schon von ' + by + ' abgedeckt';
+            } else {
+                chip.classList.add('mc-chip--unmatched');
+                if (textEl) textEl.title = 'Trifft keinen aktiven Eintrag im Reiter Ausstattung';
+            }
+        }
         const chipO = mkChipInput(group.order, {
+            sortable: true,
+            placeholder: 'Eigener Begriff…',
+            decorateChip: decorateMergeChip,
             onChange: arr => {
                 group.order = arr;
+                recompute();
+                syncMergeAssist();
                 syncMergePreview();
                 markDirty();
                 refreshValidationUI();
                 renderMergeSplitListOnly();
             }
         });
-        fields.appendChild(mkConfigSplitEditorField('Modifier-Reihenfolge (Komma oder Enter)', chipO.wrap));
+
+        // Vorschläge + Status unter den Chips.
+        const assist = document.createElement('div');
+        assist.className = 'mc-merge-assist';
+        function syncMergeAssist() {
+            assist.innerHTML = '';
+            // Chips neu zeichnen, damit die Markierungen zur neuen Analyse passen.
+            chipO.refresh();
+            const basisLeer = !(group.basis || '').trim();
+            if (basisLeer) {
+                assist.hidden = true;
+                return;
+            }
+            assist.hidden = false;
+            if (!candidates.length) {
+                const p = document.createElement('div');
+                p.className = 'mc-merge-assist__status mc-merge-assist__status--warn';
+                p.textContent = 'Kein aktiver Eintrag im Reiter Ausstattung beginnt mit dieser Basis — die Gruppe greift dann nur bei automatisch erkannten Treffern.';
+                assist.appendChild(p);
+                return;
+            }
+            if (analysis.uncovered.length) {
+                const row = document.createElement('div');
+                row.className = 'mc-tech-suggest mc-merge-assist__suggest';
+                const lab = document.createElement('span');
+                lab.className = 'mc-tech-suggest__label';
+                lab.textContent = 'Aus Ausstattung:';
+                row.appendChild(lab);
+                analysis.uncovered.forEach(c => {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'mc-pr-weight-chip mc-tech-suggest__chip';
+                    b.textContent = '+ ' + c.modifier;
+                    b.title = c.anzeige;
+                    b.addEventListener('click', () => chipO.addTokens([c.modifier]));
+                    row.appendChild(b);
+                });
+                if (analysis.uncovered.length > 1) {
+                    row.appendChild(mkBtn('ghost', 'Alle übernehmen', () => {
+                        chipO.addTokens(analysis.uncovered.map(c => c.modifier));
+                    }));
+                }
+                assist.appendChild(row);
+            }
+            const unwirksam = [];
+            analysis.chips.forEach((c, i) => { if (c.state !== 'ok') unwirksam.push(i); });
+            const status = document.createElement('div');
+            status.className = 'mc-merge-assist__status' + (unwirksam.length ? ' mc-merge-assist__status--warn' : '');
+            const nSortiert = candidates.length - analysis.uncovered.length;
+            const txt = document.createElement('span');
+            txt.textContent = nSortiert + ' von ' + candidates.length + ' Ausstattungs-Einträgen einsortiert'
+                + (unwirksam.length ? ' · ' + unwirksam.length + ' Chip' + (unwirksam.length === 1 ? '' : 's') + ' ohne Wirkung' : '')
+                + ' · Chips am ⠿ ziehen zum Sortieren';
+            status.appendChild(txt);
+            if (unwirksam.length) {
+                status.appendChild(mkBtn('ghost', 'Unwirksame entfernen', () => chipO.removeIndices(unwirksam)));
+            }
+            assist.appendChild(status);
+        }
+        const orderWrap = document.createElement('div');
+        orderWrap.className = 'mc-merge-order';
+        orderWrap.appendChild(chipO.wrap);
+        orderWrap.appendChild(assist);
+        fields.appendChild(mkConfigSplitEditorField('Modifier-Reihenfolge', orderWrap));
         // Vorschau, was die Gruppe auf der Fahrzeugseite bewirkt.
         const preview = document.createElement('div');
         preview.className = 'mc-merge-preview';
         function syncMergePreview() {
             preview.innerHTML = '';
-            const pv = mergePreviewText(group);
+            const real = mergePreviewFromCandidates(group, candidates);
+            const pv = real || mergePreviewText(group);
             if (!pv) {
                 preview.textContent = 'Mindestens zwei Modifier eintragen, dann erscheint hier ein Beispiel.';
                 return;
@@ -4430,9 +4617,22 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
             preview.appendChild(from);
             preview.appendChild(arrow);
             preview.appendChild(to);
+            if (!real || real.total > real.from.length) {
+                const note = document.createElement('div');
+                note.className = 'mc-merge-preview__arrow';
+                note.textContent = real
+                    ? 'Beispiel mit ' + real.from.length + ' von ' + real.total + ' passenden Einträgen'
+                    : 'Nur aus den Chips gebildet — es gibt keine zwei passenden Ausstattungs-Einträge';
+                preview.appendChild(note);
+            }
         }
+        syncMergeAssist();
         syncMergePreview();
-        inpB.addEventListener('input', syncMergePreview);
+        inpB.addEventListener('input', () => {
+            recompute();
+            syncMergeAssist();
+            syncMergePreview();
+        });
         fields.appendChild(mkConfigSplitEditorField('Beispiel', preview));
         editor.appendChild(fields);
 

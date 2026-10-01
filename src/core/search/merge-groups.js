@@ -1,4 +1,4 @@
-import { cleanText, tokenize } from '../text/normalize.js';
+import { cleanText, tokenize, escapeRegex } from '../text/normalize.js';
 import { debugLog } from '../../config/feature-flags/index.js';
 import { runtimeState } from '../../config/runtime-state.js';
 
@@ -24,6 +24,32 @@ export function isAussenSpiegelOnly(text) {
     if (isAussenInnenCombinedSpiegel(text)) return false;
     if (/innenspiegel/.test(c) && !/aussenspiegel|seitenspiegel/.test(c)) return false;
     return /aussenspiegel|seitenspiegel/.test(c);
+}
+
+/**
+ * Reihenfolge-Schlüssel und Modifier gleich normalisieren (Umlaute, Groß/klein,
+ * Punkte), damit z. B. „elektr. verstellbar“ auch „elektr. verstellbar“ trifft.
+ */
+export function normalizeOrderKey(text) {
+    return cleanText(text || '').replace(/\./g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+/** Index des ersten Reihenfolge-Schlüssels, der im Modifier vorkommt, sonst -1. */
+export function orderIndexOf(modifier, order) {
+    const m = normalizeOrderKey(modifier);
+    if (!m || !Array.isArray(order)) return -1;
+    return order.findIndex(key => {
+        const k = normalizeOrderKey(key);
+        return !!k && m.includes(k);
+    });
+}
+
+function sortByOrder(mods, order) {
+    const rank = mod => {
+        const i = orderIndexOf(mod, order);
+        return i === -1 ? 999 : i;
+    };
+    return mods.sort((a, b) => rank(a) - rank(b));
 }
 
 export function entryMatchesMergeGroup(entry, group) {
@@ -72,8 +98,6 @@ export function enrichAussenMergeFromRaw(entries, rawItems) {
     if (!group) return entries;
     const basisClean = cleanText(group.basis);
     const basisCap = group.basis.charAt(0).toUpperCase() + group.basis.slice(1);
-    const order = (group.order || []).map(item => item.toLowerCase());
-
     const targetIdx = entries.findIndex(e => {
         const c = cleanText(e.anzeige || '');
         if (!c.startsWith(basisClean)) return false;
@@ -99,13 +123,7 @@ export function enrichAussenMergeFromRaw(entries, rawItems) {
             mods.push(h);
         }
     });
-    mods.sort((a, b) => {
-        let ia = order.findIndex(key => a.toLowerCase().includes(key.replace(/\./g, '').trim()));
-        let ib = order.findIndex(key => b.toLowerCase().includes(key.replace(/\./g, '').trim()));
-        if (ia === -1) ia = 999;
-        if (ib === -1) ib = 999;
-        return ia - ib;
-    });
+    sortByOrder(mods, group.order || []);
     const out = [...entries];
     out[targetIdx] = {
         ...entry,
@@ -170,12 +188,95 @@ export function mergePreviewText(group, maxModifiers = 3) {
     };
 }
 
+/** Modifier in Original-Schreibweise („Außenspiegel elektr. verstellbar“ → „elektr. verstellbar“). */
+function displayModifier(anzeige, group) {
+    const basis = String(group.basis || '').trim();
+    const re = new RegExp('^\\s*' + escapeRegex(basis) + '\\s*', 'i');
+    if (basis && re.test(anzeige)) {
+        const rest = anzeige.replace(re, '').trim();
+        if (rest) return rest;
+    }
+    return mergeModifierFromEntry(anzeige, group);
+}
+
+/**
+ * Aktive Ausstattungs-Einträge, die eine Merge-Gruppe zusammenfassen würde —
+ * Grundlage für Vorschläge, Treffer-Prüfung und Beispiel im Konfig-Popup.
+ */
+export function mergeModifierCandidates(group, ausstattung) {
+    if (!group || !String(group.basis || '').trim()) return [];
+    const g = { ...group, aktiv: true };
+    const seen = new Set();
+    const out = [];
+    (ausstattung || []).forEach(e => {
+        if (!e || e.aktiv === false || !e.anzeige) return;
+        if (!entryMatchesMergeGroup(e, g)) return;
+        const key = normalizeOrderKey(mergeModifierFromEntry(e.anzeige, g));
+        if (!key || key === normalizeOrderKey(g.basis) || seen.has(key)) return;
+        seen.add(key);
+        out.push({ anzeige: e.anzeige, modifier: displayModifier(e.anzeige, g), key });
+    });
+    return out;
+}
+
+/**
+ * Prüft jeden Reihenfolge-Eintrag gegen die Kandidaten:
+ * - ok: legt die Position mindestens eines Eintrags fest
+ * - shadowed: trifft nur Einträge, die ein früherer Chip schon abdeckt
+ * - unmatched: trifft keinen Eintrag
+ * uncovered: Kandidaten ohne passenden Chip (landen am Ende).
+ */
+export function analyzeMergeOrder(group, candidates) {
+    const order = (group && group.order) || [];
+    const chips = order.map(() => ({ state: 'unmatched', hits: [], shadowedBy: [] }));
+    const uncovered = [];
+    (candidates || []).forEach(c => {
+        const first = orderIndexOf(c.key, order);
+        if (first === -1) {
+            uncovered.push(c);
+            return;
+        }
+        chips[first].hits.push(c);
+        order.forEach((key, i) => {
+            if (i === first) return;
+            const k = normalizeOrderKey(key);
+            if (k && c.key.includes(k) && !chips[i].shadowedBy.includes(first)) {
+                chips[i].shadowedBy.push(first);
+            }
+        });
+    });
+    chips.forEach(ch => {
+        if (ch.hits.length) ch.state = 'ok';
+        else if (ch.shadowedBy.length) ch.state = 'shadowed';
+    });
+    return { chips, uncovered };
+}
+
+/** Beispiel aus echten Ausstattungs-Einträgen, genau wie generalizedMergeEntries es zusammenfasst. */
+export function mergePreviewFromCandidates(group, candidates, max = 4) {
+    if (!group || !String(group.basis || '').trim()) return null;
+    const list = [...(candidates || [])];
+    const order = group.order || [];
+    list.sort((a, b) => {
+        const ia = orderIndexOf(a.key, order);
+        const ib = orderIndexOf(b.key, order);
+        return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
+    const pick = list.slice(0, max);
+    if (pick.length < 2) return null;
+    const merged = generalizedMergeEntries(
+        pick.map(c => ({ anzeige: c.anzeige })),
+        [{ ...group, aktiv: true }]
+    );
+    if (merged.length !== 1) return null;
+    return { from: pick.map(c => c.anzeige), to: merged[0].anzeige, total: list.length };
+}
+
 export function generalizedMergeEntries(entries, gruppen) {
     if (!Array.isArray(gruppen) || gruppen.length === 0) return entries;
     let result = [...entries];
     gruppen.forEach(group => {
         if (!group || !group.basis || group.aktiv === false) return;
-        const order = (group.order || []).map(item => item.toLowerCase());
         const matching = result.filter(e => entryMatchesMergeGroup(e, group));
         if (matching.length <= 1) return;
         result = result.filter(e => !entryMatchesMergeGroup(e, group));
@@ -183,13 +284,7 @@ export function generalizedMergeEntries(entries, gruppen) {
             .map(e => mergeModifierFromEntry(e.anzeige, group))
             .filter(Boolean);
         modifiers = Array.from(new Set(modifiers));
-        modifiers.sort((a, b) => {
-            let ia = order.findIndex(key => a.includes(key.replace(/\./g, '').trim()));
-            let ib = order.findIndex(key => b.includes(key.replace(/\./g, '').trim()));
-            if (ia === -1) ia = 999;
-            if (ib === -1) ib = 999;
-            return ia - ib;
-        });
+        sortByOrder(modifiers, group.order || []);
         const basisCap = group.basis.charAt(0).toUpperCase() + group.basis.slice(1);
         const merged = basisCap + (modifiers.length ? ' ' + modifiers.join(', ') : '');
         // beste confidence der Gruppe übernehmen

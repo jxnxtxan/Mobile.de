@@ -63,7 +63,7 @@ export const KONFIG_TAB_HELP_HTML = new Map([
 <ul>
 <li><strong>Aktiv-Schalter</strong>: Inaktive Gruppen werden beim Zusammenfassen auf der Fahrzeugseite ignoriert.</li>
 <li><strong>Basis</strong>: Das gemeinsame Wort, nach dem gruppiert wird (z.B. <code>außenspiegel</code>). Klein- und Großschreibung egal.</li>
-<li><strong>Reihenfolge</strong>: Komma-getrennte Liste der Modifizierer-Schlüsselwörter in der gewünschten Reihenfolge im zusammengefassten Eintrag (z.B. <code>elektr. verstellbar, beheizbar, anklappbar</code>). Treffer, die in keiner Reihenfolge auftauchen, kommen ans Ende.</li>
+<li><strong>Reihenfolge</strong>: Komma-getrennte Liste der Modifizierer-Schlüsselwörter in der gewünschten Reihenfolge im zusammengefassten Eintrag (z.B. <code>elektr. verstellbar, beheizbar, anklappbar</code>). Ein Schlüsselwort greift, wenn es im Zusatz des Anzeige-Namens vorkommt (Groß/klein, Umlaute und Punkte egal). Treffer, die in keiner Reihenfolge auftauchen, kommen ans Ende. Vorschläge aus der Ausstattung und Treffer-Prüfung gibt es im Split-View.</li>
 <li><strong>Spaltenköpfe</strong> zum Sortieren, <strong>Filter „nur aktive“</strong> und <strong>Alle Einträge</strong> (Ein/Aus) in einer Zeile wie bei Ausstattung. Speichern sortiert alphabetisch nach Basis. <strong>Auf Standard zurücksetzen…</strong> unten links im Footer. Bei bis zu 8 Einträgen blendet die Werkzeugleiste Suche, Filter und Sortierung aus.</li>
 <li><strong>Listen-Layout</strong> (Tab Config): optional Split-View.</li>
 </ul>`],
@@ -73,7 +73,11 @@ export const KONFIG_TAB_HELP_HTML = new Map([
 <h4>Split-View:</h4>
 <ul>
 <li><strong>Liste links</strong>: Aktiv, Basis (gekürzt), Badge mit Anzahl Modifier.</li>
-<li><strong>Editor rechts</strong>: Basis-Feld; Modifier-Reihenfolge als <strong>Chips</strong> (Enter/Komma); <strong>Beispiel</strong> zeigt, was auf der Fahrzeugseite daraus wird. Löschen oben, Aktiv per Schalter in der Liste.</li>
+<li><strong>Editor rechts</strong>: Basis-Feld; Modifier-Reihenfolge als <strong>Chips</strong>. Löschen oben, Aktiv per Schalter in der Liste.</li>
+<li><strong>Aus Ausstattung</strong>: Vorschläge aus aktiven Einträgen im Reiter Ausstattung, die mit der Basis beginnen und noch keinen Chip haben — Klick übernimmt, <strong>Alle übernehmen</strong> fügt alle an. Eigene Begriffe gehen weiter per Enter/Komma.</li>
+<li><strong>Sortieren</strong>: Chips am <strong>⠿</strong> ziehen. Die Reihenfolge bestimmt die Reihenfolge im zusammengefassten Eintrag.</li>
+<li><strong>Markierung</strong>: grün umrandet = wirkt; orange = überflüssig, weil ein früherer Chip denselben Eintrag schon abdeckt (z. B. „klappbar“ nach „anklappbar“); gestrichelt = trifft keinen Eintrag. <strong>Unwirksame entfernen</strong> räumt beides auf.</li>
+<li><strong>Beispiel</strong> zeigt mit echten Einträgen, was auf der Fahrzeugseite daraus wird.</li>
 <li><strong>Sortierung</strong> per Dropdown in der Toolbar.</li>
 <li>Layout: Tab <strong>Config</strong> → <strong>Listen-Layout</strong>.</li>
 </ul>`],

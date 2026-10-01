@@ -1,3 +1,3 @@
 export const mergeGruppenConfigDefault = [
-        { basis: 'außenspiegel', order: ['elektr. verstellbar', 'beheizbar', 'anklappbar', 'klappbar', 'automatisch abblend.', 'auto. abblend.'], aktiv: true }
+        { basis: 'außenspiegel', order: ['elektr. verstellbar', 'beheizbar', 'anklappbar', 'automatisch abblend.'], aktiv: true }
     ];
