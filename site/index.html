@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>mobile.de Preisbewertung &amp; Ausstattungssuche – kostenloses Tampermonkey-Userscript</title>
+<title>Ausstattungssuche &amp; Preisbewertung – Open-Source-Userscript (inoffiziell, für mobile.de)</title>
 <meta name="description" content="Kostenloses Userscript für mobile.de: hebt gewünschte Ausstattung hervor, zeigt technische Daten kompakt an und bewertet Gebrauchtwagen-Preise ausstattungsbereinigt im Vergleich zu ähnlichen Inseraten. Für Tampermonkey und Violentmonkey.">
-<meta name="keywords" content="mobile.de, Userscript, Tampermonkey, Violentmonkey, Gebrauchtwagen, Preisbewertung, Ausstattung, Autokauf, Gebrauchtwagenbörse, Preis vergleichen">
+<meta name="keywords" content="Userscript, Tampermonkey, Violentmonkey, Gebrauchtwagen, Preisbewertung, Ausstattung, Autokauf, Gebrauchtwagenbörse, Preis vergleichen">
 <meta name="author" content="Jonathan Nitzsche">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://jxnxtxan.github.io/Mobile.de/">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚗</text></svg>">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="de_DE">
-<meta property="og:title" content="mobile.de Preisbewertung &amp; Ausstattungssuche (Userscript)">
+<meta property="og:title" content="Ausstattungssuche &amp; Preisbewertung – inoffizielles Open-Source-Userscript">
 <meta property="og:description" content="Ausstattung hervorheben, technische Daten auf einen Blick und ausstattungsbereinigte Preisbewertung für Gebrauchtwagen auf mobile.de – kostenlos, Open Source.">
 <meta property="og:url" content="https://jxnxtxan.github.io/Mobile.de/">
 <meta property="og:image" content="https://jxnxtxan.github.io/Mobile.de/assets/ergebnis-techdaten.png">
@@ -23,7 +23,7 @@
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  "name": "mobile.de Ausstattungssuche & Preisbewertung",
+  "name": "Ausstattungssuche & Preisbewertung (inoffizielles Userscript)",
   "applicationCategory": "BrowserApplication",
   "applicationSubCategory": "Userscript",
   "operatingSystem": "Chrome, Firefox, Edge, Safari (mit Tampermonkey oder Violentmonkey)",
@@ -48,7 +48,7 @@
     {
       "@type": "Question",
       "name": "Wie installiere ich das Userscript für mobile.de?",
-      "acceptedAnswer": { "@type": "Answer", "text": "Tampermonkey oder Violentmonkey im Browser installieren, dann auf „In Tampermonkey installieren“ klicken und den Installationsdialog bestätigen. Updates kommen automatisch." }
+      "acceptedAnswer": { "@type": "Answer", "text": "Tampermonkey oder Violentmonkey im Browser installieren, dann auf der GitHub-Release-Seite die Datei mobile-ausstattungssuche.user.js anklicken und den Installationsdialog bestätigen. Updates kommen automatisch." }
     },
     {
       "@type": "Question",
@@ -86,6 +86,7 @@ h1{font-size:clamp(28px,5vw,42px);line-height:1.15;margin:0 0 16px}
 .btn--primary{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
 .small{font-size:14px;color:var(--muted)}
 .install-meta{margin:14px 0 0;max-width:720px}
+.notice{margin:-6px 0 18px}
 section{padding:28px 0;border-top:1px solid var(--border)}
 h2{font-size:24px;margin:0 0 16px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
@@ -106,15 +107,15 @@ footer{padding:28px 0 48px;border-top:1px solid var(--border);font-size:14px;col
 <body>
 <main>
 <header class="wrap">
-  <h1>mobile.de Preisbewertung &amp; Ausstattungssuche</h1>
+  <h1>Ausstattungssuche &amp; Preisbewertung</h1>
+  <p class="small notice">Inoffizielles Open-Source-Projekt eines privaten Entwicklers. Keine Verbindung zu mobile.de; hier gibt es kein Login und es werden keine Daten abgefragt.</p>
   <p class="lead">Kostenloses Userscript für die Gebrauchtwagensuche auf mobile.de: Es hebt die Ausstattung hervor, die dir wichtig ist, zeigt technische Daten auf einen Blick und bewertet den Preis <strong>ausstattungsbereinigt</strong> gegenüber ähnlichen Inseraten.</p>
   <div class="cta">
-    <a class="btn btn--primary" href="https://github.com/jxnxtxan/Mobile.de/releases/latest/download/mobile-ausstattungssuche.user.js">In Tampermonkey installieren</a>
+    <a class="btn btn--primary" href="https://github.com/jxnxtxan/Mobile.de/releases/latest">Zum Download auf GitHub</a>
     <a class="btn" href="https://github.com/jxnxtxan/Mobile.de/blob/main/mobile-ausstattungssuche.js">Quellcode ansehen</a>
   </div>
   <p class="small install-meta">
-    <span id="rel-version">Aktuelle Version</span> · Datei <code>mobile-ausstattungssuche.user.js</code> von GitHub ·
-    öffnet den Installationsdialog deines Userscript-Managers, dort siehst du vor der Installation Code und Berechtigungen ·
+    <span id="rel-version">Aktuelle Version</span> · Auf der Release-Seite <code>mobile-ausstattungssuche.user.js</code> anklicken – dein Userscript-Manager zeigt vor der Installation Code und Berechtigungen ·
     Open Source (MIT)
   </p>
 </header>
@@ -149,7 +150,7 @@ footer{padding:28px 0 48px;border-top:1px solid var(--border);font-size:14px;col
   <h2 id="installation">Installation in drei Schritten</h2>
   <ol>
     <li>Userscript-Manager installieren: <a href="https://www.tampermonkey.net/">Tampermonkey</a> oder <a href="https://violentmonkey.github.io/">Violentmonkey</a>.</li>
-    <li><a href="https://github.com/jxnxtxan/Mobile.de/releases/latest/download/mobile-ausstattungssuche.user.js">mobile-ausstattungssuche.user.js installieren</a> und den Dialog bestätigen.</li>
+    <li>Auf der <a href="https://github.com/jxnxtxan/Mobile.de/releases/latest">Release-Seite bei GitHub</a> die Datei <code>mobile-ausstattungssuche.user.js</code> anklicken und den Dialog bestätigen.</li>
     <li>Eine Fahrzeugseite auf <code>suchen.mobile.de</code> öffnen – über <strong>Konfiguration</strong> im Aktionsbereich alles anpassen.</li>
   </ol>
   <p class="small">Updates kommen automatisch. In Chrome muss für Tampermonkey ggf. in den Erweiterungs-Details „Nutzerskripts zulassen“ aktiv sein.</p>
