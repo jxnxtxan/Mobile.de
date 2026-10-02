@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import monkey from 'vite-plugin-monkey';
 
-const USERSCRIPT_VERSION = '2.16.50';
+const USERSCRIPT_VERSION = '2.16.51';
 const RAW_BASE =
   'https://raw.githubusercontent.com/jxnxtxan/Mobile.de/main/mobile-ausstattungssuche.js';
 
@@ -17,8 +17,11 @@ export default defineConfig({
         namespace: 'https://github.com/jxnxtxan/Mobile.de',
         version: USERSCRIPT_VERSION,
         author: 'jxnxtxan',
-        description:
-          'Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.',
+        description: {
+          '': 'Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.',
+          en: 'Highlights chosen equipment and technical data on mobile.de listings and rates used-car prices adjusted for equipment (detail and search result pages). Config popup with import/export.',
+        },
+        license: 'MIT',
         homepageURL: 'https://github.com/jxnxtxan/Mobile.de',
         supportURL: 'https://github.com/jxnxtxan/Mobile.de/issues',
         updateURL: RAW_BASE,

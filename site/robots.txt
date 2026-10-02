@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://jxnxtxan.github.io/Mobile.de/sitemap.xml

@@ -18,3 +18,9 @@ Rules:
 
 - Soll etwas getestet oder live nachvollzogen werden (DOM-Struktur, Layout-Bug, ob ein Fix wirklich greift), das im echten Chrome-Browser des Nutzers tun (`claude-in-chrome`-Tools), nicht im eingebauten Browser-Pane. Der Nutzer testet das Tampermonkey-Skript in seinem echten Chrome, und Selektoren/Layout von mobile.de sind dort am verlässlichsten zu prüfen.
 - Node-Tests (`npm test`) bleiben für reine Parsing-/Logik-Funktionen zuständig, die ohne echtes DOM auskommen (kein jsdom im Projekt). Für alles, was echtes DOM/CSS/Layout auf mobile.de braucht, den Chrome-Browser nutzen.
+
+## Releases
+
+- Releases legt die GitHub Action `.github/workflows/release.yml` automatisch an, sobald eine neue Version aus `package.json` auf `main` gepusht wird (Tag `vX.Y.Z`, Release mit `mobile-ausstattungssuche.user.js`, Notizen aus den Commits seit dem letzten Tag). Nicht von Hand taggen.
+- Die Action bricht ab, wenn `@version` in `mobile-ausstattungssuche.js` nicht zu `package.json` passt — also vor dem Push immer `npm run build`.
+- Die Projektseite liegt in `site/` (nicht in `docs/`, das ist gitignored) und wird per `.github/workflows/pages.yml` veröffentlicht.

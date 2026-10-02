@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mobile.de Preisbewertung &amp; Ausstattungssuche – kostenloses Tampermonkey-Userscript</title>
+<meta name="description" content="Kostenloses Userscript für mobile.de: hebt gewünschte Ausstattung hervor, zeigt technische Daten kompakt an und bewertet Gebrauchtwagen-Preise ausstattungsbereinigt im Vergleich zu ähnlichen Inseraten. Für Tampermonkey und Violentmonkey.">
+<meta name="keywords" content="mobile.de, Userscript, Tampermonkey, Violentmonkey, Gebrauchtwagen, Preisbewertung, Ausstattung, Autokauf, Gebrauchtwagenbörse, Preis vergleichen">
+<meta name="author" content="Jonathan Nitzsche">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://jxnxtxan.github.io/Mobile.de/">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚗</text></svg>">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="de_DE">
+<meta property="og:title" content="mobile.de Preisbewertung &amp; Ausstattungssuche (Userscript)">
+<meta property="og:description" content="Ausstattung hervorheben, technische Daten auf einen Blick und ausstattungsbereinigte Preisbewertung für Gebrauchtwagen auf mobile.de – kostenlos, Open Source.">
+<meta property="og:url" content="https://jxnxtxan.github.io/Mobile.de/">
+<meta property="og:image" content="https://jxnxtxan.github.io/Mobile.de/assets/ergebnis-techdaten.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="alternate" hreflang="de" href="https://jxnxtxan.github.io/Mobile.de/">
+<link rel="alternate" hreflang="x-default" href="https://jxnxtxan.github.io/Mobile.de/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "mobile.de Ausstattungssuche & Preisbewertung",
+  "applicationCategory": "BrowserApplication",
+  "applicationSubCategory": "Userscript",
+  "operatingSystem": "Chrome, Firefox, Edge, Safari (mit Tampermonkey oder Violentmonkey)",
+  "description": "Userscript für mobile.de, das gewünschte Ausstattung hervorhebt, technische Daten anzeigt und Gebrauchtwagen-Preise ausstattungsbereinigt bewertet.",
+  "url": "https://jxnxtxan.github.io/Mobile.de/",
+  "downloadUrl": "https://github.com/jxnxtxan/Mobile.de/releases/latest/download/mobile-ausstattungssuche.user.js",
+  "softwareHelp": "https://github.com/jxnxtxan/Mobile.de#readme",
+  "license": "https://opensource.org/licenses/MIT",
+  "isAccessibleForFree": true,
+  "inLanguage": "de",
+  "screenshot": "https://jxnxtxan.github.io/Mobile.de/assets/ergebnis-techdaten.png",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+  "author": { "@type": "Person", "name": "Jonathan Nitzsche", "url": "https://github.com/jxnxtxan" },
+  "codeRepository": "https://github.com/jxnxtxan/Mobile.de"
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Wie installiere ich das Userscript für mobile.de?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Tampermonkey oder Violentmonkey im Browser installieren, dann auf „Jetzt installieren“ klicken und den Installationsdialog bestätigen. Updates kommen automatisch." }
+    },
+    {
+      "@type": "Question",
+      "name": "Wie funktioniert die ausstattungsbereinigte Preisbewertung?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Das Skript vergleicht das Fahrzeug mit ähnlichen Inseraten (Marke, Modell, Kilometerstand, Erstzulassung, Leistung) aus besuchten Suchergebnisseiten und rechnet Ausstattungsunterschiede anhand deiner Gewichte in den Vergleichspreis ein. Ergebnis: Sehr guter, Guter, Fairer, Erhöhter oder Hoher Preis." }
+    },
+    {
+      "@type": "Question",
+      "name": "Ist das Skript kostenlos und sicher?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Ja. Es ist Open Source unter MIT-Lizenz, läuft nur auf suchen.mobile.de und speichert seine Daten ausschließlich lokal im Browser. Es werden keine Daten an Dritte gesendet." }
+    }
+  ]
+}
+</script>
+<style>
+:root{
+  --bg:#f7f8fa;--surface:#fff;--text:#16181d;--muted:#5b6070;--border:#e2e5eb;
+  --accent:#1565c0;--accent-text:#fff;--code:#eef1f6;
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#121318;--surface:#1b1d24;--text:#eceef3;--muted:#a3a8b6;--border:#2c2f3a;
+    --accent:#4a9ff5;--accent-text:#0b1220;--code:#232633;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+.wrap{max-width:980px;margin:0 auto;padding:0 16px}
+header{padding:56px 0 32px}
+h1{font-size:clamp(28px,5vw,42px);line-height:1.15;margin:0 0 16px}
+.lead{font-size:18px;color:var(--muted);max-width:720px;margin:0 0 28px}
+.cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.btn{display:inline-block;padding:12px 22px;border-radius:10px;font-weight:600;text-decoration:none;
+  border:1px solid var(--border);color:var(--text);background:var(--surface)}
+.btn--primary{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.small{font-size:14px;color:var(--muted)}
+section{padding:28px 0;border-top:1px solid var(--border)}
+h2{font-size:24px;margin:0 0 16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px}
+.card h3{margin:0 0 6px;font-size:17px}
+.card p{margin:0;color:var(--muted);font-size:15px}
+figure{margin:0}
+figure img{width:100%;height:auto;border-radius:12px;border:1px solid var(--border);display:block}
+figcaption{font-size:14px;color:var(--muted);margin-top:8px}
+.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+ol{padding-left:22px}
+code{background:var(--code);padding:1px 6px;border-radius:5px;font-size:14px}
+details{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:10px}
+summary{cursor:pointer;font-weight:600}
+footer{padding:28px 0 48px;border-top:1px solid var(--border);font-size:14px;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<header class="wrap">
+  <h1>mobile.de Preisbewertung &amp; Ausstattungssuche</h1>
+  <p class="lead">Kostenloses Userscript für die Gebrauchtwagensuche auf mobile.de: Es hebt die Ausstattung hervor, die dir wichtig ist, zeigt technische Daten auf einen Blick und bewertet den Preis <strong>ausstattungsbereinigt</strong> gegenüber ähnlichen Inseraten.</p>
+  <div class="cta">
+    <a class="btn btn--primary" href="https://github.com/jxnxtxan/Mobile.de/releases/latest/download/mobile-ausstattungssuche.user.js">⬇️ Jetzt installieren</a>
+    <a class="btn" href="https://github.com/jxnxtxan/Mobile.de">Quellcode auf GitHub</a>
+    <span class="small">Für Tampermonkey &amp; Violentmonkey · Chrome, Firefox, Edge, Safari · MIT-Lizenz</span>
+  </div>
+</header>
+
+<section class="wrap" aria-labelledby="funktionen">
+  <h2 id="funktionen">Funktionen</h2>
+  <div class="grid">
+    <div class="card"><h3>Ausstattung hervorheben</h3><p>Anhängerkupplung, Standheizung, Head-up-Display, Matrix-LED … – eigene Suchbegriffe mit Farben und Favoriten, direkt auf der Fahrzeugseite.</p></div>
+    <div class="card"><h3>Ausstattungsbereinigte Preisbewertung</h3><p>Vergleich mit ähnlichen Fahrzeugen nach Marke, Modell, Kilometerstand, Erstzulassung und Leistung – Ausstattungsunterschiede werden eingerechnet.</p></div>
+    <div class="card"><h3>Technische Daten kompakt</h3><p>Ausgewählte Felder wie Leistung, Verbrauch oder Getriebe gebündelt über dem Aktionsbereich.</p></div>
+    <div class="card"><h3>Auch in der Ergebnisliste</h3><p>Preis-Einstufung schon in der Suchergebnisliste, optional mit Standard-Sortierung (z.&nbsp;B. Preis aufsteigend).</p></div>
+    <div class="card"><h3>Merge-Gruppen</h3><p>Zusammengehörige Treffer werden zu einer Zeile zusammengefasst, z.&nbsp;B. „Außenspiegel elektr. verstellbar, beheizbar, anklappbar“.</p></div>
+    <div class="card"><h3>Konfiguration mit Backup</h3><p>Komfortables Popup mit Filter, Drag&nbsp;&amp;&nbsp;Drop, Undo und Import/Export als JSON zum Sichern und Teilen.</p></div>
+  </div>
+</section>
+
+<section class="wrap" aria-labelledby="screenshots">
+  <h2 id="screenshots">So sieht es aus</h2>
+  <div class="shots">
+    <figure>
+      <img src="assets/ergebnis-techdaten.png" width="983" height="969" loading="lazy" alt="Gefundene Ausstattung und technische Daten farbig markiert auf einer mobile.de-Fahrzeugseite">
+      <figcaption>Gefundene Ausstattung und technische Daten auf der Fahrzeugseite</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/popup-ausstattung.png" width="2000" height="1267" loading="lazy" alt="Konfigurations-Popup des Userscripts mit Liste der Ausstattungsbegriffe und Editor">
+      <figcaption>Konfigurations-Popup: Begriffe, Farben und Favoriten pflegen</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="wrap" aria-labelledby="installation">
+  <h2 id="installation">Installation in drei Schritten</h2>
+  <ol>
+    <li>Userscript-Manager installieren: <a href="https://www.tampermonkey.net/">Tampermonkey</a> oder <a href="https://violentmonkey.github.io/">Violentmonkey</a>.</li>
+    <li><a href="https://github.com/jxnxtxan/Mobile.de/releases/latest/download/mobile-ausstattungssuche.user.js">mobile-ausstattungssuche.user.js installieren</a> und den Dialog bestätigen.</li>
+    <li>Eine Fahrzeugseite auf <code>suchen.mobile.de</code> öffnen – über <strong>Konfiguration</strong> im Aktionsbereich alles anpassen.</li>
+  </ol>
+  <p class="small">Updates kommen automatisch. In Chrome muss für Tampermonkey ggf. in den Erweiterungs-Details „Nutzerskripts zulassen“ aktiv sein.</p>
+</section>
+
+<section class="wrap" aria-labelledby="faq">
+  <h2 id="faq">Häufige Fragen</h2>
+  <details><summary>Wie funktioniert die ausstattungsbereinigte Preisbewertung?</summary>
+    <p>Das Skript sammelt ähnliche Inserate aus den Suchergebnisseiten, die du besuchst, und vergleicht den Preis damit. Ausstattung, die dir wichtig ist, wird über Gewichte in den Vergleichspreis eingerechnet. Das Ergebnis reicht von „Sehr guter Preis“ bis „Hoher Preis“; die Schwellen sind einstellbar.</p></details>
+  <details><summary>Ist das Skript kostenlos und sicher?</summary>
+    <p>Ja. Der Quellcode ist offen (MIT-Lizenz), das Skript läuft nur auf <code>suchen.mobile.de</code> und speichert seine Daten ausschließlich lokal im Browser. Es sendet keine Daten an Dritte.</p></details>
+  <details><summary>In welchen Browsern läuft es?</summary>
+    <p>Überall, wo Tampermonkey oder Violentmonkey läuft: Chrome, Firefox, Edge, Safari, Opera und Brave.</p></details>
+  <details><summary>Wo melde ich Fehler oder Wünsche?</summary>
+    <p>Als <a href="https://github.com/jxnxtxan/Mobile.de/issues">Issue auf GitHub</a>.</p></details>
+</section>
+
+<section class="wrap" lang="en" aria-labelledby="english">
+  <h2 id="english">In English</h2>
+  <p>A free, open-source userscript for <strong>mobile.de</strong>, Germany's largest used-car marketplace. It highlights the equipment you care about on every listing, shows key technical data at a glance and rates the asking price against comparable cars, adjusted for equipment differences. Works with Tampermonkey and Violentmonkey.</p>
+</section>
+</main>
+<footer class="wrap">
+  <p>© Jonathan Nitzsche · <a href="https://github.com/jxnxtxan/Mobile.de/blob/main/LICENSE">MIT-Lizenz</a> · <a href="https://github.com/jxnxtxan/Mobile.de/releases">Versionen &amp; Änderungen</a></p>
+  <p>Kein offizielles Produkt von mobile.de. „mobile.de“ ist eine Marke der mobile.de GmbH; dieses Projekt steht in keiner Verbindung zu ihr.</p>
+</footer>
+</body>
+</html>

@@ -1,0 +1,91 @@
+name: Release
+
+# Legt bei jeder neuen Version in package.json automatisch Tag + GitHub-Release an.
+on:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - mobile-ausstattungssuche.js
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version lesen
+        id: v
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag v$VERSION existiert schon – nichts zu tun."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build-Datei gegen Version prüfen
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          HEADER=$(grep -m1 -E '^// @version' mobile-ausstattungssuche.js | awk '{print $3}')
+          if [ "$HEADER" != "${{ steps.v.outputs.version }}" ]; then
+            echo "::error::mobile-ausstattungssuche.js hat @version $HEADER, package.json ${{ steps.v.outputs.version }} – vor dem Push 'npm run build' ausführen."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.v.outputs.exists == 'false'
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Tests
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          npm ci
+          npm test
+
+      - name: Release-Notizen
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          PREV=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          {
+            echo "## Installation"
+            echo
+            echo "[**mobile-ausstattungssuche.user.js installieren**](https://github.com/${{ github.repository }}/releases/download/v${{ steps.v.outputs.version }}/mobile-ausstattungssuche.user.js) – Tampermonkey bzw. Violentmonkey öffnet den Installationsdialog. Bestehende Installationen aktualisieren sich automatisch."
+            echo
+            echo "## Änderungen"
+            echo
+            if [ -n "$PREV" ]; then
+              git log "$PREV"..HEAD --no-merges --format='- %s'
+              echo
+              echo "**Alle Änderungen:** https://github.com/${{ github.repository }}/compare/$PREV...v${{ steps.v.outputs.version }}"
+            else
+              git log -20 --no-merges --format='- %s'
+            fi
+          } > notes.md
+          cat notes.md
+
+      - name: Release anlegen
+        if: steps.v.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp mobile-ausstattungssuche.js mobile-ausstattungssuche.user.js
+          gh release create "v${{ steps.v.outputs.version }}" mobile-ausstattungssuche.user.js \
+            --target "$GITHUB_SHA" \
+            --title "v${{ steps.v.outputs.version }}" \
+            --notes-file notes.md \
+            --latest

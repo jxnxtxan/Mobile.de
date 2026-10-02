@@ -1,8 +1,32 @@
 {
   "name": "mobile-ausstattungssuche",
-  "version": "2.16.50",
+  "version": "2.16.51",
   "private": true,
-  "description": "Tampermonkey-Skript f\u00fcr mobile.de Ausstattungssuche",
+  "description": "Tampermonkey-Userscript für mobile.de: Ausstattung hervorheben, technische Daten anzeigen und Gebrauchtwagen-Preise ausstattungsbereinigt bewerten.",
+  "keywords": [
+    "userscript",
+    "tampermonkey",
+    "violentmonkey",
+    "greasemonkey",
+    "mobile.de",
+    "mobile-de",
+    "gebrauchtwagen",
+    "autokauf",
+    "preisbewertung",
+    "ausstattung",
+    "used-cars",
+    "car-price"
+  ],
+  "license": "MIT",
+  "author": "Jonathan Nitzsche (https://github.com/jxnxtxan)",
+  "homepage": "https://github.com/jxnxtxan/Mobile.de",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jxnxtxan/Mobile.de.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jxnxtxan/Mobile.de/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

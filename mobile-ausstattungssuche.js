@@ -1,25 +1,29 @@
 // ==UserScript==
-// @name         Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
-// @namespace    https://github.com/jxnxtxan/Mobile.de
-// @version      2.16.50
-// @author       jxnxtxan
-// @description  Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
-// @icon         https://www.google.com/s2/favicons?sz=64&domain=mobile.de
-// @homepageURL  https://github.com/jxnxtxan/Mobile.de
-// @supportURL   https://github.com/jxnxtxan/Mobile.de/issues
-// @downloadURL  https://raw.githubusercontent.com/jxnxtxan/Mobile.de/main/mobile-ausstattungssuche.js
-// @updateURL    https://raw.githubusercontent.com/jxnxtxan/Mobile.de/main/mobile-ausstattungssuche.js
-// @match        http://suchen.mobile.de/fahrzeuge/details.html*
-// @match        https://suchen.mobile.de/fahrzeuge/details.html*
-// @match        http://suchen.mobile.de/auto-inserat/*
-// @match        https://suchen.mobile.de/auto-inserat/*
-// @match        http://suchen.mobile.de/fahrzeuge/search.html*
-// @match        https://suchen.mobile.de/fahrzeuge/search.html*
-// @grant        GM_getValue
-// @grant        GM_registerMenuCommand
-// @grant        GM_setValue
-// @grant        unsafeWindow
-// @run-at       document-idle
+// @name            Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
+// @namespace       https://github.com/jxnxtxan/Mobile.de
+// @version         2.16.51
+// @author          jxnxtxan
+// @description     Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
+// @description:en  Highlights chosen equipment and technical data on mobile.de listings and rates used-car prices adjusted for equipment (detail and search result pages). Config popup with import/export.
+// @license         MIT
+// @icon            https://www.google.com/s2/favicons?sz=64&domain=mobile.de
+// @homepage        https://github.com/jxnxtxan/Mobile.de
+// @homepageURL     https://github.com/jxnxtxan/Mobile.de
+// @source          https://github.com/jxnxtxan/Mobile.de.git
+// @supportURL      https://github.com/jxnxtxan/Mobile.de/issues
+// @downloadURL     https://raw.githubusercontent.com/jxnxtxan/Mobile.de/main/mobile-ausstattungssuche.js
+// @updateURL       https://raw.githubusercontent.com/jxnxtxan/Mobile.de/main/mobile-ausstattungssuche.js
+// @match           http://suchen.mobile.de/fahrzeuge/details.html*
+// @match           https://suchen.mobile.de/fahrzeuge/details.html*
+// @match           http://suchen.mobile.de/auto-inserat/*
+// @match           https://suchen.mobile.de/auto-inserat/*
+// @match           http://suchen.mobile.de/fahrzeuge/search.html*
+// @match           https://suchen.mobile.de/fahrzeuge/search.html*
+// @grant           GM_getValue
+// @grant           GM_registerMenuCommand
+// @grant           GM_setValue
+// @grant           unsafeWindow
+// @run-at          document-idle
 // @noframes
 // ==/UserScript==
 
@@ -6157,7 +6161,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.50";
+    const SCRIPT_UI_VERSION = "2.16.51";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
