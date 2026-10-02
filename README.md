@@ -49,12 +49,12 @@ Updates kommen automatisch über den Userscript-Manager. Chrome: Für Tampermonk
 Auf der Fahrzeugdetailseite (neben dem Preis) und in der Suchergebnisliste zeigt das Skript eine **ausstattungsbereinigte Preisbewertung** als Balkenanzeige mit Label.
 
 - **Vergleichsbasis (Kohorte):** ähnliche Fahrzeuge (Marke/Modell, optional Baureihe, Kilometerstand, Erstzulassung und Leistung innerhalb konfigurierbarer Toleranzen). Die Daten stammen aus besuchten Suchergebnisseiten; ohne ausreichend Vergleichsfahrzeuge erscheint „zu wenig Vergleichsdaten“ bzw. ein Hinweis, die Vergleichssuche manuell zu öffnen (ⓘ).
-- **Ausstattungsbereinigung:** Unterschiede in der Ausstattung werden anhand deiner Ausstattungs-Konfiguration (Gewichte, optional nur Favoriten) in den Vergleichspreis eingerechnet; die maximale Korrektur ist begrenzt.
+- **Ausstattungsbereinigung:** Unterschiede in der Ausstattung werden anhand deiner Ausstattungs-Konfiguration (Gewichte, optional nur Favoriten) in den Vergleichspreis eingerechnet. Jeder Punkt Ausstattung über dem Median der Vergleichsfahrzeuge hebt den erwarteten Preis standardmäßig um **3 % des Basispreises** (bei 20.000 € also 600 €, bei 60.000 € 1.800 €); alternativ ist ein fester Euro-Betrag je Punkt einstellbar. Die maximale Korrektur ist begrenzt (Standard 20 %).
 - **Fallback:** Ohne Kohorte kann der native mobile.de-Marktpreis herangezogen werden.
 - **Stufen:** Sehr guter, Guter, Fairer, Erhöhter und Hoher Preis (Schwellen im Popup anpassbar).
 - **Unsichere Vergleichsgruppe:** Liegen die Vergleichspreise sehr eng beieinander (Streuung unter 5 %, typisch nach einer preissortierten oder preisgefilterten Suche) oder gibt es weniger Vergleichsfahrzeuge als das eingestellte Minimum, zeigt die Ergebnisliste „unsicher“ statt einer Stufe (die rechnerische Stufe steht im Tooltip) und die Detailseite einen Hinweis. Für eine verlässliche Einordnung die Vergleichssuche ohne Preisfilter öffnen.
 - **Caching:** Die fertige Bewertung wird kurz im `localStorage` (ca. 3&nbsp;Minuten, tabübergreifend) und im `sessionStorage` gehalten; Kohorten- und Ausstattungsdaten bleiben ca. 20&nbsp;Minuten im `localStorage`. Nach einem Browser-Neustart wird die Bewertung daher in der Regel neu berechnet.
-- **Konfiguration und Debug:** Schwellen, Toleranzen, €/Punkt, Mindestanzahl Vergleiche, Cache-Schritte sowie Debug-Karten/Log sind im Popup einstellbar; Änderungen mit starker Auswirkung fragen vorher nach.
+- **Konfiguration und Debug:** Schwellen, Toleranzen, Aufschlag je Punkt (% oder €), Mindestanzahl Vergleiche, Cache-Schritte sowie Debug-Karten/Log sind im Popup einstellbar; Änderungen mit starker Auswirkung fragen vorher nach.
 
 ## Entwicklung (Build)
 

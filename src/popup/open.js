@@ -416,6 +416,14 @@ export function oeffneKonfigPopup() {
         if (b.minComparables !== c.minComparables) {
             lines.push('Preisbewertung min. Vergleiche: ' + b.minComparables + ' → ' + c.minComparables);
         }
+        if (b.aufschlagModus !== c.aufschlagModus) {
+            const name = m => (m === 'euro' ? '€ je Punkt' : '% vom Basispreis');
+            lines.push('Preisbewertung Aufschlag: ' + name(b.aufschlagModus) + ' → ' + name(c.aufschlagModus));
+        }
+        if (b.punktZuProzent !== c.punktZuProzent) {
+            lines.push('Preisbewertung %/Punkt: ' + Math.round(b.punktZuProzent * 1000) / 10
+                + ' → ' + Math.round(c.punktZuProzent * 1000) / 10);
+        }
         if (b.punktZuEuro !== c.punktZuEuro) {
             lines.push('Preisbewertung €/Punkt: ' + b.punktZuEuro + ' → ' + c.punktZuEuro);
         }
@@ -6039,7 +6047,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
 
         const grpEquip = mkPrGroup(
             'Ausstattung',
-            'Aufschlag je Ausstattungspunkt gegenüber dem Median der Vergleichsfahrzeuge, gedeckelt in % des Basispreises.'
+            'Aufschlag je Ausstattungspunkt gegenüber dem Median der Vergleichsfahrzeuge — als Anteil am Basispreis oder fester Euro-Betrag, gedeckelt in % des Basispreises.'
         );
         grpEquip.appendChild(mkPrToggleRow(
             'Nur Favoriten-Gewichte',
@@ -6052,11 +6060,34 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
                 renderConfig();
             }
         ));
+        grpEquip.appendChild(mkPrToggleRow(
+            'Aufschlag in % vom Basispreis',
+            () => pr.aufschlagModus !== 'euro',
+            v => { pr.aufschlagModus = v ? 'prozent' : 'euro'; },
+            'Aufschlag je Ausstattungspunkt umstellen: an = Anteil am Basispreis (skaliert mit dem Fahrzeugwert), '
+                + 'aus = fester Euro-Betrag. Bewertungen ändern sich dadurch.',
+            () => renderConfig()
+        ));
         const equipGrid = mkPrGridIn(grpEquip);
-        equipGrid.appendChild(mkPrNumberField('€ pro Ausstattungspunkt', 'punktZuEuro', 100, 5000, {
-            impact: true,
-            warn: 'Direkter Multiplikator: 1 Punkt mehr Ausstattung ≈ so viele Euro höherer Erwartungspreis.'
-        }));
+        if (pr.aufschlagModus === 'euro') {
+            equipGrid.appendChild(mkPrNumberField('€ pro Ausstattungspunkt', 'punktZuEuro', 100, 5000, {
+                impact: true,
+                warn: 'Direkter Multiplikator: 1 Punkt mehr Ausstattung ≈ so viele Euro höherer Erwartungspreis.'
+            }));
+        } else {
+            equipGrid.appendChild(mkPrNumberField('% vom Basispreis pro Punkt', 'punktZuProzent', 0.5, 10, {
+                impact: true,
+                step: 0.5,
+                display: v => Math.round(v * 1000) / 10,
+                parse: v => {
+                    const n = parseFloat(String(v).replace(',', '.'));
+                    if (!Number.isFinite(n)) return pr.punktZuProzent;
+                    return Math.round(Math.max(0.5, Math.min(10, n)) * 10) / 1000;
+                },
+                warn: '1 Punkt mehr Ausstattung ≈ so viel Prozent des Basispreises höherer Erwartungspreis '
+                    + '(bei 20.000 € und 3 % also 600 €).'
+            }));
+        }
         equipGrid.appendChild(mkPrNumberField('Max. Ausstattungs-Korrektur (%)', 'maxAdjustPct', 5, 25, {
             impact: true,
             step: 1,

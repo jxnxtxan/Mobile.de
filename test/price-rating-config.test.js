@@ -74,3 +74,24 @@ test('fehlende Konfiguration ergibt die Defaults', () => {
     assert.deepEqual(mergePriceRating(null), priceRatingDefault());
     assert.deepEqual(mergePriceRating(undefined), priceRatingDefault());
 });
+
+test('Ausstattungsaufschlag: neue Installationen rechnen in % des Basispreises', () => {
+    const d = priceRatingDefault();
+    assert.equal(d.aufschlagModus, 'prozent');
+    assert.equal(d.punktZuProzent, 0.03);
+    assert.equal(mergePriceRating(undefined).aufschlagModus, 'prozent');
+    assert.equal(mergePriceRating({}).aufschlagModus, 'prozent');
+});
+
+test('Ausstattungsaufschlag: selbst gesetzter €-Wert bleibt im €-Modus', () => {
+    assert.equal(mergePriceRating({ punktZuEuro: 1200 }).aufschlagModus, 'euro');
+    assert.equal(mergePriceRating({ punktZuEuro: 800 }).aufschlagModus, 'prozent');
+    assert.equal(mergePriceRating({ punktZuEuro: 1200, aufschlagModus: 'prozent' }).aufschlagModus, 'prozent');
+    assert.equal(mergePriceRating({ aufschlagModus: 'quatsch' }).aufschlagModus, 'prozent');
+});
+
+test('Ausstattungsaufschlag: % je Punkt wird geklemmt (0,5–10 %)', () => {
+    assert.equal(mergePriceRating({ punktZuProzent: 0 }).punktZuProzent, 0.005);
+    assert.equal(mergePriceRating({ punktZuProzent: 0.5 }).punktZuProzent, 0.1);
+    assert.equal(mergePriceRating({ punktZuProzent: 'x' }).punktZuProzent, 0.03);
+});

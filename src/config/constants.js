@@ -77,6 +77,10 @@ export const PRICE_RATING_DEFAULT = {
         keyPowerBucket: 10,
         onlyFavoriteWeights: false,
         minComparables: 10,
+        // Aufschlag je Ausstattungspunkt: 'prozent' (Anteil am Basispreis, skaliert
+        // mit dem Fahrzeugwert) oder 'euro' (fester Betrag). 3 % ≈ 800 € bei ~26.700 €.
+        aufschlagModus: 'prozent',
+        punktZuProzent: 0.03,
         punktZuEuro: 800,
         maxAdjustPct: 0.2,
         kmToleranceAbs: 10000,

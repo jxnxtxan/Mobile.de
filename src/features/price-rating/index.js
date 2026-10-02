@@ -2026,6 +2026,8 @@ export function computePriceRating(profile, comparables, options) {
         ownScore,
         comparables: Array.isArray(comparables) ? comparables.length : 0,
         minComparables: prCfg.minComparables,
+        aufschlagModus: prCfg.aufschlagModus,
+        punktZuProzent: prCfg.punktZuProzent,
         punktZuEuro: prCfg.punktZuEuro,
         maxAdjustPct: prCfg.maxAdjustPct,
         useModelRange: prCfg.useModelRange !== false,
@@ -2084,7 +2086,10 @@ export function computePriceRating(profile, comparables, options) {
     const equipBaseline = equipmentBaseline(comparables, equipScores);
     const medianEquip = equipBaseline.medianEquip;
     const equipDelta = ownScore - (medianEquip || 0);
-    const rawAdjust = equipDelta * prCfg.punktZuEuro;
+    const euroProPunkt = prCfg.aufschlagModus === 'euro'
+        ? prCfg.punktZuEuro
+        : basePrice * prCfg.punktZuProzent;
+    const rawAdjust = equipDelta * euroProPunkt;
     const adjustCapPct = equipmentAdjustCapPct(prCfg.maxAdjustPct, baseSource);
     const adjust = clampAdjust(basePrice, rawAdjust, adjustCapPct);
     const adjustedExpected = basePrice + adjust;
@@ -2098,6 +2103,7 @@ export function computePriceRating(profile, comparables, options) {
         equipBasis: equipBaseline.basis,
         equipKnownCount: equipBaseline.knownCount,
         equipDelta,
+        euroProPunkt: Math.round(euroProPunkt),
         rawAdjust: Math.round(rawAdjust),
         baseSource,
         adjustCapPct,
@@ -2138,6 +2144,8 @@ export function computePriceRating(profile, comparables, options) {
         equipDelta,
         adjustEuro: Math.round(adjust),
         adjustCapPct,
+        euroProPunkt: Math.round(euroProPunkt),
+        aufschlagModus: prCfg.aufschlagModus,
         baseSource,
         cohortCount,
         usedMobileFallback,
@@ -2460,6 +2468,11 @@ export function renderRatingBars(level, small) {
     return wrap;
 }
 
+/** 0.03 → „3 %“, 0.025 → „2,5 %“. */
+export function formatPunktProzent(frac) {
+    return (Math.round((frac || 0) * 1000) / 10).toLocaleString('de-DE') + ' %';
+}
+
 export function openPriceRatingModal(rating, profile) {
     document.querySelectorAll('.mobilede-price-rating-modal').forEach(el => el.remove());
     const overlay = document.createElement('div');
@@ -2498,7 +2511,12 @@ export function openPriceRatingModal(rating, profile) {
         + (rating.equipBasis === 'known'
             ? ' (aus ' + rating.equipKnownCount + ' Fahrzeugen mit Detaildaten)'
             : ' (unbekannte Ausstattung = 0)')
-        + ' (Δ ' + rating.equipDelta.toFixed(1) + ' → '
+        + ' (Δ ' + rating.equipDelta.toFixed(1)
+        + (typeof rating.euroProPunkt === 'number'
+            ? ' × ' + rating.euroProPunkt.toLocaleString('de-DE') + ' €/Punkt'
+                + (rating.aufschlagModus === 'euro' ? '' : ' (' + formatPunktProzent(getPriceRating(runtimeState.featureFlags).punktZuProzent) + ' vom Basispreis)')
+            : '')
+        + ' → '
         + (rating.adjustEuro >= 0 ? '+' : '') + rating.adjustEuro.toLocaleString('de-DE') + ' €'
         + (typeof rating.adjustCapPct === 'number'
             ? ', max. ' + Math.round(rating.adjustCapPct * 100) + ' %'
@@ -2713,6 +2731,8 @@ export function getVipRatingRunSignature(profile) {
         pr.useModelRange ? 1 : 0,
         pr.onlyFavoriteWeights ? 1 : 0,
         pr.minComparables,
+        pr.aufschlagModus,
+        pr.punktZuProzent,
         pr.punktZuEuro,
         pr.maxAdjustPct,
         pr.kmToleranceAbs,

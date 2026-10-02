@@ -137,3 +137,31 @@ test('ratingUnsureReason: zu einheitlich oder zu wenige Vergleichsfahrzeuge', as
     assert.equal(ratingUnsureReason({ ok: true, cohortCount: 30 }), null);
     assert.equal(ratingUnsureReason(null), null);
 });
+
+/**
+ * Fester €-Betrag je Punkt: Bei günstigen Autos war der Deckel nach wenigen
+ * Punkten erreicht, bei teuren bewirkte Ausstattung kaum etwas.
+ */
+test('Ausstattungsaufschlag skaliert im %-Modus mit dem Basispreis', async () => {
+    const { computePriceRating } = await import('../src/features/price-rating/index.js');
+    const prevLocation = globalThis.location;
+    const prevFlags = runtimeState.featureFlags;
+    globalThis.location = { pathname: '/fahrzeuge/search.html' };
+    const equipment = { keys: new Set(['x']), score: 2, breakdown: [{ key: 'x', weight: 2 }] };
+    const cohort = base => [0.85, 0.9, 0.95, 1, 1, 1.05, 1.1, 1.15, 0.92, 1.08, 0.97, 1.03]
+        .map((f, i) => ({ id: 'c' + i, priceGross: Math.round(base * f), equipment: { score: 0 } }));
+    try {
+        runtimeState.featureFlags = { priceRating: { ...priceRatingDefault(), aufschlagModus: 'prozent', punktZuProzent: 0.03 } };
+        const guenstig = computePriceRating({ id: 'a', priceGross: 15000 }, cohort(15000), { equipment });
+        const teuer = computePriceRating({ id: 'b', priceGross: 60000 }, cohort(60000), { equipment });
+        assert.equal(guenstig.adjustEuro, 900);   // 2 Punkte × 3 % × 15.000
+        assert.equal(teuer.adjustEuro, 3600);     // 2 Punkte × 3 % × 60.000
+
+        runtimeState.featureFlags = { priceRating: { ...priceRatingDefault(), aufschlagModus: 'euro', punktZuEuro: 800 } };
+        const euro = computePriceRating({ id: 'c', priceGross: 60000 }, cohort(60000), { equipment });
+        assert.equal(euro.adjustEuro, 1600);
+    } finally {
+        globalThis.location = prevLocation;
+        runtimeState.featureFlags = prevFlags;
+    }
+});

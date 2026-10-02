@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace       https://github.com/jxnxtxan/Mobile.de
-// @version         2.16.56
+// @version         2.16.57
 // @author          jxnxtxan
 // @description     Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @description:en  Highlights chosen equipment and technical data on mobile.de listings and rates used-car prices adjusted for equipment (detail and search result pages). Config popup with import/export.
@@ -97,6 +97,9 @@
     keyPowerBucket: 10,
     onlyFavoriteWeights: false,
     minComparables: 10,
+
+aufschlagModus: "prozent",
+    punktZuProzent: 0.03,
     punktZuEuro: 800,
     maxAdjustPct: 0.2,
     kmToleranceAbs: 1e4,
@@ -380,6 +383,13 @@
     out.onlyFavoriteWeights = stored.onlyFavoriteWeights === true;
     out.minComparables = Math.max(5, Math.min(50, intOr(out.minComparables, d.minComparables)));
     out.punktZuEuro = Math.max(100, Math.min(5e3, intOr(out.punktZuEuro, d.punktZuEuro)));
+    out.punktZuProzent = Math.max(5e-3, Math.min(0.1, numOr(out.punktZuProzent, d.punktZuProzent)));
+    if (stored.aufschlagModus === "euro" || stored.aufschlagModus === "prozent") {
+      out.aufschlagModus = stored.aufschlagModus;
+    } else {
+      const eigenerEuroWert = typeof stored.punktZuEuro === "number" && stored.punktZuEuro !== d.punktZuEuro;
+      out.aufschlagModus = eigenerEuroWert ? "euro" : "prozent";
+    }
     out.maxAdjustPct = Math.max(0.05, Math.min(0.25, numOr(out.maxAdjustPct, d.maxAdjustPct)));
     out.kmToleranceAbs = Math.max(0, Math.min(2e5, intOr(out.kmToleranceAbs, d.kmToleranceAbs)));
     out.yearTolerance = Math.max(0, Math.min(3, intOr(out.yearTolerance, d.yearTolerance)));
@@ -3724,6 +3734,8 @@ Kontext: …${item.snippet}…` : "";
       ownScore,
       comparables: Array.isArray(comparables) ? comparables.length : 0,
       minComparables: prCfg.minComparables,
+      aufschlagModus: prCfg.aufschlagModus,
+      punktZuProzent: prCfg.punktZuProzent,
       punktZuEuro: prCfg.punktZuEuro,
       maxAdjustPct: prCfg.maxAdjustPct,
       useModelRange: prCfg.useModelRange !== false,
@@ -3778,7 +3790,8 @@ Kontext: …${item.snippet}…` : "";
     const equipBaseline = equipmentBaseline(comparables, equipScores);
     const medianEquip = equipBaseline.medianEquip;
     const equipDelta = ownScore - (medianEquip || 0);
-    const rawAdjust = equipDelta * prCfg.punktZuEuro;
+    const euroProPunkt = prCfg.aufschlagModus === "euro" ? prCfg.punktZuEuro : basePrice * prCfg.punktZuProzent;
+    const rawAdjust = equipDelta * euroProPunkt;
     const adjustCapPct = equipmentAdjustCapPct(prCfg.maxAdjustPct, baseSource);
     const adjust = clampAdjust(basePrice, rawAdjust, adjustCapPct);
     const adjustedExpected = basePrice + adjust;
@@ -3792,6 +3805,7 @@ Kontext: …${item.snippet}…` : "";
       equipBasis: equipBaseline.basis,
       equipKnownCount: equipBaseline.knownCount,
       equipDelta,
+      euroProPunkt: Math.round(euroProPunkt),
       rawAdjust: Math.round(rawAdjust),
       baseSource,
       adjustCapPct,
@@ -3826,6 +3840,8 @@ Kontext: …${item.snippet}…` : "";
       equipDelta,
       adjustEuro: Math.round(adjust),
       adjustCapPct,
+      euroProPunkt: Math.round(euroProPunkt),
+      aufschlagModus: prCfg.aufschlagModus,
       baseSource,
       cohortCount,
       usedMobileFallback,
@@ -4105,6 +4121,9 @@ Kontext: …${item.snippet}…` : "";
     }
     return wrap;
   }
+  function formatPunktProzent(frac) {
+    return (Math.round((frac || 0) * 1e3) / 10).toLocaleString("de-DE") + " %";
+  }
   function openPriceRatingModal(rating, profile) {
     document.querySelectorAll(".mobilede-price-rating-modal").forEach((el) => el.remove());
     const overlay = document.createElement("div");
@@ -4131,7 +4150,7 @@ Kontext: …${item.snippet}…` : "";
     p1.textContent = rating.label + " — Angebot " + rating.price.toLocaleString("de-DE") + " € vs. erwartet ~" + rating.adjustedExpected.toLocaleString("de-DE") + " € (" + (rating.devEuro >= 0 ? "+" : "") + rating.devEuro.toLocaleString("de-DE") + " €, " + (rating.devPct * 100).toFixed(1) + " %).";
     box.appendChild(p1);
     const p2 = document.createElement("p");
-    p2.textContent = formatCohortCountText(rating, { forModal: true }) + ". Basispreis Median: " + rating.basePrice.toLocaleString("de-DE") + " €. Ausstattung: dein Score " + rating.ownScore.toFixed(1) + " vs. Median " + (rating.medianEquip || 0).toFixed(1) + (rating.equipBasis === "known" ? " (aus " + rating.equipKnownCount + " Fahrzeugen mit Detaildaten)" : " (unbekannte Ausstattung = 0)") + " (Δ " + rating.equipDelta.toFixed(1) + " → " + (rating.adjustEuro >= 0 ? "+" : "") + rating.adjustEuro.toLocaleString("de-DE") + " €" + (typeof rating.adjustCapPct === "number" ? ", max. " + Math.round(rating.adjustCapPct * 100) + " %" + (rating.baseSource === "mobile" ? " — halbe Kappung auf mobile.de-Marktpreis" : "") : "") + ").";
+    p2.textContent = formatCohortCountText(rating, { forModal: true }) + ". Basispreis Median: " + rating.basePrice.toLocaleString("de-DE") + " €. Ausstattung: dein Score " + rating.ownScore.toFixed(1) + " vs. Median " + (rating.medianEquip || 0).toFixed(1) + (rating.equipBasis === "known" ? " (aus " + rating.equipKnownCount + " Fahrzeugen mit Detaildaten)" : " (unbekannte Ausstattung = 0)") + " (Δ " + rating.equipDelta.toFixed(1) + (typeof rating.euroProPunkt === "number" ? " × " + rating.euroProPunkt.toLocaleString("de-DE") + " €/Punkt" + (rating.aufschlagModus === "euro" ? "" : " (" + formatPunktProzent(getPriceRating(runtimeState.featureFlags).punktZuProzent) + " vom Basispreis)") : "") + " → " + (rating.adjustEuro >= 0 ? "+" : "") + rating.adjustEuro.toLocaleString("de-DE") + " €" + (typeof rating.adjustCapPct === "number" ? ", max. " + Math.round(rating.adjustCapPct * 100) + " %" + (rating.baseSource === "mobile" ? " — halbe Kappung auf mobile.de-Marktpreis" : "") : "") + ").";
     box.appendChild(p2);
     if (rating.mobileLabel) {
       const pm = document.createElement("p");
@@ -4335,6 +4354,8 @@ Kontext: …${item.snippet}…` : "";
       pr.useModelRange ? 1 : 0,
       pr.onlyFavoriteWeights ? 1 : 0,
       pr.minComparables,
+      pr.aufschlagModus,
+      pr.punktZuProzent,
       pr.punktZuEuro,
       pr.maxAdjustPct,
       pr.kmToleranceAbs,
@@ -6228,7 +6249,7 @@ features: [...card.querySelectorAll('[data-testid="highlights-item"]')].map((el)
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.56";
+    const SCRIPT_UI_VERSION = "2.16.57";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
@@ -6484,6 +6505,13 @@ features: [...card.querySelectorAll('[data-testid="highlights-item"]')].map((el)
       }
       if (b.minComparables !== c.minComparables) {
         lines.push("Preisbewertung min. Vergleiche: " + b.minComparables + " → " + c.minComparables);
+      }
+      if (b.aufschlagModus !== c.aufschlagModus) {
+        const name = (m) => m === "euro" ? "€ je Punkt" : "% vom Basispreis";
+        lines.push("Preisbewertung Aufschlag: " + name(b.aufschlagModus) + " → " + name(c.aufschlagModus));
+      }
+      if (b.punktZuProzent !== c.punktZuProzent) {
+        lines.push("Preisbewertung %/Punkt: " + Math.round(b.punktZuProzent * 1e3) / 10 + " → " + Math.round(c.punktZuProzent * 1e3) / 10);
       }
       if (b.punktZuEuro !== c.punktZuEuro) {
         lines.push("Preisbewertung €/Punkt: " + b.punktZuEuro + " → " + c.punktZuEuro);
@@ -11801,7 +11829,7 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
       }));
       const grpEquip = mkPrGroup(
         "Ausstattung",
-        "Aufschlag je Ausstattungspunkt gegenüber dem Median der Vergleichsfahrzeuge, gedeckelt in % des Basispreises."
+        "Aufschlag je Ausstattungspunkt gegenüber dem Median der Vergleichsfahrzeuge — als Anteil am Basispreis oder fester Euro-Betrag, gedeckelt in % des Basispreises."
       );
       grpEquip.appendChild(mkPrToggleRow(
         "Nur Favoriten-Gewichte",
@@ -11815,11 +11843,34 @@ letter-spacing:.04em;text-transform:uppercase;color:#1a1d24;background:#f0c878;
           renderConfig();
         }
       ));
+      grpEquip.appendChild(mkPrToggleRow(
+        "Aufschlag in % vom Basispreis",
+        () => pr.aufschlagModus !== "euro",
+        (v) => {
+          pr.aufschlagModus = v ? "prozent" : "euro";
+        },
+        "Aufschlag je Ausstattungspunkt umstellen: an = Anteil am Basispreis (skaliert mit dem Fahrzeugwert), aus = fester Euro-Betrag. Bewertungen ändern sich dadurch.",
+        () => renderConfig()
+      ));
       const equipGrid = mkPrGridIn(grpEquip);
-      equipGrid.appendChild(mkPrNumberField("€ pro Ausstattungspunkt", "punktZuEuro", 100, 5e3, {
-        impact: true,
-        warn: "Direkter Multiplikator: 1 Punkt mehr Ausstattung ≈ so viele Euro höherer Erwartungspreis."
-      }));
+      if (pr.aufschlagModus === "euro") {
+        equipGrid.appendChild(mkPrNumberField("€ pro Ausstattungspunkt", "punktZuEuro", 100, 5e3, {
+          impact: true,
+          warn: "Direkter Multiplikator: 1 Punkt mehr Ausstattung ≈ so viele Euro höherer Erwartungspreis."
+        }));
+      } else {
+        equipGrid.appendChild(mkPrNumberField("% vom Basispreis pro Punkt", "punktZuProzent", 0.5, 10, {
+          impact: true,
+          step: 0.5,
+          display: (v) => Math.round(v * 1e3) / 10,
+          parse: (v) => {
+            const n = parseFloat(String(v).replace(",", "."));
+            if (!Number.isFinite(n)) return pr.punktZuProzent;
+            return Math.round(Math.max(0.5, Math.min(10, n)) * 10) / 1e3;
+          },
+          warn: "1 Punkt mehr Ausstattung ≈ so viel Prozent des Basispreises höherer Erwartungspreis (bei 20.000 € und 3 % also 600 €)."
+        }));
+      }
       equipGrid.appendChild(mkPrNumberField("Max. Ausstattungs-Korrektur (%)", "maxAdjustPct", 5, 25, {
         impact: true,
         step: 1,

@@ -98,6 +98,14 @@ export function mergePriceRating(stored) {
     out.onlyFavoriteWeights = stored.onlyFavoriteWeights === true;
     out.minComparables = Math.max(5, Math.min(50, intOr(out.minComparables, d.minComparables)));
     out.punktZuEuro = Math.max(100, Math.min(5000, intOr(out.punktZuEuro, d.punktZuEuro)));
+    out.punktZuProzent = Math.max(0.005, Math.min(0.1, numOr(out.punktZuProzent, d.punktZuProzent)));
+    if (stored.aufschlagModus === 'euro' || stored.aufschlagModus === 'prozent') {
+        out.aufschlagModus = stored.aufschlagModus;
+    } else {
+        // Vor dem %-Modus gespeichert: wer den €-Betrag bewusst geändert hat, behält ihn.
+        const eigenerEuroWert = typeof stored.punktZuEuro === 'number' && stored.punktZuEuro !== d.punktZuEuro;
+        out.aufschlagModus = eigenerEuroWert ? 'euro' : 'prozent';
+    }
     out.maxAdjustPct = Math.max(0.05, Math.min(0.25, numOr(out.maxAdjustPct, d.maxAdjustPct)));
     out.kmToleranceAbs = Math.max(0, Math.min(200000, intOr(out.kmToleranceAbs, d.kmToleranceAbs)));
     out.yearTolerance = Math.max(0, Math.min(3, intOr(out.yearTolerance, d.yearTolerance)));
