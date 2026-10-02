@@ -2344,7 +2344,20 @@ export function injectPriceRatingStyles() {
 .mobilede-srp-price-badge__bars{display:flex;gap:2px;}
 .mobilede-srp-price-badge__bar{width:10px;height:4px;border-radius:1px;background:rgba(255,255,255,.2);}
 .mobilede-srp-price-badge__bar--on{background:#3ddc84;}
+.mobilede-srp-price-badge__bar--on.level-0{background:#2ecc71;}
+.mobilede-srp-price-badge__bar--on.level-1{background:#52d869;}
+.mobilede-srp-price-badge__bar--on.level-2{background:#f0c040;}
+.mobilede-srp-price-badge__bar--on.level-3{background:#e8a040;}
+.mobilede-srp-price-badge__bar--on.level-4{background:#e07070;}
 .mobilede-srp-price-badge__text{opacity:.9;font-weight:500;}
+.mobilede-srp-price-badge--level-0 .mobilede-srp-price-badge__text{color:#2ecc71;}
+.mobilede-srp-price-badge--level-1 .mobilede-srp-price-badge__text{color:#52d869;}
+.mobilede-srp-price-badge--level-2 .mobilede-srp-price-badge__text{color:#f0c040;}
+.mobilede-srp-price-badge--level-3 .mobilede-srp-price-badge__text{color:#e8a040;}
+.mobilede-srp-price-badge--level-4 .mobilede-srp-price-badge__text{color:#e07070;}
+/* Im Preisbereich der Karte (CSS-Grid: Preis | mobile.de-Bewertung):
+   eigene dritte Spalte in der Preiszeile, direkt neben dem mobile.de-Balken. */
+.mobilede-srp-price-badge--in-price{grid-column:3;grid-row:1;align-self:center;margin-left:0;}
 .mobilede-srp-debug-card{
   /* Ein natives "TOP"-Ribbon ragt per Rotation ca. 14-20px über den eigenen
      Kartenrand nach oben heraus und blutet dadurch in das direkt davor
@@ -2993,19 +3006,27 @@ export function profileFromSrpCard(card) {
 
 export function renderSrpPriceBadge(card, rating, loading) {
     injectPriceRatingStyles();
-    const link = card.querySelector('a[href*="details.html?id="], a[href*="/auto-inserat/"]');
-    if (!link) return;
+    // Anker: Preisbereich der Karte (Preis + mobile.de-Preisbalken). Fallback
+    // für ältere Layouts: direkt hinter dem Inseratslink.
+    const priceSection = card.querySelector('[data-testid$="-price-section"]');
+    const link = priceSection ? null
+        : card.querySelector('a[href*="details.html?id="], a[href*="/auto-inserat/"]');
+    if (!priceSection && !link) return;
     let badge = card.querySelector('.mobilede-srp-price-badge');
     if (!badge) {
         badge = document.createElement('span');
-        badge.className = 'mobilede-srp-price-badge';
         badge.title = 'Preisbewertung (ausstattungsbereinigt)';
+    }
+    if (priceSection) {
+        if (badge.parentElement !== priceSection) priceSection.appendChild(badge);
+    } else if (!badge.isConnected) {
         link.parentElement ? link.parentElement.insertBefore(badge, link.nextSibling)
             : link.after(badge);
     }
+    badge.className = 'mobilede-srp-price-badge' + (priceSection ? ' mobilede-srp-price-badge--in-price' : '');
     badge.innerHTML = '';
     if (loading) {
-        badge.appendChild(renderRatingBars(2, true));
+        badge.appendChild(renderRatingBars(-1, true));
         const t = document.createElement('span');
         t.className = 'mobilede-srp-price-badge__text';
         t.textContent = '…';
@@ -3017,6 +3038,7 @@ export function renderSrpPriceBadge(card, rating, loading) {
         delete card.dataset.mobiledePriceRated;
         return;
     }
+    badge.classList.add('mobilede-srp-price-badge--level-' + rating.level);
     badge.appendChild(renderRatingBars(rating.level, true));
     const shortLabels = ['Sehr gut', 'Gut', 'Fair', 'Erhöht', 'Hoch'];
     const t = document.createElement('span');
