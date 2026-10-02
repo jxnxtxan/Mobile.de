@@ -92,27 +92,39 @@ npm run build
 
 ### Ergebnis auf der Detailseite
 
-Über dem Aktionsbereich erscheinen der Block **„Technische Daten:“** und **„Gefundene Begriffe:“** bzw. im Automodus **„Ausstattung (vollständig):“** mit farblicher Zuordnung (z.&nbsp;B. Ampel-/Prioritätsfarben wie im Skript eingestellt).
+Über dem Aktionsbereich erscheinen **„Technische Daten:“** und **„Gefundene Begriffe:“** mit den Farben aus deiner Konfiguration. Kursive Einträge mit * wurden nur im Beschreibungstext gefunden (geringere Sicherheit); im Automodus heißt der Block **„Ausstattung (vollständig):“**.
 
-![Technische Daten und gefundene Begriffe](./assets/ergebnis-techdaten.png)
+![Technische Daten und gefundene Begriffe auf einer Fahrzeugseite](./assets/ergebnis-techdaten.png)
+
+### Preisbewertung neben dem Preis
+
+Unter dem Preis steht die eigene Einordnung, ausstattungsbereinigt und mit Anzahl der Vergleichsfahrzeuge. Im Beispiel wertet mobile.de den Preis als „Sehr guter Preis“, nach Abgleich mit 27 ähnlich ausgestatteten Fahrzeugen ergibt sich „Erhöhter Preis“ (erwartet ~18.648 €). Das **?** erklärt die Rechnung im Detail.
+
+![Ausstattungsbereinigte Preisbewertung unter dem Preis](./assets/preisbewertung.png)
 
 ### Aktionsbereich mit Konfigurations-Button
 
-Der Button **Konfiguration** sitzt zusammen mit „E-Mail schreiben“, „Geparkt“ und „Teilen“ im typischen Aktionsbereich auf der rechten Spalte.
+Der Button **Konfiguration** sitzt unter „E-Mail schreiben“, „Parken“ und „Teilen“ in der rechten Spalte.
 
 ![Aktionsbereich mit Button Konfiguration](./assets/aktionsbereich-konfiguration.png)
 
-### Popup: Ausstattung & weitere Tabs
+### Popup: Ausstattung
 
-Links die Liste aller Einträge mit Schalter, Favoriten-Stern und Farbmarkierung, rechts der **Detail-Editor** (Anzeigetext, Suchbegriffe als Chips, Verbotene Begriffe). Oben Filter (nur aktive / nur Favoriten / mit Verboten), Sortierung, **Duplizieren** und **+ Neu**; Optionen „Nur Ausstattungsliste“ / „Wortteil-Suche“ sowie Tabs für Tech-Daten, Merge-Gruppen, Import/Export und Config. Die Kopfzeile zeigt die Skript-Version und das Schema.
+Links die Liste aller Einträge mit Schalter, Favoriten-Stern, Farbe und Preisgewicht (⚖), rechts der **Detail-Editor**: Anzeigetext, Suchbegriffe und verbotene Begriffe als Chips, Preisgewicht, Farbe und Optionen. Oben Filter (nur aktive / Favoriten / mit Verboten / mit Gewicht), Sortierung, Alle Ein/Aus und **+ Neu**.
 
-![Konfigurations-Popup, Tab Ausstattung](./assets/popup-ausstattung.png)
+![Konfigurations-Popup, Reiter Ausstattung](./assets/popup-ausstattung.png)
 
-### Popup: Config (Listen & Suchergebnis-Sortierung)
+### Popup: Merge-Gruppen
 
-Im Tab **Config** werden Skript-Optionen zentral gesteuert, z.&nbsp;B. **Listen-Reihenfolge** (alphabetisch/manuell, optionale Bereiche) und die **Standard-Sortierung** auf Suchergebnisseiten inkl. Schalter „Auf Suchergebnisseiten anwenden“.
+Mehrere Treffer mit gleicher Basis werden zu einer Zeile zusammengefasst. Die Chips legen die Reihenfolge fest und lassen sich am ⠿ ziehen; grün umrandete Chips treffen einen Ausstattungs-Eintrag. Vorschläge aus dem Reiter Ausstattung erscheinen unter den Chips, das **Beispiel** zeigt das Ergebnis mit echten Einträgen.
 
-![Konfigurations-Popup, Tab Config](./assets/popup-config-feature-flags.png)
+![Konfigurations-Popup, Reiter Merge-Gruppen](./assets/popup-merge-gruppen.png)
+
+### Popup: Config → Preisbewertung
+
+Im Reiter **Config** sind die Skript-Optionen nach Bereichen gegliedert (Allgemein, Listen &amp; Sortierung, Suchergebnisse, Preisbewertung). Für die Preisbewertung lassen sich Anzeige, Vergleichsgruppe und Toleranzen einstellen.
+
+![Konfigurations-Popup, Config-Bereich Preisbewertung](./assets/popup-config-preisbewertung.png)
 
 ## Suchkriterien anpassen
 
