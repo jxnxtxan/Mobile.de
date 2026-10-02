@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace       https://github.com/jxnxtxan/Mobile.de
-// @version         2.16.53
+// @version         2.16.54
 // @author          jxnxtxan
 // @description     Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @description:en  Highlights chosen equipment and technical data on mobile.de listings and rates used-car prices adjusted for equipment (detail and search result pages). Config popup with import/export.
@@ -4629,11 +4629,17 @@ Kontext: …${item.snippet}…` : "";
     badge.appendChild(t);
     badge.title = rating.label + " — erwartet ~" + rating.adjustedExpected.toLocaleString("de-DE") + " €";
   }
+  function withCachedVipEquipment(profile) {
+    if (!profile || !profile.id) return profile;
+    const cachedEquip = readVipEquipCache(profile.id);
+    if (!cachedEquip) return profile;
+    return { ...profile, equipment: cachedEquip, equipmentFromVipCache: true };
+  }
   function loadSrpCardRating(card) {
     const prCfg = getPriceRating(runtimeState.featureFlags);
     if (!isPriceRatingEnabled(prCfg) || !prCfg.enabledSrp) return;
     if (card.dataset.mobiledePriceRated === "1") return;
-    const profile = profileFromSrpCard(card);
+    const profile = withCachedVipEquipment(profileFromSrpCard(card));
     if (!profile || !profile.id) return;
     const cached = readRatingCache(profile.id);
     if (cached && cached.ok) {
@@ -6181,7 +6187,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.53";
+    const SCRIPT_UI_VERSION = "2.16.54";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };

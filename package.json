@@ -1,6 +1,6 @@
 {
   "name": "mobile-ausstattungssuche",
-  "version": "2.16.53",
+  "version": "2.16.54",
   "private": true,
   "description": "Tampermonkey-Userscript für mobile.de: Ausstattung hervorheben, technische Daten anzeigen und Gebrauchtwagen-Preise ausstattungsbereinigt bewerten.",
   "keywords": [

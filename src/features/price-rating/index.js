@@ -3058,11 +3058,23 @@ export function renderSrpPriceBadge(card, rating, loading) {
     badge.title = rating.label + ' — erwartet ~' + rating.adjustedExpected.toLocaleString('de-DE') + ' €';
 }
 
+/**
+ * Hängt die beim Detailseiten-Besuch gespeicherte Ausstattung an ein Profil;
+ * ohne Cache-Eintrag bleibt es unverändert (computePriceRating nimmt dann den
+ * Titelabgleich).
+ */
+export function withCachedVipEquipment(profile) {
+    if (!profile || !profile.id) return profile;
+    const cachedEquip = readVipEquipCache(profile.id);
+    if (!cachedEquip) return profile;
+    return { ...profile, equipment: cachedEquip, equipmentFromVipCache: true };
+}
+
 export function loadSrpCardRating(card) {
     const prCfg = getPriceRating(runtimeState.featureFlags);
     if (!isPriceRatingEnabled(prCfg) || !prCfg.enabledSrp) return;
     if (card.dataset.mobiledePriceRated === '1') return;
-    const profile = profileFromSrpCard(card);
+    const profile = withCachedVipEquipment(profileFromSrpCard(card));
     if (!profile || !profile.id) return;
 
     const cached = readRatingCache(profile.id);

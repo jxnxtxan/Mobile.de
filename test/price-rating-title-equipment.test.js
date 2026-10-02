@@ -58,3 +58,34 @@ test('SRP: gespeicherte Detailseiten-Ausstattung des eigenen Inserats zählt', (
         globalThis.location = prevLocation;
     }
 });
+
+/**
+ * Das Kartenprofil der Ergebnisliste kam ohne die gespeicherte Ausstattung bei
+ * computePriceRating an — der Zweig oben griff dadurch nie, die Liste rechnete
+ * weiter nur mit dem Titel (Detailseite „Guter Preis“, Liste „Fair“).
+ */
+test('SRP: Kartenprofil übernimmt gespeicherte Detailseiten-Ausstattung', async () => {
+    const { withCachedVipEquipment, writeVipEquipCache } = await import('../src/features/price-rating/index.js');
+    const prevStorage = globalThis.localStorage;
+    const mem = new Map();
+    globalThis.localStorage = {
+        getItem: k => (mem.has(k) ? mem.get(k) : null),
+        setItem: (k, v) => mem.set(k, String(v)),
+        removeItem: k => mem.delete(k),
+        key: i => [...mem.keys()][i] ?? null,
+        get length() { return mem.size; }
+    };
+    try {
+        writeVipEquipCache('42', { score: 3, breakdown: [{ key: 'abstandstempomat', weight: 3 }] });
+        const besucht = withCachedVipEquipment({ id: '42', title: 'Audi A4' });
+        assert.equal(besucht.equipmentFromVipCache, true);
+        assert.equal(besucht.equipment.score, 3);
+
+        const unbekannt = withCachedVipEquipment({ id: '43', title: 'Audi A4' });
+        assert.equal(unbekannt.equipmentFromVipCache, undefined);
+        assert.equal(unbekannt.equipment, undefined);
+        assert.equal(withCachedVipEquipment(null), null);
+    } finally {
+        globalThis.localStorage = prevStorage;
+    }
+});
