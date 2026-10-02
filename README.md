@@ -8,7 +8,9 @@
 **Gebrauchtwagen auf mobile.de schneller bewerten:** Das kostenlose Userscript hebt auf jeder Fahrzeugseite die Ausstattung hervor, die dir wichtig ist (z.&nbsp;B. Anhängerkupplung, Standheizung, Head-up-Display, Matrix-LED), zeigt ausgewählte technische Daten kompakt an und bewertet den **Preis ausstattungsbereinigt** im Vergleich zu ähnlichen Inseraten — direkt auf der Detailseite und in der Suchergebnisliste.
 
 <p align="center">
-  <a href="https://github.com/jxnxtxan/Mobile.de/releases/latest/download/mobile-ausstattungssuche.user.js"><b>⬇️ Jetzt installieren</b></a>
+  <a href="https://github.com/jxnxtxan/Mobile.de/releases/latest/download/mobile-ausstattungssuche.user.js"><b>In Tampermonkey installieren</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/jxnxtxan/Mobile.de/blob/main/mobile-ausstattungssuche.js">Quellcode ansehen</a>
   &nbsp;·&nbsp;
   <a href="https://jxnxtxan.github.io/Mobile.de/">Projektseite</a>
   &nbsp;·&nbsp;

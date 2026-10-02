@@ -48,7 +48,7 @@
     {
       "@type": "Question",
       "name": "Wie installiere ich das Userscript für mobile.de?",
-      "acceptedAnswer": { "@type": "Answer", "text": "Tampermonkey oder Violentmonkey im Browser installieren, dann auf „Jetzt installieren“ klicken und den Installationsdialog bestätigen. Updates kommen automatisch." }
+      "acceptedAnswer": { "@type": "Answer", "text": "Tampermonkey oder Violentmonkey im Browser installieren, dann auf „In Tampermonkey installieren“ klicken und den Installationsdialog bestätigen. Updates kommen automatisch." }
     },
     {
       "@type": "Question",
@@ -85,6 +85,7 @@ h1{font-size:clamp(28px,5vw,42px);line-height:1.15;margin:0 0 16px}
   border:1px solid var(--border);color:var(--text);background:var(--surface)}
 .btn--primary{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
 .small{font-size:14px;color:var(--muted)}
+.install-meta{margin:14px 0 0;max-width:720px}
 section{padding:28px 0;border-top:1px solid var(--border)}
 h2{font-size:24px;margin:0 0 16px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
@@ -108,10 +109,14 @@ footer{padding:28px 0 48px;border-top:1px solid var(--border);font-size:14px;col
   <h1>mobile.de Preisbewertung &amp; Ausstattungssuche</h1>
   <p class="lead">Kostenloses Userscript für die Gebrauchtwagensuche auf mobile.de: Es hebt die Ausstattung hervor, die dir wichtig ist, zeigt technische Daten auf einen Blick und bewertet den Preis <strong>ausstattungsbereinigt</strong> gegenüber ähnlichen Inseraten.</p>
   <div class="cta">
-    <a class="btn btn--primary" href="https://github.com/jxnxtxan/Mobile.de/releases/latest/download/mobile-ausstattungssuche.user.js">⬇️ Jetzt installieren</a>
-    <a class="btn" href="https://github.com/jxnxtxan/Mobile.de">Quellcode auf GitHub</a>
-    <span class="small">Für Tampermonkey &amp; Violentmonkey · Chrome, Firefox, Edge, Safari · MIT-Lizenz</span>
+    <a class="btn btn--primary" href="https://github.com/jxnxtxan/Mobile.de/releases/latest/download/mobile-ausstattungssuche.user.js">In Tampermonkey installieren</a>
+    <a class="btn" href="https://github.com/jxnxtxan/Mobile.de/blob/main/mobile-ausstattungssuche.js">Quellcode ansehen</a>
   </div>
+  <p class="small install-meta">
+    <span id="rel-version">Aktuelle Version</span> · Datei <code>mobile-ausstattungssuche.user.js</code> von GitHub ·
+    öffnet den Installationsdialog deines Userscript-Managers, dort siehst du vor der Installation Code und Berechtigungen ·
+    Open Source (MIT)
+  </p>
 </header>
 
 <section class="wrap" aria-labelledby="funktionen">
@@ -171,5 +176,15 @@ footer{padding:28px 0 48px;border-top:1px solid var(--border);font-size:14px;col
   <p>© Jonathan Nitzsche · <a href="https://github.com/jxnxtxan/Mobile.de/blob/main/LICENSE">MIT-Lizenz</a> · <a href="https://github.com/jxnxtxan/Mobile.de/releases">Versionen &amp; Änderungen</a></p>
   <p>Kein offizielles Produkt von mobile.de. „mobile.de“ ist eine Marke der mobile.de GmbH; dieses Projekt steht in keiner Verbindung zu ihr.</p>
 </footer>
+<script>
+fetch('https://api.github.com/repos/jxnxtxan/Mobile.de/releases/latest')
+  .then(r => r.ok ? r.json() : null)
+  .then(rel => {
+    if (!rel || !rel.tag_name) return;
+    const d = rel.published_at ? new Date(rel.published_at).toLocaleDateString('de-DE') : '';
+    document.getElementById('rel-version').textContent = 'Version ' + rel.tag_name.replace(/^v/, '') + (d ? ' vom ' + d : '');
+  })
+  .catch(() => {});
+</script>
 </body>
 </html>
