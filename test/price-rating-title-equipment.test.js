@@ -89,3 +89,37 @@ test('SRP: Kartenprofil übernimmt gespeicherte Detailseiten-Ausstattung', async
         globalThis.localStorage = prevStorage;
     }
 });
+
+test('cohortPriceSpread: Interquartilsabstand relativ zum Median', async () => {
+    const { cohortPriceSpread } = await import('../src/features/price-rating/index.js');
+    assert.equal(cohortPriceSpread([20000, 20000, 20000]), null);
+    assert.equal(cohortPriceSpread([20000, 20000, 20000, 20000]), 0);
+    const breit = cohortPriceSpread([16000, 18000, 20000, 22000, 24000]);
+    assert.ok(breit > 0.15 && breit < 0.25, String(breit));
+});
+
+/**
+ * Echter Fall: Ergebnisliste „ab 20.000 €, Preis aufsteigend“ — alle Vergleichs-
+ * fahrzeuge zwischen 20.200 und 20.450 €, jede Karte kam bei „Fair“ heraus.
+ */
+test('Zu einheitliche Vergleichsgruppe wird als unsicher markiert', async () => {
+    const { computePriceRating } = await import('../src/features/price-rating/index.js');
+    const prevLocation = globalThis.location;
+    globalThis.location = { pathname: '/fahrzeuge/search.html' };
+    try {
+        const equipment = { keys: new Set(), score: 0, breakdown: [] };
+        const profile = { id: '1', priceGross: 20220, make: 'Audi', model: 'A4' };
+        const eng = [20200, 20220, 20248, 20248, 20333, 20380, 20390, 20400, 20420, 20448, 20450, 20450]
+            .map((p, i) => ({ id: 'c' + i, priceGross: p, equipment: { score: 0 } }));
+        const r1 = computePriceRating(profile, eng, { equipment });
+        assert.equal(r1.ok, true);
+        assert.equal(r1.narrowCohort, true);
+
+        const breit = [16500, 17900, 18800, 19400, 20100, 20500, 21300, 22000, 22900, 24500, 25800, 27000]
+            .map((p, i) => ({ id: 'b' + i, priceGross: p, equipment: { score: 0 } }));
+        const r2 = computePriceRating(profile, breit, { equipment });
+        assert.equal(r2.narrowCohort, false);
+    } finally {
+        globalThis.location = prevLocation;
+    }
+});

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace       https://github.com/jxnxtxan/Mobile.de
-// @version         2.16.54
+// @version         2.16.55
 // @author          jxnxtxan
 // @description     Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @description:en  Highlights chosen equipment and technical data on mobile.de listings and rates used-car prices adjusted for equipment (detail and search result pages). Config popup with import/export.
@@ -144,6 +144,7 @@
   };
   const PRICE_COHORT_CACHE_PREFIX = "mobilede_price_cohort_";
   const PRICE_RATING_CACHE_PREFIX = "mobilede_price_rating_";
+  const PRICE_COHORT_NARROW_SPREAD = 0.05;
   const PRICE_RATING_UI_CACHE_PREFIX = "mobilede_price_rating_ui_";
   const PRICE_VIP_EQUIP_CACHE_PREFIX = "mobilede_price_vip_equip_";
   const PRICE_DATA_STORE_KEY = "mobilede_price_data_store_v1";
@@ -3662,6 +3663,18 @@ Kontext: …${item.snippet}…` : "";
     const mid = Math.floor(arr.length / 2);
     return arr.length % 2 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
   }
+  function cohortPriceSpread(nums) {
+    const arr = (nums || []).filter((n) => typeof n === "number" && n > 0).sort((a, b) => a - b);
+    if (arr.length < 4) return null;
+    const q = (p) => {
+      const pos = (arr.length - 1) * p;
+      const lo = Math.floor(pos);
+      const hi = Math.ceil(pos);
+      return arr[lo] + (arr[hi] - arr[lo]) * (pos - lo);
+    };
+    const mid = q(0.5);
+    return mid > 0 ? (q(0.75) - q(0.25)) / mid : null;
+  }
   function mobileMarketPriceFromRating(priceRating) {
     if (!priceRating) return null;
     const labels = priceRating.thresholdLabels;
@@ -3788,6 +3801,9 @@ Kontext: …${item.snippet}…` : "";
       level,
       label
     });
+    const priceSpread = baseSource === "cohort" ? cohortPriceSpread(prices) : null;
+    const narrowCohort = priceSpread != null && priceSpread < PRICE_COHORT_NARROW_SPREAD;
+    if (narrowCohort) priceRatingDebugLog("Kohorte zu einheitlich", { priceSpread, cohortCount });
     const minP = prices.length ? Math.min(...prices) : basePrice * 0.85;
     const maxP = prices.length ? Math.max(...prices) : basePrice * 1.15;
     const span = maxP - minP || 1;
@@ -3814,6 +3830,8 @@ Kontext: …${item.snippet}…` : "";
       cohortCount,
       usedMobileFallback,
       insufficientCohort: cohortCount < prCfg.minComparables,
+      priceSpread,
+      narrowCohort,
       breakdown: topBreakdown,
       mobileLabel: ((_b = profile.priceRating) == null ? void 0 : _b.ratingLabel) || null,
       cohortVipDetailCount: 0
@@ -3837,6 +3855,10 @@ Kontext: …${item.snippet}…` : "";
     }
     if (forModal && rating.usedMobileFallback && rating.cohortCount > 0) {
       txt += " (mobile.de-Marktpreis als Basis)";
+    }
+    if (rating.narrowCohort) {
+      const pct = Math.round((rating.priceSpread || 0) * 1e3) / 10;
+      txt += forModal ? " — die Preise liegen sehr eng beieinander (Streuung " + pct.toLocaleString("de-DE") + " %), meist weil sie aus einer nach Preis sortierten oder gefilterten Suche stammen. Einstufung unsicher; für eine verlässliche Einordnung die Vergleichssuche ohne Preisfilter und Preissortierung öffnen" : " · Vergleichsgruppe sehr einheitlich, Einstufung unsicher";
     }
     if (rating.insufficientCohort && rating.cohortCount > 0) {
       txt += forModal ? " — wenige Treffer, Ergebnis mit Vorsicht" : " (weniger als Minimum — mobile.de-Fallback)";
@@ -4023,6 +4045,7 @@ Kontext: …${item.snippet}…` : "";
 .mobilede-srp-price-badge--level-2 .mobilede-srp-price-badge__text{color:#f0c040;}
 .mobilede-srp-price-badge--level-3 .mobilede-srp-price-badge__text{color:#e8a040;}
 .mobilede-srp-price-badge--level-4 .mobilede-srp-price-badge__text{color:#e07070;}
+.mobilede-srp-price-badge--unsure .mobilede-srp-price-badge__text{opacity:.6;font-style:italic;}
 /* Im Preisbereich der Karte (CSS-Grid: Preis | mobile.de-Bewertung):
    eigene dritte Spalte in der Preiszeile, direkt neben dem mobile.de-Balken. */
 .mobilede-srp-price-badge--in-price{grid-column:3;grid-row:1;align-self:center;margin-left:0;}
@@ -4593,7 +4616,7 @@ Kontext: …${item.snippet}…` : "";
       powerPs: attrs.powerPs,
       fuel: attrs.fuel,
       transmission: "",
-      features: [],
+features: [...card.querySelectorAll('[data-testid="highlights-item"]')].map((el) => el.textContent.trim()).filter(Boolean),
       priceRating: null,
       attributes: []
     };
@@ -4618,6 +4641,16 @@ Kontext: …${item.snippet}…` : "";
     if (!rating || !rating.ok) {
       badge.remove();
       delete card.dataset.mobiledePriceRated;
+      return;
+    }
+    if (rating.narrowCohort) {
+      badge.classList.add("mobilede-srp-price-badge--unsure");
+      badge.appendChild(renderRatingBars(-1, true));
+      const u = document.createElement("span");
+      u.className = "mobilede-srp-price-badge__text";
+      u.textContent = "unsicher";
+      badge.appendChild(u);
+      badge.title = "Vergleichsfahrzeuge zu einheitlich im Preis (meist durch Preissortierung oder Preisfilter) — rechnerisch " + rating.label + ", erwartet ~" + rating.adjustedExpected.toLocaleString("de-DE") + " €";
       return;
     }
     badge.classList.add("mobilede-srp-price-badge--level-" + rating.level);
@@ -6187,7 +6220,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.54";
+    const SCRIPT_UI_VERSION = "2.16.55";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };

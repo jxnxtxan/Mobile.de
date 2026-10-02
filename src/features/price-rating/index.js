@@ -4,7 +4,7 @@ import {
     PRICE_VIP_EQUIP_CACHE_PREFIX, PRICE_DATA_STORE_KEY, PRICE_DATA_STORE_VERSION,
     PRICE_DATA_STORE_MAX_ADS, PRICE_DATA_STORE_MAX_COHORTS, MAKE_MODEL_CACHE_PREFIX,
     MAKE_MODEL_AD_CACHE_PREFIX, MAKE_NAMES_CACHE_KEY, PRICE_COHORT_CACHE_TTL_MS,
-    PRICE_RATING_UI_CACHE_TTL_MS, DEBUG_SCOPE_PREFIX,
+    PRICE_RATING_UI_CACHE_TTL_MS, DEBUG_SCOPE_PREFIX, PRICE_COHORT_NARROW_SPREAD,
 } from '../../config/constants.js';
 import { getUnsafeWindow } from '../../platform/page-window.js';
 import { cleanText, tokenize } from '../../core/text/normalize.js';
@@ -1937,6 +1937,20 @@ export function median(nums) {
     return arr.length % 2 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
 }
 
+/** Streuung der Vergleichspreise: (Q3 − Q1) / Median; unter vier Preisen null. */
+export function cohortPriceSpread(nums) {
+    const arr = (nums || []).filter(n => typeof n === 'number' && n > 0).sort((a, b) => a - b);
+    if (arr.length < 4) return null;
+    const q = p => {
+        const pos = (arr.length - 1) * p;
+        const lo = Math.floor(pos);
+        const hi = Math.ceil(pos);
+        return arr[lo] + (arr[hi] - arr[lo]) * (pos - lo);
+    };
+    const mid = q(0.5);
+    return mid > 0 ? (q(0.75) - q(0.25)) / mid : null;
+}
+
 /**
  * Marktpreis aus der mobile.de-Bewertung: Mitte des Fair-Bereichs (bei sechs
  * Grenzen also zwischen der 3. und 4.). `vehiclePriceOffset` taugt dafür nicht —
@@ -2094,6 +2108,10 @@ export function computePriceRating(profile, comparables, options) {
         label
     });
 
+    const priceSpread = baseSource === 'cohort' ? cohortPriceSpread(prices) : null;
+    const narrowCohort = priceSpread != null && priceSpread < PRICE_COHORT_NARROW_SPREAD;
+    if (narrowCohort) priceRatingDebugLog('Kohorte zu einheitlich', { priceSpread, cohortCount });
+
     const minP = prices.length ? Math.min(...prices) : basePrice * 0.85;
     const maxP = prices.length ? Math.max(...prices) : basePrice * 1.15;
     const span = maxP - minP || 1;
@@ -2124,6 +2142,8 @@ export function computePriceRating(profile, comparables, options) {
         cohortCount,
         usedMobileFallback,
         insufficientCohort: cohortCount < prCfg.minComparables,
+        priceSpread,
+        narrowCohort,
         breakdown: topBreakdown,
         mobileLabel: profile.priceRating?.ratingLabel || null,
         cohortVipDetailCount: 0
@@ -2151,6 +2171,14 @@ export function formatCohortCountText(rating, opts) {
     }
     if (forModal && rating.usedMobileFallback && rating.cohortCount > 0) {
         txt += ' (mobile.de-Marktpreis als Basis)';
+    }
+    if (rating.narrowCohort) {
+        const pct = Math.round((rating.priceSpread || 0) * 1000) / 10;
+        txt += forModal
+            ? ' — die Preise liegen sehr eng beieinander (Streuung ' + pct.toLocaleString('de-DE') + ' %), meist weil sie aus '
+                + 'einer nach Preis sortierten oder gefilterten Suche stammen. Einstufung unsicher; für eine verlässliche '
+                + 'Einordnung die Vergleichssuche ohne Preisfilter und Preissortierung öffnen'
+            : ' · Vergleichsgruppe sehr einheitlich, Einstufung unsicher';
     }
     if (rating.insufficientCohort && rating.cohortCount > 0) {
         txt += forModal ? ' — wenige Treffer, Ergebnis mit Vorsicht' : ' (weniger als Minimum — mobile.de-Fallback)';
@@ -2362,6 +2390,7 @@ export function injectPriceRatingStyles() {
 .mobilede-srp-price-badge--level-2 .mobilede-srp-price-badge__text{color:#f0c040;}
 .mobilede-srp-price-badge--level-3 .mobilede-srp-price-badge__text{color:#e8a040;}
 .mobilede-srp-price-badge--level-4 .mobilede-srp-price-badge__text{color:#e07070;}
+.mobilede-srp-price-badge--unsure .mobilede-srp-price-badge__text{opacity:.6;font-style:italic;}
 /* Im Preisbereich der Karte (CSS-Grid: Preis | mobile.de-Bewertung):
    eigene dritte Spalte in der Preiszeile, direkt neben dem mobile.de-Balken. */
 .mobilede-srp-price-badge--in-price{grid-column:3;grid-row:1;align-self:center;margin-left:0;}
@@ -3008,7 +3037,10 @@ export function profileFromSrpCard(card) {
         powerPs: attrs.powerPs,
         fuel: attrs.fuel,
         transmission: '',
-        features: [],
+        // Händler-Highlights mit Häkchen („Anhängerkupplung“, „Assistenz-Paket Stadt“).
+        features: [...card.querySelectorAll('[data-testid="highlights-item"]')]
+            .map(el => el.textContent.trim())
+            .filter(Boolean),
         priceRating: null,
         attributes: []
     };
@@ -3046,6 +3078,17 @@ export function renderSrpPriceBadge(card, rating, loading) {
     if (!rating || !rating.ok) {
         badge.remove();
         delete card.dataset.mobiledePriceRated;
+        return;
+    }
+    if (rating.narrowCohort) {
+        badge.classList.add('mobilede-srp-price-badge--unsure');
+        badge.appendChild(renderRatingBars(-1, true));
+        const u = document.createElement('span');
+        u.className = 'mobilede-srp-price-badge__text';
+        u.textContent = 'unsicher';
+        badge.appendChild(u);
+        badge.title = 'Vergleichsfahrzeuge zu einheitlich im Preis (meist durch Preissortierung oder Preisfilter) — '
+            + 'rechnerisch ' + rating.label + ', erwartet ~' + rating.adjustedExpected.toLocaleString('de-DE') + ' €';
         return;
     }
     badge.classList.add('mobilede-srp-price-badge--level-' + rating.level);

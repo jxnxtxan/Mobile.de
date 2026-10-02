@@ -126,6 +126,13 @@ export const DEFAULT_PREIS_GEWICHT_BY_ANZEIGE = {
 
 export const PRICE_COHORT_CACHE_PREFIX = 'mobilede_price_cohort_';
 export const PRICE_RATING_CACHE_PREFIX = 'mobilede_price_rating_';
+/**
+ * Streuen die Preise der Vergleichsgruppe weniger als das (Interquartilsabstand
+ * relativ zum Median), stammt sie fast immer aus einer nach Preis sortierten oder
+ * gefilterten Suche — die Einstufung ist dann nur der Preis der Nachbarkarten.
+ * Normale Kohorten (±1 Jahr, ±10.000 km) liegen bei etwa 8–15 %.
+ */
+export const PRICE_COHORT_NARROW_SPREAD = 0.05;
 export const PRICE_RATING_UI_CACHE_PREFIX = 'mobilede_price_rating_ui_';
 export const PRICE_VIP_EQUIP_CACHE_PREFIX = 'mobilede_price_vip_equip_';
 export const PRICE_DATA_STORE_KEY = 'mobilede_price_data_store_v1';
