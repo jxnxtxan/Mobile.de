@@ -33,3 +33,11 @@ docs/
 
 # graphify (generiertes Knowledge-Graph-Tooling, lokal reproduzierbar)
 graphify-out/
+
+# Nur lokal: persönliche Notizen, KI-/Tool-Anweisungen, Einmal-Skripte
+CLAUDE.md
+OFFENE-PUNKTE.md
+.graphifyignore
+.claude/
+.github/GREASYFORK.md
+scripts/extract-step*.py
