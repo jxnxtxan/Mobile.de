@@ -98,7 +98,7 @@ npm run build
 
 ### Preisbewertung neben dem Preis
 
-Unter dem Preis steht die eigene Einordnung, ausstattungsbereinigt und mit Anzahl der Vergleichsfahrzeuge. Im Beispiel wertet mobile.de den Preis als „Sehr guter Preis“, nach Abgleich mit 27 ähnlich ausgestatteten Fahrzeugen ergibt sich „Erhöhter Preis“ (erwartet ~18.648 €). Das **?** erklärt die Rechnung im Detail.
+Unter dem Preis steht die eigene Einordnung, ausstattungsbereinigt und mit Anzahl der Vergleichsfahrzeuge. Die Balken lesen sich wie bei mobile.de: mehr Balken = besserer Preis. Im Beispiel wertet mobile.de „Sehr guter Preis“; nach Abgleich mit 15 vergleichbaren Fahrzeugen und ihrer Ausstattung bleibt ein „Guter Preis“ (erwartet ~21.248 €). Das **?** erklärt die Rechnung im Detail.
 
 ![Ausstattungsbereinigte Preisbewertung unter dem Preis](./assets/preisbewertung.png)
 
