@@ -2181,7 +2181,11 @@ export function formatCohortCountText(rating, opts) {
             : ' · Vergleichsgruppe sehr einheitlich, Einstufung unsicher';
     }
     if (rating.insufficientCohort && rating.cohortCount > 0) {
-        txt += forModal ? ' — wenige Treffer, Ergebnis mit Vorsicht' : ' (weniger als Minimum — mobile.de-Fallback)';
+        txt += forModal
+            ? ' — wenige Treffer, Ergebnis mit Vorsicht'
+            : (rating.baseSource === 'mobile'
+                ? ' (weniger als Minimum — mobile.de-Marktpreis als Basis)'
+                : ' (weniger als Minimum — Einstufung unsicher)');
     } else if (!forModal && rating.usedMobileFallback && rating.cohortCount === 0) {
         txt += ' (nur mobile.de-Marktpreis, keine Kohorte im Cache)';
     }
@@ -3046,6 +3050,18 @@ export function profileFromSrpCard(card) {
     };
 }
 
+/**
+ * Warum eine Bewertung nur als „unsicher“ gezeigt werden sollte: 'narrow' (Preise
+ * der Vergleichsgruppe zu einheitlich), 'small' (weniger Vergleichsfahrzeuge als
+ * das Minimum, Basis trotzdem diese Kohorte) oder null.
+ */
+export function ratingUnsureReason(rating) {
+    if (!rating || !rating.ok) return null;
+    if (rating.narrowCohort) return 'narrow';
+    if (rating.insufficientCohort && rating.baseSource === 'cohort') return 'small';
+    return null;
+}
+
 export function renderSrpPriceBadge(card, rating, loading) {
     injectPriceRatingStyles();
     // Anker: Preisbereich der Karte (Preis + mobile.de-Preisbalken). Fallback
@@ -3080,15 +3096,20 @@ export function renderSrpPriceBadge(card, rating, loading) {
         delete card.dataset.mobiledePriceRated;
         return;
     }
-    if (rating.narrowCohort) {
+    const unsure = ratingUnsureReason(rating);
+    if (unsure) {
         badge.classList.add('mobilede-srp-price-badge--unsure');
         badge.appendChild(renderRatingBars(-1, true));
         const u = document.createElement('span');
         u.className = 'mobilede-srp-price-badge__text';
         u.textContent = 'unsicher';
         badge.appendChild(u);
-        badge.title = 'Vergleichsfahrzeuge zu einheitlich im Preis (meist durch Preissortierung oder Preisfilter) — '
-            + 'rechnerisch ' + rating.label + ', erwartet ~' + rating.adjustedExpected.toLocaleString('de-DE') + ' €';
+        const grund = unsure === 'narrow'
+            ? 'Vergleichsfahrzeuge zu einheitlich im Preis (meist durch Preissortierung oder Preisfilter)'
+            : 'Nur ' + rating.cohortCount + ' Vergleichsfahrzeuge (Minimum '
+                + getPriceRating(runtimeState.featureFlags).minComparables + ')';
+        badge.title = grund + ' — rechnerisch ' + rating.label + ', erwartet ~'
+            + rating.adjustedExpected.toLocaleString('de-DE') + ' €';
         return;
     }
     badge.classList.add('mobilede-srp-price-badge--level-' + rating.level);

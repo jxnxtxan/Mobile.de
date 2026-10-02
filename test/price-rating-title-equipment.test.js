@@ -123,3 +123,17 @@ test('Zu einheitliche Vergleichsgruppe wird als unsicher markiert', async () => 
         globalThis.location = prevLocation;
     }
 });
+
+/**
+ * Echter Fall: Audi A4 40 TFSI (204 PS) bekam in der Ergebnisliste „Sehr gut“ aus
+ * nur 5 Vergleichsfahrzeugen (Minimum 10) — ohne jeden Hinweis im Badge.
+ */
+test('ratingUnsureReason: zu einheitlich oder zu wenige Vergleichsfahrzeuge', async () => {
+    const { ratingUnsureReason } = await import('../src/features/price-rating/index.js');
+    assert.equal(ratingUnsureReason({ ok: true, narrowCohort: true }), 'narrow');
+    assert.equal(ratingUnsureReason({ ok: true, insufficientCohort: true, baseSource: 'cohort', cohortCount: 5 }), 'small');
+    // mobile.de-Marktpreis als Basis ist eine eigene, belastbare Grundlage
+    assert.equal(ratingUnsureReason({ ok: true, insufficientCohort: true, baseSource: 'mobile', cohortCount: 2 }), null);
+    assert.equal(ratingUnsureReason({ ok: true, cohortCount: 30 }), null);
+    assert.equal(ratingUnsureReason(null), null);
+});

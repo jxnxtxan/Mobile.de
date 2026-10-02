@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace       https://github.com/jxnxtxan/Mobile.de
-// @version         2.16.55
+// @version         2.16.56
 // @author          jxnxtxan
 // @description     Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @description:en  Highlights chosen equipment and technical data on mobile.de listings and rates used-car prices adjusted for equipment (detail and search result pages). Config popup with import/export.
@@ -3861,7 +3861,7 @@ Kontext: …${item.snippet}…` : "";
       txt += forModal ? " — die Preise liegen sehr eng beieinander (Streuung " + pct.toLocaleString("de-DE") + " %), meist weil sie aus einer nach Preis sortierten oder gefilterten Suche stammen. Einstufung unsicher; für eine verlässliche Einordnung die Vergleichssuche ohne Preisfilter und Preissortierung öffnen" : " · Vergleichsgruppe sehr einheitlich, Einstufung unsicher";
     }
     if (rating.insufficientCohort && rating.cohortCount > 0) {
-      txt += forModal ? " — wenige Treffer, Ergebnis mit Vorsicht" : " (weniger als Minimum — mobile.de-Fallback)";
+      txt += forModal ? " — wenige Treffer, Ergebnis mit Vorsicht" : rating.baseSource === "mobile" ? " (weniger als Minimum — mobile.de-Marktpreis als Basis)" : " (weniger als Minimum — Einstufung unsicher)";
     } else if (!forModal && rating.usedMobileFallback && rating.cohortCount === 0) {
       txt += " (nur mobile.de-Marktpreis, keine Kohorte im Cache)";
     }
@@ -4621,6 +4621,12 @@ features: [...card.querySelectorAll('[data-testid="highlights-item"]')].map((el)
       attributes: []
     };
   }
+  function ratingUnsureReason(rating) {
+    if (!rating || !rating.ok) return null;
+    if (rating.narrowCohort) return "narrow";
+    if (rating.insufficientCohort && rating.baseSource === "cohort") return "small";
+    return null;
+  }
   function renderSrpPriceBadge(card, rating, loading) {
     injectPriceRatingStyles();
     const priceSection = card.querySelector('[data-testid$="-price-section"]');
@@ -4643,14 +4649,16 @@ features: [...card.querySelectorAll('[data-testid="highlights-item"]')].map((el)
       delete card.dataset.mobiledePriceRated;
       return;
     }
-    if (rating.narrowCohort) {
+    const unsure = ratingUnsureReason(rating);
+    if (unsure) {
       badge.classList.add("mobilede-srp-price-badge--unsure");
       badge.appendChild(renderRatingBars(-1, true));
       const u = document.createElement("span");
       u.className = "mobilede-srp-price-badge__text";
       u.textContent = "unsicher";
       badge.appendChild(u);
-      badge.title = "Vergleichsfahrzeuge zu einheitlich im Preis (meist durch Preissortierung oder Preisfilter) — rechnerisch " + rating.label + ", erwartet ~" + rating.adjustedExpected.toLocaleString("de-DE") + " €";
+      const grund = unsure === "narrow" ? "Vergleichsfahrzeuge zu einheitlich im Preis (meist durch Preissortierung oder Preisfilter)" : "Nur " + rating.cohortCount + " Vergleichsfahrzeuge (Minimum " + getPriceRating(runtimeState.featureFlags).minComparables + ")";
+      badge.title = grund + " — rechnerisch " + rating.label + ", erwartet ~" + rating.adjustedExpected.toLocaleString("de-DE") + " €";
       return;
     }
     badge.classList.add("mobilede-srp-price-badge--level-" + rating.level);
@@ -6220,7 +6228,7 @@ features: [...card.querySelectorAll('[data-testid="highlights-item"]')].map((el)
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.55";
+    const SCRIPT_UI_VERSION = "2.16.56";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
