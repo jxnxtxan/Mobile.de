@@ -7,6 +7,7 @@ on:
     paths:
       - package.json
       - mobile-ausstattungssuche.js
+      - .github/workflows/release.yml
   workflow_dispatch:
 
 permissions:
@@ -48,7 +49,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.v.outputs.exists == 'false'
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Tests
