@@ -654,7 +654,7 @@ export function getPreisGewichtForConfig(cfg, prCfg) {
 
 export function matchTitleTokensToConfigs(text, configs, keys, breakdown) {
     if (!text) return;
-    const parts = String(text).split(/[+/,·|]/).map(s => s.trim()).filter(Boolean);
+    const parts = String(text).split(/[+/,·|]/).map(s => cleanText(s)).filter(Boolean);
     const blob = cleanText(text);
     configs.forEach(cfg => {
         if (!cfg.aktiv) return;
@@ -669,7 +669,10 @@ export function matchTitleTokensToConfigs(text, configs, keys, breakdown) {
             if (!bt || bt.length < 2) continue;
             if (blob.includes(bt)) { hit = true; break; }
             for (const p of parts) {
-                if (cleanText(p).includes(bt) || bt.includes(cleanText(p))) {
+                // Rückwärts nur als Abkürzung am Begriffsanfang („Pano“ → „panorama“):
+                // kurze Stücke wie „S“, „P“ oder „LED“ stecken sonst in fast jedem
+                // Begriff („led“ in „leder“) und ergaben Dutzende Phantom-Punkte.
+                if (p.includes(bt) || (p.length >= 4 && bt.startsWith(p))) {
                     hit = true;
                     break;
                 }
@@ -1996,7 +1999,11 @@ export function equipmentBaseline(comparables, equipScores) {
 
 export function computePriceRating(profile, comparables, options) {
     const prCfg = getPriceRating(runtimeState.featureFlags);
-    const ownEquip = options?.equipment || equipmentFingerprintFromProfile(profile);
+    // Auf der Ergebnisliste trägt das Profil ggf. schon die beim Detailseiten-
+    // Besuch gespeicherte Ausstattung — genauer als der Titelabgleich.
+    const ownEquip = options?.equipment
+        || (profile.equipmentFromVipCache && profile.equipment && !isVehicleDetailPage() ? profile.equipment : null)
+        || equipmentFingerprintFromProfile(profile);
     const ownScore = ownEquip.score;
     const price = profile.priceGross;
     priceRatingDebugLog('Preisbewertung Start', {
@@ -2407,11 +2414,14 @@ export function injectPriceRatingStyles() {
 export function renderRatingBars(level, small) {
     const wrap = document.createElement('div');
     wrap.className = small ? 'mobilede-srp-price-badge__bars' : 'mobilede-price-rating__bars';
+    // Wie die mobile.de-Skala: mehr Balken = besserer Preis (Stufe 0 → 5, Stufe 4 → 1).
+    // level < 0 (Ladezustand) → keine aktiven Balken.
+    const filled = level >= 0 ? 5 - level : 0;
     for (let i = 0; i < 5; i++) {
         const bar = document.createElement('span');
         bar.className = (small ? 'mobilede-srp-price-badge__bar' : 'mobilede-price-rating__bar')
-            + (i <= level ? ' mobilede-' + (small ? 'srp-price-badge' : 'price-rating') + '__bar--on' : '')
-            + (i <= level ? ' level-' + level : '');
+            + (i < filled ? ' mobilede-' + (small ? 'srp-price-badge' : 'price-rating') + '__bar--on' : '')
+            + (i < filled ? ' level-' + level : '');
         wrap.appendChild(bar);
     }
     return wrap;

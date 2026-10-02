@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            Mobile.de Ausstattungssuche mit modernem Popup & Import/Export (Generalisiertes Merging mit Merge-Konfiguration)
 // @namespace       https://github.com/jxnxtxan/Mobile.de
-// @version         2.16.52
+// @version         2.16.53
 // @author          jxnxtxan
 // @description     Sucht bestimmte Ausstattungen & Technische Daten auf mobile.de. Preisbewertung mit Ausstattungs-Korrektur (VIP + SRP). Token-basierte Match-Engine, SPA-Robustheit, Konfig-Popup mit Filter, Drag&Drop, Reset, Backup und Schema-Versionierung.
 // @description:en  Highlights chosen equipment and technical data on mobile.de listings and rates used-car prices adjusted for equipment (detail and search result pages). Config popup with import/export.
@@ -2545,7 +2545,7 @@ Kontext: …${item.snippet}…` : "";
   }
   function matchTitleTokensToConfigs(text, configs, keys, breakdown) {
     if (!text) return;
-    const parts = String(text).split(/[+/,·|]/).map((s) => s.trim()).filter(Boolean);
+    const parts = String(text).split(/[+/,·|]/).map((s) => cleanText(s)).filter(Boolean);
     const blob = cleanText(text);
     configs.forEach((cfg) => {
       if (!cfg.aktiv) return;
@@ -2563,7 +2563,7 @@ Kontext: …${item.snippet}…` : "";
           break;
         }
         for (const p of parts) {
-          if (cleanText(p).includes(bt) || bt.includes(cleanText(p))) {
+          if (p.includes(bt) || p.length >= 4 && bt.startsWith(p)) {
             hit = true;
             break;
           }
@@ -3702,7 +3702,7 @@ Kontext: …${item.snippet}…` : "";
   function computePriceRating(profile, comparables, options) {
     var _a, _b;
     const prCfg = getPriceRating(runtimeState.featureFlags);
-    const ownEquip = (options == null ? void 0 : options.equipment) || equipmentFingerprintFromProfile(profile);
+    const ownEquip = (options == null ? void 0 : options.equipment) || (profile.equipmentFromVipCache && profile.equipment && !isVehicleDetailPage() ? profile.equipment : null) || equipmentFingerprintFromProfile(profile);
     const ownScore = ownEquip.score;
     const price = profile.priceGross;
     priceRatingDebugLog("Preisbewertung Start", {
@@ -4074,9 +4074,10 @@ Kontext: …${item.snippet}…` : "";
   function renderRatingBars(level, small) {
     const wrap = document.createElement("div");
     wrap.className = small ? "mobilede-srp-price-badge__bars" : "mobilede-price-rating__bars";
+    const filled = level >= 0 ? 5 - level : 0;
     for (let i = 0; i < 5; i++) {
       const bar = document.createElement("span");
-      bar.className = (small ? "mobilede-srp-price-badge__bar" : "mobilede-price-rating__bar") + (i <= level ? " mobilede-" + (small ? "srp-price-badge" : "price-rating") + "__bar--on" : "") + (i <= level ? " level-" + level : "");
+      bar.className = (small ? "mobilede-srp-price-badge__bar" : "mobilede-price-rating__bar") + (i < filled ? " mobilede-" + (small ? "srp-price-badge" : "price-rating") + "__bar--on" : "") + (i < filled ? " level-" + level : "");
       wrap.appendChild(bar);
     }
     return wrap;
@@ -6180,7 +6181,7 @@ Kontext: …${item.snippet}…` : "";
     let selectedMergeIndex = null;
     const konfigHelpPanels = {};
     const helpExpandedByTab = { aus: false, tech: false, merge: false, ie: false, config: false };
-    const SCRIPT_UI_VERSION = "2.16.52";
+    const SCRIPT_UI_VERSION = "2.16.53";
     const pageWindow = getUnsafeWindow();
     let ausSort = { key: "config", dir: "asc" };
     let techSort = { key: "config", dir: "asc" };
